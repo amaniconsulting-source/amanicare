@@ -79,17 +79,20 @@ export async function createBill(family: UserRow, input: Body): Promise<BillRow>
     edited: wasEdited(ai, { items, total }),
   };
 
-  const duplicates = bill.billNumber
-    ? (await one<{ n: number }>("SELECT COUNT(*) n FROM bills WHERE clinic_id = $1 AND lower(bill_number) = lower($2) AND status NOT IN ('rejected','declined')",
-      clinic.id, bill.billNumber))!.n
-    : 0;
-  const recentForPatient = (await one<{ n: number }>("SELECT COUNT(*) n FROM bills WHERE lower(patient_name) = lower($1) AND created_at >= now() - interval '30 days'",
+  // Bills have no common format, so numbers and names are compared through tolerant keys
+  // (see migrations/003): "N° 0457" = "FAC-0457" = "457"; "Débora BUDIAYI" = "Budiayi Debora".
+  // The bill number is optional: many bills have none.
+  const duplicates = (await one<{ n: number }>(`SELECT COUNT(*) n FROM bills WHERE clinic_id = $1 AND amc_bill_key($2) <> ''
+      AND bill_number_key = amc_bill_key($2) AND status NOT IN ('rejected','declined')`, clinic.id, bill.billNumber))!.n;
+  const recentForPatient = (await one<{ n: number }>("SELECT COUNT(*) n FROM bills WHERE patient_key = amc_name_key($1) AND created_at >= now() - interval '30 days'",
     bill.patientName))!.n;
   const duplicatePhotos = draft?.photo_sha256
     ? (await one<{ n: number }>("SELECT COUNT(*) n FROM bills WHERE photo_sha256 = $1 AND status NOT IN ('rejected','declined')", draft.photo_sha256))!.n
     : 0;
-  const similarRecent = (await one<{ n: number }>(`SELECT COUNT(*) n FROM bills WHERE clinic_id = $1 AND lower(patient_name) = lower($2)
-      AND abs(total - $3) < 0.01 AND currency = $4 AND status NOT IN ('rejected','declined') AND created_at >= now() - interval '30 days'`,
+  // Same clinic, same patient, amount within 1 % (handwritten totals vary): probably the same bill.
+  const similarRecent = (await one<{ n: number }>(`SELECT COUNT(*) n FROM bills WHERE clinic_id = $1 AND patient_key = amc_name_key($2)
+      AND abs(total - $3) <= greatest(0.01, $3 * 0.01) AND currency = $4 AND status NOT IN ('rejected','declined')
+      AND created_at >= now() - interval '30 days'`,
   clinic.id, bill.patientName, total, currency))!.n;
   const result = screenBill(bill, { clinic, prices: await prices(), settings: s, duplicates, recentForPatient, duplicatePhotos, similarRecent });
 

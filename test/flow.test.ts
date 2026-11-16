@@ -222,6 +222,29 @@ test('the same bill sent twice is held for review', async () => {
   assert.equal((await submit('', Buffer.alloc(3000, 9).toString('base64'))).status, 'review');
 });
 
+test('duplicate checks tolerate how bills are written', async () => {
+  const payer = client(), family = client();
+  await login(payer, '+12145550600', { name: 'P6', role: 'payer' });
+  await login(family, '+243810000600', { name: 'F6', role: 'family' });
+  await family('POST', '/api/invites/accept', { code: (await payer('POST', '/api/invites', { relation: 'Aunt' })).data.code });
+  const payerId = (await family('GET', '/api/payers')).data.payers[0].id;
+  const clinicId = (await family('GET', '/api/clinics')).data.clinics.find((c: { name: string }) => c.name === 'Polyclinique La Grâce').id;
+  let n = 20;
+  const submit = async (patientName: string, billNumber: string, total: number) => {
+    const d = await family('POST', '/api/bills/extract', { image: Buffer.alloc(3000, n++).toString('base64'), mediaType: 'image/jpeg' });
+    return (await family('POST', '/api/bills', { draftId: d.data.draftId, payerId, clinicId, patientName, billNumber,
+      currency: 'USD', items: [{ d: 'Consultation', q: 1, p: total }], total })).data.bill;
+  };
+  assert.equal((await submit('Débora BUDIAYI', 'N° 0457', 10)).status, 'awaiting_clinic');
+  // Same number written differently, different amount: still the same bill number.
+  const again = await submit('Someone Else', 'FAC-457', 12);
+  assert.equal(again.status, 'review');
+  // No number, name in another order and without accents, total off by a few cents.
+  assert.equal((await submit('Budiayi Debora', '', 10.05)).status, 'review');
+  // A genuinely different bill for the same patient (different amount, no number) is not held for being a duplicate.
+  assert.equal((await submit('Budiayi Debora', '', 25)).status, 'awaiting_clinic');
+});
+
 test('payment webhooks require a valid signature', async () => {
   const api = client();
   const r = await fetch(`${base}/api/webhooks/payments/sandbox`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-signature': 'nope' }, body: '{"payment_id":"x","status":"succeeded"}' });
