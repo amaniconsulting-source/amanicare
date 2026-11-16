@@ -12,8 +12,28 @@ import { config } from './config.js';
 pg.types.setTypeParser(pg.types.builtins.INT8, (v) => Number(v));
 pg.types.setTypeParser(pg.types.builtins.NUMERIC, (v) => Number(v));
 // Timestamps are returned as 'YYYY-MM-DD HH:MM:SS' in UTC, the same format the API has always used.
-// (The pool sets TimeZone=UTC on every connection, so Postgres already prints them in UTC.)
-pg.types.setTypeParser(pg.types.builtins.TIMESTAMPTZ, (v) => v.slice(0, 19));
+// Converted here (not with a session TimeZone setting) so it also works through poolers like Neon's.
+export function utcTimestamp(v: string): string {
+  const d = new Date(v.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00'));
+  return Number.isNaN(d.getTime()) ? v : d.toISOString().slice(0, 19).replace('T', ' ');
+}
+pg.types.setTypeParser(pg.types.builtins.TIMESTAMPTZ, utcTimestamp);
+
+/**
+ * Accepts connection strings as hosted providers (Neon, Supabase, Render…) give them:
+ * - sslmode=require/prefer/verify-ca: node-postgres already treats these as verify-full (certificate
+ *   checked); this says so explicitly, which also silences pg's deprecation warning.
+ * - channel_binding=require: libpq-only parameter; mapped to pg's enableChannelBinding.
+ */
+export function connectionConfig(connectionString: string): pg.PoolConfig {
+  let url: URL;
+  try { url = new URL(connectionString); } catch { return { connectionString }; }
+  const q = url.searchParams;
+  const channelBinding = q.get('channel_binding');
+  q.delete('channel_binding');
+  if (['require', 'prefer', 'verify-ca'].includes(q.get('sslmode') || '') && !q.has('uselibpqcompat')) q.set('sslmode', 'verify-full');
+  return { connectionString: url.toString(), ...(channelBinding === 'require' ? { enableChannelBinding: true } : {}) };
+}
 
 export type Param = unknown;
 type Queryable = pg.Pool | pg.PoolClient;
@@ -33,12 +53,13 @@ const SCHEMA_NAME = /^[a-z_][a-z0-9_]{0,62}$/;
 export function openDb(opts: DbOptions = {}): pg.Pool {
   const schema = opts.schema ?? config.databaseSchema;
   if (schema && !SCHEMA_NAME.test(schema)) throw new Error(`Invalid DATABASE_SCHEMA: ${schema}`);
-  const options = ['-c TimeZone=UTC', schema ? `-c search_path=${schema}` : ''].filter(Boolean).join(' ');
   pool = new pg.Pool({
-    connectionString: opts.connectionString ?? config.databaseUrl,
+    ...connectionConfig(opts.connectionString ?? config.databaseUrl),
     max: opts.max ?? config.databasePoolMax,
-    ssl: config.databaseSsl ? { rejectUnauthorized: true } : undefined,
-    options,
+    connectionTimeoutMillis: 15_000, // Neon computes that were suspended take a moment to wake up
+    ...(config.databaseSsl ? { ssl: { rejectUnauthorized: true } } : {}),
+    // Only the tests set a schema. Use a direct (non-pooled) connection string for them.
+    ...(schema ? { options: `-c search_path=${schema}` } : {}),
   });
   pool.on('error', (e) => console.error('[db] idle client error:', e.message));
   return pool;

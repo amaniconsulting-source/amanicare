@@ -9,12 +9,16 @@ export const MIGRATIONS_DIR = fileURLToPath(new URL('../../migrations', import.m
 // Arbitrary constant: only one process at a time may run migrations.
 const LOCK_KEY = 7_270_301;
 
+// All pending migrations run in one transaction holding a transaction-level advisory lock, so this is
+// safe with several instances starting at once and also works through transaction poolers (Neon's
+// -pooler endpoint, PgBouncer), where session-level locks are unreliable. If one file fails, none apply.
 export async function migrate({ dir = MIGRATIONS_DIR, log = true } = {}): Promise<string[]> {
   const files = (await readdir(dir)).filter((f) => f.endsWith('.sql')).sort();
   const client = await getPool().connect();
   const applied: string[] = [];
   try {
-    await client.query('SELECT pg_advisory_lock($1)', [LOCK_KEY]);
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)', [LOCK_KEY]);
     await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
       name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
     const done = new Set((await client.query<{ name: string }>('SELECT name FROM schema_migrations')).rows.map((r) => r.name));
@@ -22,21 +26,21 @@ export async function migrate({ dir = MIGRATIONS_DIR, log = true } = {}): Promis
       if (done.has(file)) continue;
       const sql = await readFile(join(dir, file), 'utf8');
       try {
-        await client.query('BEGIN');
         await client.query(sql);
-        await client.query('INSERT INTO schema_migrations(name) VALUES($1)', [file]);
-        await client.query('COMMIT');
       } catch (e) {
-        await client.query('ROLLBACK').catch(() => {});
         throw new Error(`Migration ${file} failed: ${(e as Error).message}`, { cause: e });
       }
+      await client.query('INSERT INTO schema_migrations(name) VALUES($1)', [file]);
       applied.push(file);
-      if (log) console.log(`[migrate] applied ${file}`);
     }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
   } finally {
-    await client.query('SELECT pg_advisory_unlock($1)', [LOCK_KEY]).catch(() => {});
     client.release();
   }
+  if (log) for (const f of applied) console.log(`[migrate] applied ${f}`);
   return applied;
 }
 

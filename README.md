@@ -43,7 +43,9 @@ PostgreSQL through [node-postgres](https://node-postgres.com) (`pg`). The schema
 - They run automatically when the server starts. To run them alone: `npm run build && npm run migrate`.
 - To change the schema, add a new file (e.g. `migrations/002_add_clinic_email.sql`). Never edit a migration that has already run.
 
-Set `DATABASE_SSL=1` for managed databases that require TLS.
+Hosted Postgres connection strings work as given (e.g. Neon's `…?sslmode=require&channel_binding=require`): the server certificate is verified and channel binding is used. `DATABASE_SSL=1` forces TLS for strings without `sslmode`.
+
+**Neon:** use the **pooled** string (host contains `-pooler`) for the app. Use the **direct** string (without `-pooler`) for `TEST_DATABASE_URL`, because the tests set their own schema, which the pooler doesn't allow. Better still, run the tests against a separate Neon branch or a local Postgres, not production.
 
 **Tests** use `TEST_DATABASE_URL` (or `DATABASE_URL`). Each run creates a throwaway schema, runs the migrations in it and drops it afterwards, so your data is never touched.
 
