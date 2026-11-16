@@ -10,7 +10,7 @@ import { startPayment, applyPaymentUpdate, retryPayout } from './payments/flow.j
 import { getPartner, hasPartner } from './payments/partners.js';
 import { DEFAULT_SETTINGS } from './screening.js';
 import { send, text } from './messaging/index.js';
-import type { ClinicRow, InviteRow, Lang, PaymentRow, UserRow } from './types.js';
+import { CATEGORIES, type Category, type ClinicRow, type InviteRow, type Lang, type PaymentRow, type UserRow } from './types.js';
 
 export const router = new Router();
 const LANGS: Lang[] = ['fr', 'en', 'ln', 'sw'];
@@ -102,7 +102,7 @@ router.get('/api/payers', requireRole('family'), async ({ user }: AuthCtx) => ({
 }));
 
 router.get('/api/clinics', requireRole(), async () => ({
-  clinics: await all('SELECT id, name, commune, city FROM clinics WHERE active = 1 ORDER BY city, commune, name'),
+  clinics: await all('SELECT id, name, commune, city, category FROM clinics WHERE active = 1 ORDER BY city, commune, name'),
 }));
 
 // ---------- Bills ----------
@@ -165,12 +165,13 @@ const clinicFields = (b: Body) => ({
   whatsapp_phone: b.whatsappPhone ? phone(b.whatsappPhone) : '',
   payout_method: oneOf(b.payoutMethod || 'bank', ['bank', 'mpesa', 'orange', 'airtel'], 'payout_method'),
   payout_account: str(b.payoutAccount, { min: 3, max: 60, name: 'payout_account' }),
+  category: oneOf(b.category || 'clinic', CATEGORIES, 'category'),
 });
 
 router.post('/api/admin/clinics', requireRole('admin'), async ({ user, body }: AuthCtx) => {
   const f = clinicFields(body); const id = randomUUID();
-  await run('INSERT INTO clinics(id, name, commune, city, whatsapp_phone, payout_method, payout_account) VALUES($1,$2,$3,$4,$5,$6,$7)',
-    id, f.name, f.commune, f.city, f.whatsapp_phone, f.payout_method, f.payout_account);
+  await run('INSERT INTO clinics(id, name, commune, city, whatsapp_phone, payout_method, payout_account, category) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+    id, f.name, f.commune, f.city, f.whatsapp_phone, f.payout_method, f.payout_account, f.category);
   await audit(user.id, 'clinic_create', f.name);
   return { clinic: await getClinic(id) };
 });
@@ -181,8 +182,10 @@ router.patch('/api/admin/clinics/:id', requireRole('admin'), async ({ user, para
   if (body.active !== undefined) await run('UPDATE clinics SET active = $1 WHERE id = $2', body.active ? 1 : 0, c.id);
   if (body.name !== undefined) {
     const f = clinicFields({ ...body });
-    await run('UPDATE clinics SET name=$1, commune=$2, city=$3, whatsapp_phone=$4, payout_method=$5, payout_account=$6 WHERE id=$7',
-      f.name, f.commune, f.city, f.whatsapp_phone, f.payout_method, f.payout_account, c.id);
+    await run('UPDATE clinics SET name=$1, commune=$2, city=$3, whatsapp_phone=$4, payout_method=$5, payout_account=$6, category=$7 WHERE id=$8',
+      f.name, f.commune, f.city, f.whatsapp_phone, f.payout_method, f.payout_account, f.category, c.id);
+  } else if (body.category !== undefined) {
+    await run('UPDATE clinics SET category = $1 WHERE id = $2', oneOf(body.category, CATEGORIES, 'category'), c.id);
   }
   await audit(user.id, 'clinic_update', c.name);
   return { clinic: await getClinic(c.id) };
@@ -207,7 +210,14 @@ router.get('/api/admin/users', requireRole('admin'), async () => ({
 }));
 
 router.get('/api/admin/prices', requireRole('admin'), async () => ({ prices: await prices() }));
+// Saves the price list of one scope: general (no scope), one facility type ({ category }) or one
+// facility ({ clinicId }). Only that scope's prices are replaced; the others are untouched.
 router.put('/api/admin/prices', requireRole('admin'), async ({ user, body }: AuthCtx) => {
+  const scope = (body.scope && typeof body.scope === 'object' ? body.scope : {}) as Record<string, unknown>;
+  const category: Category | null = scope.category ? oneOf(scope.category, CATEGORIES, 'category') : null;
+  const clinicId = scope.clinicId ? str(scope.clinicId, { min: 1, name: 'clinic' }) : null;
+  if (category && clinicId) throw bad('invalid_scope');
+  if (clinicId && !(await getClinic(clinicId))) throw bad('clinic_not_found');
   const list = (Array.isArray(body.prices) ? body.prices : []).slice(0, 300).map((p: any) => ({
     id: String(p?.id || randomUUID()),
     name: str(p?.name, { min: 1, max: 80, name: 'name' }),
@@ -216,10 +226,16 @@ router.put('/api/admin/prices', requireRole('admin'), async ({ user, body }: Aut
     usd: num(p?.usd, { min: 0.01, max: 100000, name: 'usd' }),
   }));
   await tx(async () => {
-    await run('DELETE FROM reference_prices');
-    for (const p of list) await run('INSERT INTO reference_prices(id, name, keywords, usd) VALUES($1,$2,$3,$4)', p.id, p.name, JSON.stringify(p.keywords), p.usd);
+    await run('DELETE FROM reference_prices WHERE clinic_id IS NOT DISTINCT FROM $1 AND category IS NOT DISTINCT FROM $2', clinicId, category);
+    for (const p of list) {
+      // This scope's rows were just deleted, so an id that still exists belongs to another scope
+      // (e.g. a row copied from the general list): give the copy a new id.
+      await run(`INSERT INTO reference_prices(id, name, keywords, usd, category, clinic_id)
+        VALUES(CASE WHEN EXISTS (SELECT 1 FROM reference_prices WHERE id = $1) THEN gen_random_uuid()::text ELSE $1 END, $2, $3, $4, $5, $6)`,
+      p.id, p.name, JSON.stringify(p.keywords), p.usd, category, clinicId);
+    }
   });
-  await audit(user.id, 'prices_update', `${list.length} prices`);
+  await audit(user.id, 'prices_update', `${list.length} prices (${clinicId ? 'clinic ' + clinicId : category || 'general'})`);
   return { prices: await prices() };
 });
 

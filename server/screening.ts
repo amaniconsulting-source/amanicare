@@ -23,8 +23,11 @@ export const LEVELS: Record<RiskLevel, [number, number]> = { low: [0, 29], med: 
 export const normalize = (s: unknown): string =>
   String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
 
-type PriceRef = Pick<Price, 'name' | 'keywords' | 'usd'>;
+type PriceRef = Pick<Price, 'name' | 'keywords' | 'usd' | 'scope'>;
 
+// Bills use no common item codes, so items are recognised from their description only.
+// `prices` must be ordered from most to least specific (facility, facility type, general):
+// the first match wins, so a facility's own price overrides the general one.
 export function findReference<P extends PriceRef>(description: string, prices: P[]): P | null {
   // Keywords match at the start of a word: "consult" matches "Consultation", "nfs" matches "NFS".
   const d = ' ' + normalize(description).replace(/[^a-z0-9]+/g, ' ');
@@ -83,7 +86,7 @@ export function screenBill(bill: ScreenInput, ctx: ScreenContext): ScreenResult 
     if (!ref) { unknown++; expected += unit * it.q; continue; }
     expected += ref.usd * it.q;
     const ratio = unit / ref.usd;
-    const params = { item: it.d, unitUsd: round2(unit), refUsd: ref.usd, ratio: round2(ratio) };
+    const params = { item: it.d, unitUsd: round2(unit), refUsd: ref.usd, ratio: round2(ratio), refName: ref.name, refScope: ref.scope || 'general' };
     if (ratio > 3) add('price_far_above_reference', 25, params);
     else if (ratio > s.priceFlagRatio) add('price_above_reference', 12, params);
   }

@@ -23,7 +23,9 @@ interface Bill {
   payout?: { ref: string | null; status: string; account?: string };
 }
 interface Payer { id: string; name: string; relation: string }
-interface Clinic { id: string; name: string; commune: string; city: string }
+type Category = 'health_centre' | 'clinic' | 'hospital' | 'diagnostic' | 'pharmacy';
+const CATEGORIES: Category[] = ['health_centre', 'clinic', 'hospital', 'diagnostic', 'pharmacy'];
+interface Clinic { id: string; name: string; commune: string; city: string; category: Category }
 interface AdminClinic extends Clinic { whatsapp_phone: string; payout_method: string; payout_account: string; trust: number; active: number }
 interface AiRead {
   clinic_name: string; bill_number: string; date: string; patient_name: string; currency: 'USD' | 'CDF';
@@ -32,8 +34,8 @@ interface AiRead {
 
 const LANGS: Lang[] = ['fr', 'en', 'ln', 'sw'];
 const app = document.getElementById('app')!;
-const state: { me: Me | null; lang: Lang; dict: Record<string, string>; fallback: Record<string, string>; adminTab: AdminTab } =
-  { me: null, lang: 'fr', dict: {}, fallback: {}, adminTab: 'overview' };
+const state: { me: Me | null; lang: Lang; dict: Record<string, string>; fallback: Record<string, string>; adminTab: AdminTab; priceScope: string } =
+  { me: null, lang: 'fr', dict: {}, fallback: {}, adminTab: 'overview', priceScope: '' };
 const me = (): Me => state.me!;
 
 // ---------- i18n ----------
@@ -385,7 +387,7 @@ async function newBillFlow(payers: Payer[]): Promise<void> {
       <div class="card">
         <img class="preview" src="${f.photoUrl}" alt="${t('billPhoto')}">
         <label for="clinic">${t('family.clinic')}</label>
-        <select id="clinic"><option value="">${t('family.pickClinic')}</option>${clinics.map((c) => `<option value="${c.id}" ${guessClinic?.id === c.id ? 'selected' : ''}>${esc(c.name)} – ${esc(c.commune)}</option>`).join('')}</select>
+        <select id="clinic"><option value="">${t('family.pickClinic')}</option>${clinics.map((c) => `<option value="${c.id}" ${guessClinic?.id === c.id ? 'selected' : ''}>${esc(c.name)} – ${esc(c.commune)} · ${t('cat.' + c.category)}</option>`).join('')}</select>
         <p class="muted small">${t('family.clinicMissing')}</p>
         ${payers.length > 1 ? `<label for="payer">${t('family.whoPays')}</label><select id="payer">${payers.map((p) => `<option value="${p.id}">${esc(p.name)} (${esc(p.relation)})</option>`).join('')}</select>` : ''}
         <div class="grid2">
@@ -505,11 +507,12 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
     const { clinics } = await api<{ clinics: AdminClinic[] }>('GET', '/api/admin/clinics');
     el.innerHTML = `
       <div class="card scroll"><h2>${t('admin.network')}</h2><table><thead><tr><th>${t('family.clinic')}</th><th>${t('admin.whatsapp')}</th><th>${t('admin.payoutAccount')}</th><th class="num">${t('admin.trust')}</th><th></th></tr></thead><tbody>
-        ${clinics.map((c) => `<tr><td><b>${esc(c.name)}</b><div class="muted small">${esc(c.commune)}, ${esc(c.city)}</div></td><td class="small">${esc(c.whatsapp_phone)}</td><td class="small">${esc(c.payout_method)} · ${esc(c.payout_account)}</td><td class="num"><span class="pill ${c.trust >= 80 ? 'low' : c.trust >= 65 ? 'med' : 'high'}">${c.trust}</span></td><td><button class="link" data-toggle="${c.id}" data-active="${c.active}">${c.active ? t('admin.deactivate') : t('admin.activate')}</button></td></tr>`).join('')}
+        ${clinics.map((c) => `<tr><td><b>${esc(c.name)}</b><div class="muted small">${t('cat.' + c.category)} · ${esc(c.commune)}, ${esc(c.city)}</div></td><td class="small">${esc(c.whatsapp_phone)}</td><td class="small">${esc(c.payout_method)} · ${esc(c.payout_account)}</td><td class="num"><span class="pill ${c.trust >= 80 ? 'low' : c.trust >= 65 ? 'med' : 'high'}">${c.trust}</span></td><td><button class="link" data-toggle="${c.id}" data-active="${c.active}">${c.active ? t('admin.deactivate') : t('admin.activate')}</button></td></tr>`).join('')}
       </tbody></table></div>
       <div class="card"><h2>${t('admin.addClinic')}</h2>
         <div class="grid2">
           <div><label>${t('admin.clinicName')}</label><input id="cName"></div>
+          <div><label>${t('admin.category')}</label><select id="cCat">${CATEGORIES.map((k) => `<option value="${k}" ${k === 'clinic' ? 'selected' : ''}>${t('cat.' + k)}</option>`).join('')}</select></div>
           <div><label>${t('admin.commune')}</label><input id="cCommune"></div>
           <div><label>${t('admin.city')}</label><input id="cCity" value="Kinshasa"></div>
           <div><label>${t('admin.whatsapp')}</label><input id="cWa" type="tel" placeholder="+243…"></div>
@@ -529,7 +532,7 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
       </div>`;
     $$('[data-toggle]', el).forEach((b) => (b.onclick = (e) => busy(btn(e), async () => { await api('PATCH', `/api/admin/clinics/${b.dataset.toggle}`, { active: b.dataset.active !== '1' }); renderAdmin(); })));
     $('#addClinic', el).onclick = (e) => busy(btn(e), async () => {
-      await api('POST', '/api/admin/clinics', { name: val('#cName'), commune: val('#cCommune'), city: val('#cCity'), whatsappPhone: val('#cWa').replace(/\s/g, ''), payoutMethod: val('#cMethod'), payoutAccount: val('#cAcct') });
+      await api('POST', '/api/admin/clinics', { name: val('#cName'), commune: val('#cCommune'), city: val('#cCity'), whatsappPhone: val('#cWa').replace(/\s/g, ''), payoutMethod: val('#cMethod'), payoutAccount: val('#cAcct'), category: val('#cCat') });
       toast(t('saved')); renderAdmin();
     });
     $('#addStaff', el).onclick = (e) => busy(btn(e), async () => {
@@ -538,10 +541,30 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
     });
   },
   async prices(el) {
-    const { prices } = await api<{ prices: { id: string; name: string; keywords: string[]; usd: number }[] }>('GET', '/api/admin/prices');
-    const rows: { id?: string; name: string; keywords: string; usd: number | string }[] = prices.map((p) => ({ ...p, keywords: p.keywords.join(', ') }));
+    type PriceRow = { id: string; name: string; keywords: string[]; usd: number; category: Category | null; clinic_id: string | null };
+    const [{ prices }, { clinics }] = await Promise.all([
+      api<{ prices: PriceRow[] }>('GET', '/api/admin/prices'),
+      api<{ clinics: AdminClinic[] }>('GET', '/api/admin/clinics'),
+    ]);
+    // Which list is being edited: '' = all facilities, 'cat:<type>' or 'clinic:<id>'.
+    let scope = state.priceScope;
+    let rows: { id?: string; name: string; keywords: string; usd: number | string }[] = [];
+    const load = (): void => {
+      const [kind, key] = scope.split(':');
+      rows = prices.filter((p) => kind === 'clinic' ? p.clinic_id === key : kind === 'cat' ? p.category === key && !p.clinic_id : !p.category && !p.clinic_id)
+        .map((p) => ({ ...p, keywords: p.keywords.join(', ') }));
+    };
+    const count = (f: (p: PriceRow) => boolean) => { const n = prices.filter(f).length; return n ? ` (${n})` : ''; };
     const draw = (): void => {
       el.innerHTML = `<div class="card"><h2>${t('admin.prices')}</h2><p class="muted small">${t('admin.pricesHint')}</p>
+        <label for="pScope">${t('admin.priceScope')}</label>
+        <select id="pScope">
+          <option value="">${t('admin.scopeAll')}${count((p) => !p.category && !p.clinic_id)}</option>
+          <optgroup label="${t('admin.category')}">${CATEGORIES.map((k) => `<option value="cat:${k}" ${scope === 'cat:' + k ? 'selected' : ''}>${t('cat.' + k)}${count((p) => p.category === k)}</option>`).join('')}</optgroup>
+          <optgroup label="${t('admin.network')}">${clinics.map((c) => `<option value="clinic:${c.id}" ${scope === 'clinic:' + c.id ? 'selected' : ''}>${esc(c.name)}${count((p) => p.clinic_id === c.id)}</option>`).join('')}</optgroup>
+        </select>
+        <p class="muted small">${t('admin.scopeHint')}</p>
+        ${scope && !rows.length ? `<p class="empty">${t('admin.scopeEmpty')}</p><button class="secondary small" id="copyGeneral">${t('admin.copyGeneral')}</button>` : ''}
         <div class="scroll"><table><thead><tr><th>${t('item')}</th><th>${t('admin.keywords')}</th><th class="num">USD</th><th></th></tr></thead><tbody>
         ${rows.map((p, n) => `<tr><td><input data-n="${n}" data-k="name" value="${esc(p.name)}"></td><td><input data-n="${n}" data-k="keywords" value="${esc(p.keywords)}"></td><td class="num"><input class="price" data-n="${n}" data-k="usd" type="number" step="0.01" value="${p.usd}"></td><td><button class="link" data-rm="${n}">✕</button></td></tr>`).join('')}
         </tbody></table></div><button class="link" id="addP">+ ${t('family.addItem')}</button>
@@ -549,8 +572,18 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
       $$<HTMLInputElement>('input[data-n]', el).forEach((i) => (i.oninput = () => { rows[Number(i.dataset.n)][i.dataset.k as 'name' | 'keywords' | 'usd'] = i.value; }));
       $$('[data-rm]', el).forEach((b) => (b.onclick = () => { rows.splice(Number(b.dataset.rm), 1); draw(); }));
       $('#addP', el).onclick = () => { rows.push({ name: '', keywords: '', usd: '' }); draw(); };
-      $('#saveP', el).onclick = (e) => busy(btn(e), async () => { await api('PUT', '/api/admin/prices', { prices: rows.filter((r) => r.name) }); toast(t('saved')); });
+      $<HTMLSelectElement>('#pScope', el).onchange = (e) => { scope = state.priceScope = (e.target as HTMLSelectElement).value; load(); draw(); };
+      document.querySelector<HTMLButtonElement>('#copyGeneral')?.addEventListener('click', () => {
+        rows = prices.filter((p) => !p.category && !p.clinic_id).map((p) => ({ name: p.name, keywords: p.keywords.join(', '), usd: p.usd }));
+        draw();
+      });
+      $('#saveP', el).onclick = (e) => busy(btn(e), async () => {
+        const [kind, key] = scope.split(':');
+        await api('PUT', '/api/admin/prices', { prices: rows.filter((r) => r.name), scope: kind === 'clinic' ? { clinicId: key } : kind === 'cat' ? { category: key } : undefined });
+        toast(t('saved')); renderAdmin();
+      });
     };
+    load();
     draw();
   },
   async settings(el) {

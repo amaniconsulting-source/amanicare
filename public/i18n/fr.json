@@ -142,7 +142,7 @@
  "admin.roleClinic": "Personnel de clinique",
  "admin.roleAdmin": "Administrateur",
  "admin.prices": "Prix de référence",
- "admin.pricesHint": "Les factures sont comparées à ces prix. Les mots-clés correspondent au début des mots de la facture (français ou anglais), séparés par des virgules.",
+ "admin.pricesHint": "Les factures sont comparées à ces prix. Les mots-clés correspondent au début des mots dans la description (français ou anglais), séparés par des virgules.",
  "admin.keywords": "Mots-clés",
  "admin.integrations": "Partenaire de paiement : {partner} · Messagerie : {messaging} · Lecture IA : {ai}",
  "admin.rate": "Francs congolais pour 1 dollar",
@@ -229,5 +229,16 @@
  "err.invite_other_phone": "Ce code a été créé pour un autre numéro. Connectez-vous avec le numéro invité par votre proche, ou demandez un nouveau code.",
  "err.invite_own_phone": "Entrez le numéro de votre proche, pas le vôtre.",
  "reason.duplicate_photo": "La même photo de facture a déjà été envoyée",
- "reason.similar_recent_bill": "Une facture pour le même patient, la même clinique et le même montant a été envoyée ces 30 derniers jours"
+ "reason.similar_recent_bill": "Une facture pour le même patient, la même clinique et le même montant a été envoyée ces 30 derniers jours",
+ "admin.category": "Type d'établissement",
+ "cat.health_centre": "Centre de santé",
+ "cat.clinic": "Clinique",
+ "cat.hospital": "Hôpital",
+ "cat.diagnostic": "Laboratoire / imagerie",
+ "cat.pharmacy": "Pharmacie",
+ "admin.priceScope": "Liste de prix",
+ "admin.scopeAll": "Tous les établissements (par défaut)",
+ "admin.scopeHint": "Chaque facture est comparée au prix le plus précis : d'abord la liste de l'établissement, puis celle de son type, puis la liste par défaut. Les actes sont reconnus par leur description, pas par des codes.",
+ "admin.scopeEmpty": "Pas encore de prix pour cette liste : les factures utilisent les prix du type d'établissement ou par défaut.",
+ "admin.copyGeneral": "Partir des prix par défaut"
 }

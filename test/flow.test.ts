@@ -245,6 +245,38 @@ test('duplicate checks tolerate how bills are written', async () => {
   assert.equal((await submit('Budiayi Debora', '', 25)).status, 'awaiting_clinic');
 });
 
+test('reference prices can differ by facility type and facility', async () => {
+  const admin = client(), payer = client(), family = client();
+  await login(admin, '+15550000001');
+  await login(payer, '+12145550700', { name: 'P7', role: 'payer' });
+  await login(family, '+243810000700', { name: 'F7', role: 'family' });
+  await family('POST', '/api/invites/accept', { code: (await payer('POST', '/api/invites', { relation: 'Son' })).data.code });
+  const payerId = (await family('GET', '/api/payers')).data.payers[0].id;
+  // A private hospital that charges $40 for a consultation; the default price is $10.
+  const hosp = (await admin('POST', '/api/admin/clinics', { name: 'Hôpital du Cinquantenaire', commune: 'Kasa-Vubu', payoutAccount: 'Bank 999', category: 'hospital' })).data.clinic;
+  assert.equal(hosp.category, 'hospital');
+  const saved = await admin('PUT', '/api/admin/prices', { scope: { category: 'hospital' }, prices: [{ name: 'Consultation (hospital)', keywords: 'consult', usd: 40 }] });
+  assert.equal(saved.status, 200);
+  // Saving one scope leaves the others alone.
+  assert.ok(saved.data.prices.some((p: { category: string | null; name: string }) => !p.category && p.name === 'Consultation'));
+  const clinics = (await family('GET', '/api/clinics')).data.clinics;
+  // Price reasons as the payer sees them (the family only sees the risk level).
+  const priceFlags = async (clinicId: string, n: number) => {
+    const d = await family('POST', '/api/bills/extract', { image: Buffer.alloc(3000, 60 + n).toString('base64'), mediaType: 'image/jpeg' });
+    const b = (await family('POST', '/api/bills', { draftId: d.data.draftId, payerId, clinicId, patientName: `Patient ${n}`, billNumber: '',
+      currency: 'USD', items: [{ d: 'Consultation', q: 1, p: 40 }], total: 40 })).data.bill;
+    const full = (await payer('GET', `/api/bills/${b.id}`)).data.bill;
+    return full.risk.reasons.filter((r: { code: string }) => r.code.startsWith('price_')).map((r: { params: { refScope: string } }) => r.params.refScope);
+  };
+  // $40 is normal at the hospital, but four times the default price at an ordinary clinic.
+  assert.deepEqual(await priceFlags(hosp.id, 1), []);
+  const espoir = clinics.find((c: { name: string }) => c.name === 'Centre Médical Espoir');
+  assert.deepEqual(await priceFlags(espoir.id, 2), ['general']);
+  // A price set for one facility beats the default price.
+  await admin('PUT', '/api/admin/prices', { scope: { clinicId: espoir.id }, prices: [{ name: 'Consultation (Espoir)', keywords: ['consult'], usd: 40 }] });
+  assert.deepEqual(await priceFlags(espoir.id, 3), []);
+});
+
 test('payment webhooks require a valid signature', async () => {
   const api = client();
   const r = await fetch(`${base}/api/webhooks/payments/sandbox`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-signature': 'nope' }, body: '{"payment_id":"x","status":"succeeded"}' });

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { one, run, setSetting, getSetting } from './db.js';
 import { config } from './config.js';
 import { DEFAULT_SETTINGS } from './screening.js';
+import type { Category } from './types.js';
 
 // Illustrative placeholder prices (USD). Replace with real prices collected during the pilot.
 export const REFERENCE_PRICES: [name: string, keywords: string[], usd: number][] = [
@@ -22,11 +23,11 @@ export const REFERENCE_PRICES: [name: string, keywords: string[], usd: number][]
   ['X-ray', ['radiographie', 'x-ray', 'radio'], 20],
 ];
 
-export const DEMO_CLINICS: [name: string, commune: string, whatsapp: string, method: string, account: string][] = [
-  ['Centre Médical Espoir', 'Lemba', '+243810000001', 'bank', 'Bank ••4821'],
-  ['Clinique Bonne Santé', 'Bandal', '+243810000002', 'bank', 'Bank ••1937'],
-  ['Polyclinique La Grâce', 'Ngaliema', '+243810000003', 'mpesa', 'M-Pesa merchant ••7710'],
-  ['Centre de Santé Amani', 'Kintambo', '+243810000004', 'orange', 'Orange Money ••3305'],
+export const DEMO_CLINICS: [name: string, commune: string, whatsapp: string, method: string, account: string, category: Category][] = [
+  ['Centre Médical Espoir', 'Lemba', '+243810000001', 'bank', 'Bank ••4821', 'clinic'],
+  ['Clinique Bonne Santé', 'Bandal', '+243810000002', 'bank', 'Bank ••1937', 'clinic'],
+  ['Polyclinique La Grâce', 'Ngaliema', '+243810000003', 'mpesa', 'M-Pesa merchant ••7710', 'clinic'],
+  ['Centre de Santé Amani', 'Kintambo', '+243810000004', 'orange', 'Orange Money ••3305', 'health_centre'],
 ];
 
 export async function seedIfEmpty({ demo = !config.production } = {}): Promise<void> {
@@ -37,10 +38,10 @@ export async function seedIfEmpty({ demo = !config.production } = {}): Promise<v
   }
   if (!(await getSetting('screening', null))) await setSetting('screening', DEFAULT_SETTINGS);
   if (demo && !(await one('SELECT 1 FROM clinics LIMIT 1'))) {
-    for (const [name, commune, wa, method, acct] of DEMO_CLINICS) {
+    for (const [name, commune, wa, method, acct, category] of DEMO_CLINICS) {
       const id = randomUUID();
-      await run('INSERT INTO clinics(id, name, commune, whatsapp_phone, payout_method, payout_account, trust) VALUES($1,$2,$3,$4,$5,$6,$7)',
-        id, name, commune, wa, method, acct, 75);
+      await run('INSERT INTO clinics(id, name, commune, whatsapp_phone, payout_method, payout_account, trust, category) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+        id, name, commune, wa, method, acct, 75, category);
       // Demo clinic login: the clinic's own number (codes appear on screen while OTP_DEV is on).
       await run("INSERT INTO users(id, phone, name, role, lang, clinic_id) VALUES($1,$2,$3,'clinic','fr',$4) ON CONFLICT DO NOTHING",
         randomUUID(), wa, `${name} (caisse)`, id);

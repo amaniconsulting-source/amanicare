@@ -15,8 +15,19 @@ export const STATUSES: BillStatus[] = ['review', 'awaiting_clinic', 'awaiting_pa
 
 export const settings = async (): Promise<ScreeningSettings> =>
   ({ ...DEFAULT_SETTINGS, ...(await getSetting<Partial<ScreeningSettings>>('screening', {})) });
-export const prices = async (): Promise<(Omit<PriceRow, 'keywords'> & Price)[]> =>
-  (await all<PriceRow>('SELECT * FROM reference_prices ORDER BY name')).map((p) => ({ ...p, keywords: JSON.parse(p.keywords) as string[] }));
+export type PriceView = Omit<PriceRow, 'keywords'> & Price;
+const parsePrice = (p: PriceRow): PriceView => ({
+  ...p, keywords: JSON.parse(p.keywords) as string[], scope: p.clinic_id ? 'clinic' : p.category ? 'category' : 'general',
+});
+/** All reference prices (every scope). */
+export const prices = async (): Promise<PriceView[]> =>
+  (await all<PriceRow>('SELECT * FROM reference_prices ORDER BY name')).map(parsePrice);
+/** The prices that apply to one facility, most specific first: its own, its type's, then general. */
+export const pricesFor = async (clinic: Pick<ClinicRow, 'id' | 'category'>): Promise<PriceView[]> =>
+  (await all<PriceRow>(`SELECT * FROM reference_prices
+     WHERE clinic_id = $1 OR (clinic_id IS NULL AND category = $2) OR (clinic_id IS NULL AND category IS NULL)
+     ORDER BY CASE WHEN clinic_id IS NOT NULL THEN 0 WHEN category IS NOT NULL THEN 1 ELSE 2 END, name`,
+  clinic.id, clinic.category)).map(parsePrice);
 
 export async function event(billId: string, actorId: string | null | undefined, type: string, note = ''): Promise<void> {
   await run('INSERT INTO bill_events(bill_id, actor_id, type, note) VALUES($1,$2,$3,$4)', billId, actorId ?? null, type, note);
@@ -94,7 +105,7 @@ export async function createBill(family: UserRow, input: Body): Promise<BillRow>
       AND abs(total - $3) <= greatest(0.01, $3 * 0.01) AND currency = $4 AND status NOT IN ('rejected','declined')
       AND created_at >= now() - interval '30 days'`,
   clinic.id, bill.patientName, total, currency))!.n;
-  const result = screenBill(bill, { clinic, prices: await prices(), settings: s, duplicates, recentForPatient, duplicatePhotos, similarRecent });
+  const result = screenBill(bill, { clinic, prices: await pricesFor(clinic), settings: s, duplicates, recentForPatient, duplicatePhotos, similarRecent });
 
   const id = randomUUID();
   const ref = 'AMC-' + randomBytes(3).toString('hex').toUpperCase();

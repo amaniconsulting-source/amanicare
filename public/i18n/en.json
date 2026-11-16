@@ -142,7 +142,7 @@
  "admin.roleClinic": "Clinic staff",
  "admin.roleAdmin": "Admin",
  "admin.prices": "Reference prices",
- "admin.pricesHint": "Bills are compared with these prices. Keywords match the start of words on the bill (French or English), separated by commas.",
+ "admin.pricesHint": "Bills are compared with these prices. Keywords match the start of words in the item description (French or English), separated by commas.",
  "admin.keywords": "Keywords",
  "admin.integrations": "Payment partner: {partner} · Messaging: {messaging} · AI reading: {ai}",
  "admin.rate": "Congolese francs per US dollar",
@@ -229,5 +229,16 @@
  "err.invite_other_phone": "This code was created for another phone number. Sign in with the number your relative invited, or ask for a new code.",
  "err.invite_own_phone": "Enter your relative's number, not your own.",
  "reason.duplicate_photo": "The same bill photo was already submitted",
- "reason.similar_recent_bill": "A bill for the same patient, clinic and amount was submitted in the last 30 days"
+ "reason.similar_recent_bill": "A bill for the same patient, clinic and amount was submitted in the last 30 days",
+ "admin.category": "Facility type",
+ "cat.health_centre": "Health centre",
+ "cat.clinic": "Clinic",
+ "cat.hospital": "Hospital",
+ "cat.diagnostic": "Laboratory / imaging",
+ "cat.pharmacy": "Pharmacy",
+ "admin.priceScope": "Price list",
+ "admin.scopeAll": "All facilities (default)",
+ "admin.scopeHint": "Each bill is checked against the most specific price: the facility's own list first, then its facility type, then the default list. Items are recognised by their description, not by codes.",
+ "admin.scopeEmpty": "No prices yet for this list: bills use the facility type or default prices.",
+ "admin.copyGeneral": "Start from the default prices"
 }

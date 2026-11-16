@@ -71,3 +71,12 @@ test('possible duplicates always go to manual review', async () => {
   assert.equal(mustReview(similar), true);
   assert.equal(mustReview(screenBill(clean, ctx)), false);
 });
+
+test("a facility's own price overrides the general one", () => {
+  // Ordered most specific first, as pricesFor() returns them.
+  const scoped = [{ name: 'Consultation (Clinique X)', keywords: ['consult'], usd: 35, scope: 'clinic' as const }, ...prices];
+  const bill = { ...base, items: [{ d: 'Consultation spécialiste', q: 1, p: 35 }], total: 35 };
+  assert.equal(screenBill(bill, { ...ctx, prices: scoped }).score, 0);
+  const general = screenBill(bill, ctx);
+  assert.ok(general.reasons.some((r) => r.code === 'price_far_above_reference' && r.params.refScope === 'general'));
+});
