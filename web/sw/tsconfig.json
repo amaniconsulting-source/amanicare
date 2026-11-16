@@ -1,0 +1,14 @@
+{
+  // Service worker: needs the WebWorker lib instead of DOM, so it is compiled separately.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "WebWorker"],
+    "types": [],
+    "rootDir": ".",
+    "outDir": "../../dist/public",
+    "moduleDetection": "auto"
+  },
+  "include": ["*.ts"]
+}

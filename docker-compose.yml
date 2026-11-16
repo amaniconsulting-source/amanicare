@@ -1,0 +1,26 @@
+# Local stack: AmaniCare + PostgreSQL. `docker compose up --build`, then open http://localhost:3000
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: amanicare
+      POSTGRES_PASSWORD: amanicare
+      POSTGRES_DB: amanicare
+    volumes: [db-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amanicare"]
+      interval: 5s
+      retries: 10
+  app:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://amanicare:amanicare@db:5432/amanicare
+      NODE_ENV: development
+    ports: ["3000:3000"]
+    volumes: [uploads:/data]
+    depends_on:
+      db: { condition: service_healthy }
+volumes:
+  db-data:
+  uploads:

@@ -1,0 +1,290 @@
+// REST API routes.
+import { randomUUID, randomBytes, createHmac, timingSafeEqual } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { config } from './config.js';
+import { one, all, run, tx, audit, setSetting } from './db.js';
+import { Router, HttpError, bad, notFound, forbidden, str, num, oneOf, phone, type AuthCtx, type Body, type Ctx } from './http.js';
+import { requestOtp, verifyOtp, createSession, sessionCookie, destroySession, findOrCreateUser, requireRole } from './auth.js';
+import { createDraft, createBill, clinicDecision, reviewDecision, payerDecline, listBillsFor, view, canView, getBill, settings, prices, STATUSES } from './bills.js';
+import { startPayment, applyPaymentUpdate, retryPayout } from './payments/flow.js';
+import { getPartner, hasPartner } from './payments/partners.js';
+import { DEFAULT_SETTINGS } from './screening.js';
+import type { ClinicRow, InviteRow, Lang, PaymentRow, UserRow } from './types.js';
+
+export const router = new Router();
+const LANGS: Lang[] = ['fr', 'en', 'ln', 'sw'];
+const isLang = (v: unknown): v is Lang => LANGS.includes(v as Lang);
+const userView = (u: UserRow | null | undefined) =>
+  u && ({ id: u.id, phone: u.phone, name: u.name, role: u.role, lang: u.lang, clinicId: u.clinic_id });
+const getUser = (id: string) => one<UserRow>('SELECT * FROM users WHERE id = $1', id);
+const getClinic = (id: string) => one<ClinicRow>('SELECT * FROM clinics WHERE id = $1', id);
+
+// ---------- Auth ----------
+router.post('/api/auth/request-otp', async ({ body }: Ctx) => {
+  const lang = isLang(body.lang) ? body.lang : 'fr';
+  return requestOtp(phone(body.phone), lang);
+});
+
+router.post('/api/auth/verify', async ({ body, res }: Ctx) => {
+  const p = phone(body.phone);
+  const code = str(body.code, { min: 6, max: 6, name: 'code' });
+  const existing = await one<UserRow>('SELECT * FROM users WHERE phone = $1', p);
+  if (!existing && !body.role && !(config.adminPhone && p === config.adminPhone)) {
+    // New number: check the code without using it up, then the app asks for name and role
+    // and calls again with the same code.
+    await verifyOtp(p, code, { consume: false });
+    return { needsProfile: true };
+  }
+  await verifyOtp(p, code);
+  const { user } = await findOrCreateUser(p, {
+    name: str(body.name || existing?.name || 'Admin', { min: 1, max: 80, name: 'name' }),
+    role: body.role,
+    lang: isLang(body.lang) ? body.lang : 'fr',
+  });
+  res.setHeader('set-cookie', sessionCookie(await createSession(user.id)));
+  return { user: userView(user) };
+});
+
+router.post('/api/auth/logout', async ({ req, res }: Ctx) => {
+  await destroySession(req);
+  res.setHeader('set-cookie', sessionCookie('', 0));
+  return { ok: true };
+});
+
+router.get('/api/me', async ({ user }: Ctx) => ({ user: userView(user) }));
+
+router.patch('/api/me', requireRole(), async ({ user, body }: AuthCtx) => {
+  if (body.name !== undefined) await run('UPDATE users SET name = $1 WHERE id = $2', str(body.name, { min: 1, max: 80, name: 'name' }), user.id);
+  if (body.lang !== undefined) await run('UPDATE users SET lang = $1 WHERE id = $2', oneOf(body.lang, LANGS, 'lang'), user.id);
+  return { user: userView(await getUser(user.id)) };
+});
+
+// ---------- Family links (payer invites family with a short code) ----------
+router.post('/api/invites', requireRole('payer'), async ({ user, body }: AuthCtx) => {
+  const code = randomBytes(4).toString('hex').slice(0, 6).toUpperCase();
+  await run('INSERT INTO invites(code, payer_id, relation, expires_at) VALUES($1,$2,$3,$4)',
+    code, user.id, str(body.relation, { max: 40, name: 'relation' }), Date.now() + 7 * 864e5);
+  return { code, expiresInDays: 7 };
+});
+
+router.post('/api/invites/accept', requireRole('family'), async ({ user, body }: AuthCtx) => {
+  const code = str(body.code, { min: 6, max: 6, name: 'code' }).toUpperCase();
+  const inv = await tx(async () => {
+    // Lock the invite so it can only be used once, even with two taps at the same moment.
+    const i = await one<InviteRow>('SELECT * FROM invites WHERE code = $1 FOR UPDATE', code);
+    if (!i || i.used_by || i.expires_at < Date.now()) throw bad('invalid_invite');
+    await run('INSERT INTO links(payer_id, family_id, relation) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', i.payer_id, user.id, i.relation);
+    await run('UPDATE invites SET used_by = $1 WHERE code = $2', user.id, code);
+    return i;
+  });
+  const payer = await one<{ id: string; name: string }>('SELECT id, name FROM users WHERE id = $1', inv.payer_id);
+  return { payer };
+});
+
+router.get('/api/family', requireRole('payer'), async ({ user }: AuthCtx) => ({
+  members: await all(`SELECT u.id, u.name, u.phone, l.relation FROM links l JOIN users u ON u.id = l.family_id WHERE l.payer_id = $1 ORDER BY l.created_at`, user.id),
+}));
+
+router.get('/api/payers', requireRole('family'), async ({ user }: AuthCtx) => ({
+  payers: await all(`SELECT u.id, u.name, l.relation FROM links l JOIN users u ON u.id = l.payer_id WHERE l.family_id = $1 ORDER BY l.created_at`, user.id),
+}));
+
+router.get('/api/clinics', requireRole(), async () => ({
+  clinics: await all('SELECT id, name, commune, city FROM clinics WHERE active = 1 ORDER BY city, commune, name'),
+}));
+
+// ---------- Bills ----------
+router.post('/api/bills/extract', requireRole('family'), async ({ user, body }: AuthCtx) => {
+  return createDraft(user, str(body.image, { min: 100, max: 9_000_000, name: 'image' }), String(body.mediaType || 'image/jpeg'));
+});
+
+router.post('/api/bills', requireRole('family'), async ({ user, body }: AuthCtx) => ({ bill: await view(await createBill(user, body), user) }));
+
+router.get('/api/bills', requireRole(), async ({ user }: AuthCtx) => ({ bills: await listBillsFor(user) }));
+
+router.get('/api/bills/:id', requireRole(), async ({ user, params }: AuthCtx) => {
+  const b = await getBill(params.id);
+  if (!canView(user, b)) throw notFound();
+  return { bill: await view(b, user) };
+});
+
+router.get('/api/bills/:id/photo', requireRole(), async ({ user, params, res }: AuthCtx) => {
+  const b = await getBill(params.id);
+  if (!canView(user, b) || !b.photo_path) throw notFound();
+  const data = await readFile(b.photo_path);
+  const ext = b.photo_path.split('.').pop();
+  res.writeHead(200, { 'content-type': ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg', 'cache-control': 'private, max-age=3600' });
+  res.end(data);
+  return undefined;
+});
+
+router.post('/api/bills/:id/confirm', requireRole('clinic', 'admin'), async ({ user, params }: AuthCtx) =>
+  ({ bill: await view(await clinicDecision(params.id, 'confirm', user), user) }));
+router.post('/api/bills/:id/reject', requireRole('clinic', 'admin'), async ({ user, params }: AuthCtx) =>
+  ({ bill: await view(await clinicDecision(params.id, 'reject', user), user) }));
+router.post('/api/bills/:id/review', requireRole('admin'), async ({ user, params, body }: AuthCtx) =>
+  ({ bill: await view(await reviewDecision(params.id, body.approve === true, user), user) }));
+router.post('/api/bills/:id/pay', requireRole('payer'), async ({ user, params }: AuthCtx) => startPayment(params.id, user));
+router.post('/api/bills/:id/decline', requireRole('payer'), async ({ user, params }: AuthCtx) =>
+  ({ bill: await view(await payerDecline(params.id, user), user) }));
+router.post('/api/bills/:id/retry-payout', requireRole('admin'), async ({ user, params }: AuthCtx) =>
+  ({ bill: await view(await retryPayout(params.id, user), user) }));
+
+// ---------- Admin ----------
+router.get('/api/admin/overview', requireRole('admin'), async () => {
+  const rows = await all<{ status: string; n: number }>('SELECT status, COUNT(*) n FROM bills GROUP BY status');
+  const counts = Object.fromEntries(STATUSES.map((s) => [s, rows.find((r) => r.status === s)?.n ?? 0]));
+  const t = (await one<{ paid_usd: number; fees_usd: number; stopped_usd: number; avg_risk: number; users: number }>(`
+    SELECT COALESCE(SUM(total_usd) FILTER (WHERE status = 'paid'), 0) paid_usd,
+           COALESCE(SUM(fee_usd) FILTER (WHERE status = 'paid'), 0) fees_usd,
+           COALESCE(SUM(total_usd) FILTER (WHERE status IN ('rejected','review')), 0) stopped_usd,
+           COALESCE(AVG(risk_score), 0) avg_risk,
+           (SELECT COUNT(*) FROM users) users
+    FROM bills`))!;
+  return { counts, paidUsd: t.paid_usd, feesUsd: t.fees_usd, stoppedUsd: t.stopped_usd, avgRisk: Math.round(t.avg_risk), users: t.users };
+});
+
+router.get('/api/admin/clinics', requireRole('admin'), async () => ({ clinics: await all('SELECT * FROM clinics ORDER BY name') }));
+
+const clinicFields = (b: Body) => ({
+  name: str(b.name, { min: 2, max: 100, name: 'name' }),
+  commune: str(b.commune, { max: 60, name: 'commune' }),
+  city: str(b.city || 'Kinshasa', { max: 60, name: 'city' }),
+  whatsapp_phone: b.whatsappPhone ? phone(b.whatsappPhone) : '',
+  payout_method: oneOf(b.payoutMethod || 'bank', ['bank', 'mpesa', 'orange', 'airtel'], 'payout_method'),
+  payout_account: str(b.payoutAccount, { min: 3, max: 60, name: 'payout_account' }),
+});
+
+router.post('/api/admin/clinics', requireRole('admin'), async ({ user, body }: AuthCtx) => {
+  const f = clinicFields(body); const id = randomUUID();
+  await run('INSERT INTO clinics(id, name, commune, city, whatsapp_phone, payout_method, payout_account) VALUES($1,$2,$3,$4,$5,$6,$7)',
+    id, f.name, f.commune, f.city, f.whatsapp_phone, f.payout_method, f.payout_account);
+  await audit(user.id, 'clinic_create', f.name);
+  return { clinic: await getClinic(id) };
+});
+
+router.patch('/api/admin/clinics/:id', requireRole('admin'), async ({ user, params, body }: AuthCtx) => {
+  const c = await getClinic(params.id);
+  if (!c) throw notFound();
+  if (body.active !== undefined) await run('UPDATE clinics SET active = $1 WHERE id = $2', body.active ? 1 : 0, c.id);
+  if (body.name !== undefined) {
+    const f = clinicFields({ ...body });
+    await run('UPDATE clinics SET name=$1, commune=$2, city=$3, whatsapp_phone=$4, payout_method=$5, payout_account=$6 WHERE id=$7',
+      f.name, f.commune, f.city, f.whatsapp_phone, f.payout_method, f.payout_account, c.id);
+  }
+  await audit(user.id, 'clinic_update', c.name);
+  return { clinic: await getClinic(c.id) };
+});
+
+// Admin creates clinic staff (or other admins) by phone number.
+router.post('/api/admin/users', requireRole('admin'), async ({ user, body }: AuthCtx) => {
+  const role = oneOf(body.role, ['clinic', 'admin'] as const, 'role');
+  const p = phone(body.phone);
+  if (await one('SELECT 1 FROM users WHERE phone = $1', p)) throw bad('phone_in_use');
+  const clinicId = role === 'clinic' ? str(body.clinicId, { min: 1, name: 'clinic' }) : null;
+  if (clinicId && !(await one('SELECT 1 FROM clinics WHERE id = $1', clinicId))) throw bad('clinic_not_found');
+  const id = randomUUID();
+  await run('INSERT INTO users(id, phone, name, role, lang, clinic_id) VALUES($1,$2,$3,$4,$5,$6)',
+    id, p, str(body.name, { min: 1, max: 80, name: 'name' }), role, 'fr', clinicId);
+  await audit(user.id, 'user_create', `${role} ${p}`);
+  return { user: userView(await getUser(id)) };
+});
+
+router.get('/api/admin/users', requireRole('admin'), async () => ({
+  users: await all('SELECT u.id, u.phone, u.name, u.role, u.lang, c.name clinic FROM users u LEFT JOIN clinics c ON c.id = u.clinic_id ORDER BY u.created_at DESC LIMIT 500'),
+}));
+
+router.get('/api/admin/prices', requireRole('admin'), async () => ({ prices: await prices() }));
+router.put('/api/admin/prices', requireRole('admin'), async ({ user, body }: AuthCtx) => {
+  const list = (Array.isArray(body.prices) ? body.prices : []).slice(0, 300).map((p: any) => ({
+    id: String(p?.id || randomUUID()),
+    name: str(p?.name, { min: 1, max: 80, name: 'name' }),
+    keywords: (Array.isArray(p?.keywords) ? p.keywords : String(p?.keywords || '').split(','))
+      .map((k: unknown) => String(k).trim().toLowerCase()).filter(Boolean).slice(0, 20) as string[],
+    usd: num(p?.usd, { min: 0.01, max: 100000, name: 'usd' }),
+  }));
+  await tx(async () => {
+    await run('DELETE FROM reference_prices');
+    for (const p of list) await run('INSERT INTO reference_prices(id, name, keywords, usd) VALUES($1,$2,$3,$4)', p.id, p.name, JSON.stringify(p.keywords), p.usd);
+  });
+  await audit(user.id, 'prices_update', `${list.length} prices`);
+  return { prices: await prices() };
+});
+
+router.get('/api/admin/settings', requireRole('admin'), async () => ({
+  settings: await settings(), defaults: DEFAULT_SETTINGS, partner: config.paymentPartner, messaging: config.messaging, ai: Boolean(config.anthropicKey),
+}));
+router.put('/api/admin/settings', requireRole('admin'), async ({ user, body }: AuthCtx) => {
+  const s = {
+    cdfPerUsd: num(body.cdfPerUsd, { min: 1, max: 1e6, name: 'rate' }),
+    priceFlagRatio: num(body.priceFlagRatio, { min: 1, max: 10, name: 'ratio' }),
+    feePct: num(body.feePct, { min: 0, max: 0.2, name: 'fee' }),
+    feeMinUsd: num(body.feeMinUsd, { min: 0, max: 50, name: 'fee_min' }),
+    reviewAboveUsd: num(body.reviewAboveUsd, { min: 1, max: 1e6, name: 'review_above' }),
+  };
+  await setSetting('screening', s);
+  await audit(user.id, 'settings_update', s);
+  return { settings: await settings() };
+});
+
+router.get('/api/admin/messages', requireRole('admin'), async () => ({ messages: await all('SELECT * FROM messages ORDER BY id DESC LIMIT 200') }));
+router.get('/api/admin/payments', requireRole('admin'), async () => ({
+  payments: await all('SELECT p.*, b.ref bill_ref FROM payments p JOIN bills b ON b.id = p.bill_id ORDER BY p.created_at DESC LIMIT 300'),
+}));
+router.get('/api/admin/audit', requireRole('admin'), async () => ({ audit: await all('SELECT * FROM audit ORDER BY id DESC LIMIT 300') }));
+
+// ---------- Payment partner webhooks ----------
+router.post('/api/webhooks/payments/:partner', async ({ params, raw, req }: Ctx) => {
+  if (!hasPartner(params.partner)) throw notFound();
+  const partner = getPartner(params.partner);
+  if (!partner.verifyWebhook(raw, req.headers)) throw new HttpError(401, 'bad_signature');
+  const update = partner.parseWebhook(JSON.parse(raw.toString('utf8') || '{}'));
+  await applyPaymentUpdate(update);
+  return { ok: true };
+});
+
+// ---------- Sandbox checkout (only when the sandbox partner is active) ----------
+const sandboxOnly = () => { if (config.paymentPartner !== 'sandbox') throw notFound(); };
+router.get('/api/sandbox/payments/:id', sandboxOnly, async ({ params }: Ctx) => {
+  const p = await one(`SELECT p.id, p.amount_usd, p.status, b.ref, b.patient_name, c.name clinic FROM payments p
+    JOIN bills b ON b.id = p.bill_id JOIN clinics c ON c.id = b.clinic_id WHERE p.id = $1 AND p.kind = 'collection'`, params.id);
+  if (!p) throw notFound();
+  return { payment: p };
+});
+router.post('/api/sandbox/payments/:id/complete', sandboxOnly, requireRole('payer'), async ({ user, params, body }: AuthCtx) => {
+  const p = await one<PaymentRow & { payer_id: string }>(
+    "SELECT p.*, b.payer_id FROM payments p JOIN bills b ON b.id = p.bill_id WHERE p.id = $1 AND p.kind = 'collection'", params.id);
+  if (!p || p.payer_id !== user.id) throw notFound();
+  await applyPaymentUpdate({ paymentId: p.id, status: body.outcome === 'fail' ? 'failed' : 'succeeded', reason: body.outcome === 'fail' ? 'Card declined (sandbox)' : undefined });
+  return { ok: true };
+});
+
+// ---------- WhatsApp Cloud API webhook (clinic taps Confirm / Reject) ----------
+router.get('/api/webhooks/whatsapp', async ({ url, res }: Ctx) => {
+  const q = url.searchParams;
+  if (q.get('hub.mode') === 'subscribe' && config.whatsapp.verifyToken && q.get('hub.verify_token') === config.whatsapp.verifyToken) {
+    res.writeHead(200, { 'content-type': 'text/plain' }); res.end(q.get('hub.challenge') || '');
+    return undefined;
+  }
+  throw forbidden();
+});
+
+router.post('/api/webhooks/whatsapp', async ({ raw, req }: Ctx) => {
+  const secret = config.whatsapp.appSecret;
+  if (!secret) throw forbidden();
+  const sig = String(req.headers['x-hub-signature-256'] || '');
+  const expected = 'sha256=' + createHmac('sha256', secret).update(raw).digest('hex');
+  if (sig.length !== expected.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) throw new HttpError(401, 'bad_signature');
+  const payload = JSON.parse(raw.toString('utf8') || '{}');
+  for (const entry of payload.entry || []) for (const ch of entry.changes || []) for (const m of ch.value?.messages || []) {
+    const id: string = m.interactive?.button_reply?.id || '';
+    const [decision, billId] = id.split(':');
+    if ((decision !== 'confirm' && decision !== 'reject') || !billId) continue;
+    const bill = await getBill(billId);
+    const clinic = bill && (await getClinic(bill.clinic_id));
+    // Only the clinic's registered WhatsApp number may answer for its bills.
+    if (!clinic || clinic.whatsapp_phone.replace(/\D/g, '') !== String(m.from)) continue;
+    try { await clinicDecision(billId, decision, null); } catch (e) { console.warn('[whatsapp]', (e as Error).message); }
+  }
+  return { ok: true };
+});
