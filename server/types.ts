@@ -22,10 +22,10 @@ export interface ClinicRow {
   id: string; name: string; commune: string; city: string; whatsapp_phone: string; payout_method: string;
   payout_account: string; trust: number; active: number; created_at: string;
 }
-export interface InviteRow { code: string; payer_id: string; relation: string; expires_at: number; used_by: string | null }
+export interface InviteRow { code: string; payer_id: string; relation: string; expires_at: number; used_by: string | null; phone: string | null }
 export interface PriceRow { id: string; name: string; keywords: string; usd: number }
 export interface Price { id?: string; name: string; keywords: string[]; usd: number }
-export interface DraftRow { id: string; family_id: string; photo_path: string; ai: string | null; created_at: string }
+export interface DraftRow { id: string; family_id: string; photo_path: string; ai: string | null; photo_sha256: string | null; created_at: string }
 
 export interface BillItem { d: string; q: number; p: number }
 
@@ -33,7 +33,7 @@ export interface BillRow {
   id: string; ref: string; family_id: string; payer_id: string; clinic_id: string; patient_name: string;
   bill_number: string; bill_date: string; currency: Currency; items: string; total: number; total_usd: number;
   fee_usd: number; expected_usd: number; ai: string | null; edited: number; risk_score: number; risk_level: RiskLevel;
-  risk_reasons: string; status: BillStatus; photo_path: string | null; created_at: string; updated_at: string;
+  risk_reasons: string; status: BillStatus; photo_path: string | null; photo_sha256: string | null; created_at: string; updated_at: string;
 }
 
 export interface PaymentRow {

@@ -284,13 +284,24 @@ function inviteFlow(): void {
     <p class="muted">${t('invite.subtitle')}</p>
     <label for="rel">${t('invite.relation')}</label>
     <input id="rel" placeholder="${t('invite.relationPh')}">
+    <label for="invPhone">${t('invite.phone')}</label>
+    <input id="invPhone" type="tel" inputmode="tel" placeholder="+243 81 234 5678">
+    <p class="muted small">${t('invite.phoneHint')}</p>
     <button class="block" id="mk">${t('invite.create')}</button>
     <div id="out"></div>`, (s) => {
     $('#mk', s).onclick = (e) => busy(btn(e), async () => {
-      const r = await api<{ code: string }>('POST', '/api/invites', { relation: val('#rel', s) });
-      const msg = t('invite.message', { name: me().name, code: r.code, url: location.origin });
-      $('#out', s).innerHTML = `<div class="code">${r.code}</div><p class="muted small">${t('invite.expires')}</p>
-        <p class="small">${esc(msg)}</p><button class="secondary block" id="cp">${t('invite.copy')}</button>`;
+      let phone = val('#invPhone', s).replace(/[\s\-().]/g, '');
+      if (phone && !phone.startsWith('+')) phone = '+' + phone;
+      const r = await api<{ code: string; phone: string | null; sent: boolean }>('POST', '/api/invites', { relation: val('#rel', s), phone: phone || undefined });
+      const msg = t(r.phone ? 'invite.messagePhone' : 'invite.message', { name: me().name, code: r.code, url: location.origin });
+      // wa.me opens WhatsApp (app or web) with the message ready; with a number it opens that chat directly.
+      const wa = `https://wa.me/${r.phone ? r.phone.replace(/\D/g, '') : ''}?text=${encodeURIComponent(msg)}`;
+      $('#out', s).innerHTML = `<div class="code">${r.code}</div>
+        <p class="muted small">${r.phone ? t('invite.expiresPhone', { phone: esc(r.phone) }) : t('invite.expires')}</p>
+        ${r.sent ? `<p class="notice info">${t('invite.sent', { phone: esc(r.phone || '') })}</p>` : ''}
+        <p class="small">${esc(msg)}</p>
+        <a class="btn block" id="wa" href="${esc(wa)}" target="_blank" rel="noopener">${t(r.sent ? 'invite.whatsappAgain' : 'invite.whatsapp')}</a>
+        <button class="secondary block" id="cp">${t('invite.copy')}</button>`;
       $('#cp', s).onclick = async () => { try { await navigator.clipboard.writeText(msg); toast(t('copied')); } catch { toast(t('copyFailed')); } };
     });
   });

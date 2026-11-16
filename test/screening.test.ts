@@ -55,3 +55,19 @@ test('edits after AI reading are detected', () => {
   assert.equal(wasEdited(ai, { items: [{ d: 'Consultation', q: 1, p: 10 }], total: 10 }), false);
   assert.equal(wasEdited(ai, { items: [{ d: 'Consultation', q: 1, p: 50 }], total: 50 }), true);
 });
+
+test('possible duplicates always go to manual review', async () => {
+  const { mustReview } = await import('../server/screening.js');
+  const clean = { ...base, items: [{ d: 'Consultation', q: 1, p: 10 }], total: 10 };
+  // A re-submitted bill with normal prices scores only "medium", but must still be held.
+  const byNumber = screenBill(clean, { ...ctx, duplicates: 1 });
+  assert.equal(byNumber.level, 'med');
+  assert.equal(mustReview(byNumber), true);
+  const byPhoto = screenBill(clean, { ...ctx, duplicatePhotos: 1 });
+  assert.ok(byPhoto.reasons.some((r) => r.code === 'duplicate_photo'));
+  assert.equal(mustReview(byPhoto), true);
+  const similar = screenBill({ ...clean, billNumber: '' }, { ...ctx, similarRecent: 1 });
+  assert.ok(similar.reasons.some((r) => r.code === 'similar_recent_bill'));
+  assert.equal(mustReview(similar), true);
+  assert.equal(mustReview(screenBill(clean, ctx)), false);
+});

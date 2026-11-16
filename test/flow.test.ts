@@ -182,6 +182,46 @@ test('failed card payment can be retried', async () => {
   assert.equal((await payer('GET', `/api/bills/${bill.id}`)).data.bill.status, 'paid');
 });
 
+test('invites can be locked to a phone number', async () => {
+  const payer = client(), wrong = client(), right = client();
+  await login(payer, '+12145550400', { name: 'P4', role: 'payer' });
+  assert.equal((await payer('POST', '/api/invites', { relation: 'Sister', phone: '+12145550400' })).data.error, 'invite_own_phone');
+  const inv = await payer('POST', '/api/invites', { relation: 'Sister', phone: '+243 81 000 0400' });
+  assert.equal(inv.data.phone, '+243810000400');
+  assert.equal(inv.data.sent, false); // sandbox messaging: the payer shares it with the WhatsApp button
+  await login(wrong, '+243810000401', { name: 'Not her', role: 'family' });
+  assert.equal((await wrong('POST', '/api/invites/accept', { code: inv.data.code })).data.error, 'invite_other_phone');
+  await login(right, '+243810000400', { name: 'Sister', role: 'family' });
+  assert.equal((await right('POST', '/api/invites/accept', { code: inv.data.code })).status, 200);
+  // Invites without a number still work for anyone, once.
+  const open = await payer('POST', '/api/invites', { relation: 'Cousin' });
+  assert.equal(open.data.phone, null);
+  assert.equal((await wrong('POST', '/api/invites/accept', { code: open.data.code })).status, 200);
+});
+
+test('the same bill sent twice is held for review', async () => {
+  const payer = client(), family = client();
+  await login(payer, '+12145550500', { name: 'P5', role: 'payer' });
+  await login(family, '+243810000500', { name: 'F5', role: 'family' });
+  await family('POST', '/api/invites/accept', { code: (await payer('POST', '/api/invites', { relation: 'Father' })).data.code });
+  const payerId = (await family('GET', '/api/payers')).data.payers[0].id;
+  const clinicId = (await family('GET', '/api/clinics')).data.clinics.find((c: { name: string }) => c.name === 'Centre de Santé Amani').id;
+  const photo = Buffer.alloc(3000, 7).toString('base64');
+  const submit = async (billNumber: string, image = photo) => {
+    const d = await family('POST', '/api/bills/extract', { image, mediaType: 'image/jpeg' });
+    return (await family('POST', '/api/bills', { draftId: d.data.draftId, payerId, clinicId, patientName: 'Marie T.', billNumber,
+      currency: 'USD', items: [{ d: 'Consultation', q: 1, p: 10 }], total: 10 })).data.bill;
+  };
+  const first = await submit('CSA-1');
+  assert.equal(first.status, 'awaiting_clinic');
+  // Same photo again, different number typed: caught by the photo fingerprint.
+  assert.equal((await submit('CSA-2')).status, 'review');
+  // New photo, same number: caught by the bill number, even though prices are normal.
+  assert.equal((await submit('CSA-1', Buffer.alloc(3000, 8).toString('base64'))).status, 'review');
+  // New photo, no number, same patient/clinic/amount: caught as a similar recent bill.
+  assert.equal((await submit('', Buffer.alloc(3000, 9).toString('base64'))).status, 'review');
+});
+
 test('payment webhooks require a valid signature', async () => {
   const api = client();
   const r = await fetch(`${base}/api/webhooks/payments/sandbox`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-signature': 'nope' }, body: '{"payment_id":"x","status":"succeeded"}' });

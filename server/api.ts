@@ -9,6 +9,7 @@ import { createDraft, createBill, clinicDecision, reviewDecision, payerDecline, 
 import { startPayment, applyPaymentUpdate, retryPayout } from './payments/flow.js';
 import { getPartner, hasPartner } from './payments/partners.js';
 import { DEFAULT_SETTINGS } from './screening.js';
+import { send, text } from './messaging/index.js';
 import type { ClinicRow, InviteRow, Lang, PaymentRow, UserRow } from './types.js';
 
 export const router = new Router();
@@ -60,11 +61,21 @@ router.patch('/api/me', requireRole(), async ({ user, body }: AuthCtx) => {
 });
 
 // ---------- Family links (payer invites family with a short code) ----------
+// The payer can give the family member's phone number: then only that number can use the code,
+// and (once WhatsApp is live) AmaniCare sends the invite itself. Without a number it works as before.
 router.post('/api/invites', requireRole('payer'), async ({ user, body }: AuthCtx) => {
   const code = randomBytes(4).toString('hex').slice(0, 6).toUpperCase();
-  await run('INSERT INTO invites(code, payer_id, relation, expires_at) VALUES($1,$2,$3,$4)',
-    code, user.id, str(body.relation, { max: 40, name: 'relation' }), Date.now() + 7 * 864e5);
-  return { code, expiresInDays: 7 };
+  const relation = str(body.relation, { max: 40, name: 'relation' });
+  const to = body.phone ? phone(body.phone) : null;
+  if (to && to === user.phone) throw bad('invite_own_phone');
+  await run('INSERT INTO invites(code, payer_id, relation, expires_at, phone) VALUES($1,$2,$3,$4,$5)',
+    code, user.id, relation, Date.now() + 7 * 864e5, to);
+  let sent = false;
+  if (to && config.messaging === 'whatsapp') {
+    // Note: WhatsApp only delivers this outside a 24 h conversation window with an approved template.
+    sent = (await send({ to, kind: 'invite', text: text('invite', user.lang, { name: user.name, code, url: config.baseUrl }) })) === 'sent';
+  }
+  return { code, expiresInDays: 7, phone: to, sent };
 });
 
 router.post('/api/invites/accept', requireRole('family'), async ({ user, body }: AuthCtx) => {
@@ -73,6 +84,7 @@ router.post('/api/invites/accept', requireRole('family'), async ({ user, body }:
     // Lock the invite so it can only be used once, even with two taps at the same moment.
     const i = await one<InviteRow>('SELECT * FROM invites WHERE code = $1 FOR UPDATE', code);
     if (!i || i.used_by || i.expires_at < Date.now()) throw bad('invalid_invite');
+    if (i.phone && i.phone !== user.phone) throw bad('invite_other_phone');
     await run('INSERT INTO links(payer_id, family_id, relation) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', i.payer_id, user.id, i.relation);
     await run('UPDATE invites SET used_by = $1 WHERE code = $2', user.id, code);
     return i;

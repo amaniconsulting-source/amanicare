@@ -1,10 +1,10 @@
 // Bill lifecycle: draft (photo + AI read) → screened bill → clinic confirmation → payer payment.
-import { randomUUID, randomBytes } from 'node:crypto';
+import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { config } from './config.js';
 import { one, all, run, tx, getSetting, audit } from './db.js';
-import { screenBill, wasEdited, DEFAULT_SETTINGS, feeFor, round2, type ScreeningSettings, type Reason } from './screening.js';
+import { screenBill, wasEdited, mustReview, DEFAULT_SETTINGS, feeFor, round2, type ScreeningSettings, type Reason } from './screening.js';
 import { extractBill } from './ai.js';
 import { send, text } from './messaging/index.js';
 import { bad, forbidden, notFound, HttpError, str, num, oneOf, type Body } from './http.js';
@@ -38,7 +38,11 @@ export async function createDraft(family: UserRow, imageBase64: string, mediaTyp
   const path = join(config.uploadDir, `${id}.${ext}`);
   await writeFile(path, buf);
   const ai = await extractBill(imageBase64, mediaType);
-  await run('INSERT INTO bill_drafts(id, family_id, photo_path, ai) VALUES($1,$2,$3,$4)', id, family.id, path, ai ? JSON.stringify(ai) : null);
+  // Fingerprint of the exact photo, to catch the same image submitted again.
+  // (The app re-compresses photos, so a new photo of the same paper won't match: other rules cover that.)
+  const sha = createHash('sha256').update(buf).digest('hex');
+  await run('INSERT INTO bill_drafts(id, family_id, photo_path, ai, photo_sha256) VALUES($1,$2,$3,$4,$5)',
+    id, family.id, path, ai ? JSON.stringify(ai) : null, sha);
   return { draftId: id, ai, aiAvailable: Boolean(config.anthropicKey) };
 }
 
@@ -81,18 +85,24 @@ export async function createBill(family: UserRow, input: Body): Promise<BillRow>
     : 0;
   const recentForPatient = (await one<{ n: number }>("SELECT COUNT(*) n FROM bills WHERE lower(patient_name) = lower($1) AND created_at >= now() - interval '30 days'",
     bill.patientName))!.n;
-  const result = screenBill(bill, { clinic, prices: await prices(), settings: s, duplicates, recentForPatient });
+  const duplicatePhotos = draft?.photo_sha256
+    ? (await one<{ n: number }>("SELECT COUNT(*) n FROM bills WHERE photo_sha256 = $1 AND status NOT IN ('rejected','declined')", draft.photo_sha256))!.n
+    : 0;
+  const similarRecent = (await one<{ n: number }>(`SELECT COUNT(*) n FROM bills WHERE clinic_id = $1 AND lower(patient_name) = lower($2)
+      AND abs(total - $3) < 0.01 AND currency = $4 AND status NOT IN ('rejected','declined') AND created_at >= now() - interval '30 days'`,
+  clinic.id, bill.patientName, total, currency))!.n;
+  const result = screenBill(bill, { clinic, prices: await prices(), settings: s, duplicates, recentForPatient, duplicatePhotos, similarRecent });
 
   const id = randomUUID();
   const ref = 'AMC-' + randomBytes(3).toString('hex').toUpperCase();
-  const status: BillStatus = result.level === 'high' ? 'review' : 'awaiting_clinic';
+  const status: BillStatus = mustReview(result) ? 'review' : 'awaiting_clinic';
   await tx(async () => {
     await run(`INSERT INTO bills(id, ref, family_id, payer_id, clinic_id, patient_name, bill_number, bill_date, currency, items, total,
-         total_usd, fee_usd, expected_usd, ai, edited, risk_score, risk_level, risk_reasons, status, photo_path)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
+         total_usd, fee_usd, expected_usd, ai, edited, risk_score, risk_level, risk_reasons, status, photo_path, photo_sha256)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
     id, ref, family.id, payerId, clinic.id, bill.patientName, bill.billNumber, bill.billDate, currency, JSON.stringify(items), total,
     result.totalUsd, feeFor(result.totalUsd, s), result.expectedUsd, ai ? JSON.stringify(ai) : null, bill.edited ? 1 : 0,
-    result.score, result.level, JSON.stringify(result.reasons), status, draft?.photo_path || null);
+    result.score, result.level, JSON.stringify(result.reasons), status, draft?.photo_path || null, draft?.photo_sha256 || null);
     await event(id, family.id, 'submitted');
     await event(id, null, 'screened', `${result.level}:${result.score}`);
     await event(id, null, status === 'review' ? 'held_for_review' : 'sent_to_clinic');

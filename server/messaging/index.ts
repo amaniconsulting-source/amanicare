@@ -74,6 +74,10 @@ const T = {
     fr: (p) => `💰 AmaniCare : ${p.amount} envoyé sur ${p.account}. Réf ${p.ref}. Patient : ${p.patient}. Le patient peut sortir.`,
     en: (p) => `💰 AmaniCare: ${p.amount} sent to ${p.account}. Ref ${p.ref}. Patient: ${p.patient}. The patient may be discharged.`,
   },
+  invite: {
+    fr: (p) => `${p.name} vous invite sur AmaniCare pour payer directement vos factures d'hôpital. Ouvrez ${p.url}, inscrivez-vous comme famille avec ce numéro et entrez le code ${p.code}.`,
+    en: (p) => `${p.name} invites you to AmaniCare to pay your hospital bills directly. Open ${p.url}, sign up as family with this number, and enter the code ${p.code}.`,
+  },
   familyUpdate: {
     fr: (p) => `AmaniCare : facture de ${p.patient} – ${p.status}.`,
     en: (p) => `AmaniCare: ${p.patient}'s bill – ${p.status}.`,

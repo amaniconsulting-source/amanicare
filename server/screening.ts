@@ -56,6 +56,10 @@ export interface ScreenContext {
   settings?: Partial<ScreeningSettings>;
   duplicates: number;
   recentForPatient: number;
+  /** Earlier bills with exactly the same photo. */
+  duplicatePhotos?: number;
+  /** Earlier bills at the same clinic for the same patient and the same total (last 30 days). */
+  similarRecent?: number;
 }
 export interface Reason { code: string; points: number; params: Record<string, unknown> }
 export interface ScreenResult { score: number; level: RiskLevel; reasons: Reason[]; expectedUsd: number; totalUsd: number }
@@ -67,6 +71,9 @@ export function screenBill(bill: ScreenInput, ctx: ScreenContext): ScreenResult 
 
   if (!ctx.clinic || !ctx.clinic.active) add('clinic_not_registered', 40);
   if (ctx.duplicates > 0) add('duplicate_bill_number', 50, { billNumber: bill.billNumber });
+  if ((ctx.duplicatePhotos || 0) > 0) add('duplicate_photo', 50);
+  // Same clinic, patient and amount: likely the same bill with a different (or no) number.
+  else if (!ctx.duplicates && (ctx.similarRecent || 0) > 0) add('similar_recent_bill', 30);
 
   let expected = 0;
   let unknown = 0;
@@ -105,6 +112,11 @@ export function screenBill(bill: ScreenInput, ctx: ScreenContext): ScreenResult 
 
 // Names match if they share a distinctive word (ignoring generic words like "clinique", "centre").
 const GENERIC = new Set(['centre', 'center', 'clinique', 'clinic', 'hopital', 'hospital', 'medical', 'de', 'du', 'la', 'le', 'des', 'sante', 'polyclinique', 'cabinet', 'general', 'et']);
+// A possible duplicate is never sent straight to the clinic: a person checks it first.
+export const DUPLICATE_CODES = ['duplicate_bill_number', 'duplicate_photo', 'similar_recent_bill'];
+export const mustReview = (r: Pick<ScreenResult, 'level' | 'reasons'>): boolean =>
+  r.level === 'high' || r.reasons.some((x) => DUPLICATE_CODES.includes(x.code));
+
 export function clinicNamesMatch(a: string, b: string): boolean {
   const words = (s: string) => normalize(s).split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !GENERIC.has(w));
   const wa = new Set(words(a));

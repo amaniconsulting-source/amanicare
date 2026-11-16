@@ -218,5 +218,16 @@
  "err.role_required": "Choisissez comment vous utilisez AmaniCare.",
  "err.invalid_item": "Chaque ligne doit avoir une désignation.",
  "err.invalid_price": "Vérifiez les prix.",
- "err.invalid_qty": "Vérifiez les quantités."
+ "err.invalid_qty": "Vérifiez les quantités.",
+ "invite.phone": "Son numéro WhatsApp (facultatif)",
+ "invite.phoneHint": "Avec un numéro, seule cette personne peut utiliser le code, et WhatsApp ouvre directement sa conversation.",
+ "invite.expiresPhone": "Valable 7 jours, uniquement pour le {phone}.",
+ "invite.messagePhone": "{name} vous invite sur AmaniCare pour payer directement vos factures d'hôpital. Ouvrez {url}, inscrivez-vous comme famille avec ce numéro de téléphone et entrez le code {code}.",
+ "invite.whatsapp": "Envoyer sur WhatsApp",
+ "invite.whatsappAgain": "Renvoyer sur WhatsApp",
+ "invite.sent": "Envoyé au {phone} sur WhatsApp.",
+ "err.invite_other_phone": "Ce code a été créé pour un autre numéro. Connectez-vous avec le numéro invité par votre proche, ou demandez un nouveau code.",
+ "err.invite_own_phone": "Entrez le numéro de votre proche, pas le vôtre.",
+ "reason.duplicate_photo": "La même photo de facture a déjà été envoyée",
+ "reason.similar_recent_bill": "Une facture pour le même patient, la même clinique et le même montant a été envoyée ces 30 derniers jours"
 }
