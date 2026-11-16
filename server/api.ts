@@ -9,7 +9,7 @@ import { createDraft, createBill, clinicDecision, reviewDecision, payerDecline, 
 import { startPayment, applyPaymentUpdate, retryPayout } from './payments/flow.js';
 import { getPartner, hasPartner } from './payments/partners.js';
 import { DEFAULT_SETTINGS } from './screening.js';
-import { send, text } from './messaging/index.js';
+import { notify, updateDelivery } from './messaging/index.js';
 import { CATEGORIES, type Category, type ClinicRow, type InviteRow, type Lang, type PaymentRow, type UserRow } from './types.js';
 
 export const router = new Router();
@@ -73,7 +73,7 @@ router.post('/api/invites', requireRole('payer'), async ({ user, body }: AuthCtx
   let sent = false;
   if (to && config.messaging === 'whatsapp') {
     // Note: WhatsApp only delivers this outside a 24 h conversation window with an approved template.
-    sent = (await send({ to, kind: 'invite', text: text('invite', user.lang, { name: user.name, code, url: config.baseUrl }) })) === 'sent';
+    sent = (await notify('invite', { to, kind: 'invite', lang: user.lang, params: { name: user.name, code, url: config.baseUrl } })) === 'sent';
   }
   return { code, expiresInDays: 7, phone: to, sent };
 });
@@ -304,8 +304,17 @@ router.post('/api/webhooks/whatsapp', async ({ raw, req }: Ctx) => {
   const expected = 'sha256=' + createHmac('sha256', secret).update(raw).digest('hex');
   if (sig.length !== expected.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) throw new HttpError(401, 'bad_signature');
   const payload = JSON.parse(raw.toString('utf8') || '{}');
-  for (const entry of payload.entry || []) for (const ch of entry.changes || []) for (const m of ch.value?.messages || []) {
-    const id: string = m.interactive?.button_reply?.id || '';
+  for (const entry of payload.entry || []) for (const ch of entry.changes || []) {
+    // Delivery receipts for messages we sent.
+    for (const st of ch.value?.statuses || []) {
+      if (st?.id && ['sent', 'delivered', 'read', 'failed'].includes(st.status)) {
+        const err = st.errors?.[0];
+        await updateDelivery(String(st.id), st.status, err ? `${err.code ?? ''} ${err.title ?? ''} ${err.error_data?.details ?? ''}`.trim().slice(0, 300) : undefined);
+      }
+    }
+    for (const m of ch.value?.messages || []) {
+    // Buttons on a template arrive as type "button" (payload); on a free-form message as "interactive".
+    const id: string = m.button?.payload || m.interactive?.button_reply?.id || '';
     const [decision, billId] = id.split(':');
     if ((decision !== 'confirm' && decision !== 'reject') || !billId) continue;
     const bill = await getBill(billId);
@@ -313,6 +322,7 @@ router.post('/api/webhooks/whatsapp', async ({ raw, req }: Ctx) => {
     // Only the clinic's registered WhatsApp number may answer for its bills.
     if (!clinic || clinic.whatsapp_phone.replace(/\D/g, '') !== String(m.from)) continue;
     try { await clinicDecision(billId, decision, null); } catch (e) { console.warn('[whatsapp]', (e as Error).message); }
+    }
   }
   return { ok: true };
 });

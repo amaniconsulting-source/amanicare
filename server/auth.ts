@@ -4,7 +4,7 @@ import type { IncomingMessage } from 'node:http';
 import { config } from './config.js';
 import { one, run, audit } from './db.js';
 import { HttpError, bad, parseCookies, type Ctx } from './http.js';
-import { send, text } from './messaging/index.js';
+import { notify } from './messaging/index.js';
 import type { OtpRow, Role, SessionRow, UserRow } from './types.js';
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -26,7 +26,7 @@ export async function requestOtp(phone: string, lang = 'fr'): Promise<{ sent: tr
        ON CONFLICT(phone) DO UPDATE SET code_hash=excluded.code_hash, expires_at=excluded.expires_at, attempts=0,
        sent_count=excluded.sent_count, window_start=excluded.window_start`,
   phone, sha(phone + ':' + code), t + OTP_TTL, sentCount, windowStart);
-  await send({ to: phone, text: text('otp', lang, { code }), kind: 'otp' });
+  await notify('otp', { to: phone, lang, params: { code }, kind: 'otp' });
   return config.otpDev ? { sent: true, devCode: code } : { sent: true };
 }
 

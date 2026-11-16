@@ -6,7 +6,7 @@ import { config } from './config.js';
 import { one, all, run, tx, getSetting, audit } from './db.js';
 import { screenBill, wasEdited, mustReview, DEFAULT_SETTINGS, feeFor, round2, type ScreeningSettings, type Reason } from './screening.js';
 import { extractBill } from './ai.js';
-import { send, text } from './messaging/index.js';
+import { notify } from './messaging/index.js';
 import { bad, forbidden, notFound, HttpError, str, num, oneOf, type Body } from './http.js';
 import type { AiBill, BillItem, BillRow, BillStatus, ClinicRow, DraftRow, Price, PriceRow, UserRow } from './types.js';
 
@@ -132,9 +132,12 @@ const getClinic = (id: string) => one<ClinicRow>('SELECT * FROM clinics WHERE id
 export async function notifyClinic(bill: BillRow): Promise<void> {
   const clinic = await getClinic(bill.clinic_id);
   if (!clinic?.whatsapp_phone) return;
-  await send({
-    to: clinic.whatsapp_phone, kind: 'clinic_request',
-    text: text('clinicRequest', 'fr', { patient: bill.patient_name, billNumber: bill.bill_number || bill.ref, amount: fmtUsd(bill.total_usd), warn: bill.risk_level === 'med' }),
+  await notify('clinicRequest', {
+    to: clinic.whatsapp_phone, kind: 'clinic_request', lang: 'fr',
+    params: {
+      patient: bill.patient_name, billNumber: bill.bill_number || bill.ref, amount: fmtUsd(bill.total_usd),
+      note: bill.risk_level === 'med' ? '⚠️ Merci de vérifier attentivement cette facture.' : "Payé par un membre de la famille à l'étranger.",
+    },
     buttons: [{ id: `confirm:${bill.id}`, title: '✅ Confirmer' }, { id: `reject:${bill.id}`, title: '❌ Rejeter' }],
   });
 }
@@ -146,12 +149,12 @@ const STATUS_WORDS: Record<string, Record<string, string>> = {
 export async function notifyFamily(bill: BillRow, statusKey: string): Promise<void> {
   const fam = await one<UserRow>('SELECT * FROM users WHERE id = $1', bill.family_id);
   const words = STATUS_WORDS[statusKey];
-  if (fam && words) await send({ to: fam.phone, kind: 'family_update', text: text('familyUpdate', fam.lang, { patient: bill.patient_name, status: words[fam.lang] || words.fr }) });
+  if (fam && words) await notify('familyUpdate', { to: fam.phone, kind: 'family_update', lang: fam.lang, params: { patient: bill.patient_name, status: words[fam.lang] || words.fr } });
 }
 async function notifyPayer(bill: BillRow): Promise<void> {
   const payer = await one<UserRow>('SELECT * FROM users WHERE id = $1', bill.payer_id);
   const clinic = await getClinic(bill.clinic_id);
-  if (payer) await send({ to: payer.phone, kind: 'payer_approve', text: text('payerApprove', payer.lang, { clinic: clinic?.name, patient: bill.patient_name, amount: fmtUsd(bill.total_usd) }) });
+  if (payer) await notify('payerApprove', { to: payer.phone, kind: 'payer_approve', lang: payer.lang, params: { clinic: clinic?.name, patient: bill.patient_name, amount: fmtUsd(bill.total_usd) } });
 }
 
 // ---------- Decisions ----------

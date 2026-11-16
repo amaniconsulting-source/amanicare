@@ -103,7 +103,7 @@ with `rejected`, `declined`, `payment_failed` (payer can retry) and `payout_fail
 |---|---|
 | Payments | API docs + sandbox credentials from the partner (Equity BCDC). Implement `equityPartner` in `server/payments/partners.ts`, set `PAYMENT_PARTNER=equity`, and set the partner's webhook to `/api/webhooks/payments/equity`. |
 | Compliance | KYC of payers (by the partner), AML screening, terms and privacy policy, DRC data-protection review, health-data consent. Confirm where Sentry stores data (choose the EU or US region accordingly). |
-| WhatsApp | Meta Business verification, a WhatsApp number, and approved templates for login codes and payment requests. Set `MESSAGING=whatsapp` and the webhook `/api/webhooks/whatsapp`. |
+| WhatsApp | Follow [docs/whatsapp-setup.md](docs/whatsapp-setup.md): Meta app, credentials, webhook, and the six message templates (texts included). For going live: Business verification and a real number. |
 | AI | Set `ANTHROPIC_API_KEY`. Test on 30+ real bills and tune the reference prices. |
 | Prices | Replace the illustrative reference prices (Admin → Prices) with real prices from pilot clinics. |
 | Translations | Lingala and Swahili are drafts. Have native speakers review `public/i18n/ln.json` and `sw.json`. Missing keys fall back to French. |

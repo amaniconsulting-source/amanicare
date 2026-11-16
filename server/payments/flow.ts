@@ -6,7 +6,7 @@ import * as Sentry from '@sentry/node';
 import { one, run, tx, audit } from '../db.js';
 import { getPartner, type PaymentUpdate } from './partners.js';
 import { getBill, setStatus, event, notifyFamily } from '../bills.js';
-import { send, text } from '../messaging/index.js';
+import { notify } from '../messaging/index.js';
 import { HttpError, notFound } from '../http.js';
 import { round2 } from '../screening.js';
 import type { BillRow, ClinicRow, PaymentKind, PaymentRow, UserRow } from '../types.js';
@@ -102,8 +102,8 @@ export async function applyPaymentUpdate({ paymentId, partnerRef, status, reason
       await event(bill.id, null, 'paid_to_clinic', payment.partner_ref || '');
       const clinic = (await one<ClinicRow>('SELECT * FROM clinics WHERE id = $1', bill.clinic_id))!;
       if (clinic.whatsapp_phone) {
-        await send({ to: clinic.whatsapp_phone, kind: 'clinic_paid', text: text('clinicPaid', 'fr', {
-          amount: `$${round2(bill.total_usd).toFixed(2)}`, account: clinic.payout_account, ref: payment.partner_ref, patient: bill.patient_name }) });
+        await notify('clinicPaid', { to: clinic.whatsapp_phone, kind: 'clinic_paid', lang: 'fr', params: {
+          amount: `$${round2(bill.total_usd).toFixed(2)}`, account: clinic.payout_account, ref: payment.partner_ref, patient: bill.patient_name } });
       }
       await notifyFamily(bill, 'paid');
     } else {

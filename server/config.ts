@@ -60,6 +60,11 @@ export const config = {
     verifyToken: env.WHATSAPP_VERIFY_TOKEN || '',
     appSecret: env.WHATSAPP_APP_SECRET || '',
     apiVersion: env.WHATSAPP_API_VERSION || 'v21.0',
+    // Business-initiated messages must be approved templates (docs/whatsapp-setup.md).
+    // Set to 0 only to test free-form messages inside a 24 h conversation window.
+    useTemplates: bool(env.WHATSAPP_USE_TEMPLATES, true),
+    // Optional prefix if your template names differ, e.g. "test_" → "test_amanicare_login_code".
+    templatePrefix: env.WHATSAPP_TEMPLATE_PREFIX || '',
   },
 
   // Error monitoring. Leave SENTRY_DSN empty to turn Sentry off (server and browser).

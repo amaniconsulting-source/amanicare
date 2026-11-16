@@ -607,9 +607,9 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
     });
   },
   async messages(el) {
-    const { messages } = await api<{ messages: { to_phone: string; channel: string; status: string; created_at: string; body: string; payload: string | null }[] }>('GET', '/api/admin/messages');
+    const { messages } = await api<{ messages: { to_phone: string; channel: string; status: string; created_at: string; body: string; payload: string | null; error?: string | null }[] }>('GET', '/api/admin/messages');
     el.innerHTML = `<div class="card"><h2>${t('admin.tab.messages')}</h2><p class="muted small">${t('admin.messagesHint')}</p>
-      ${messages.length ? messages.map((m) => `<div class="bill"><div class="row between"><b class="small">→ ${esc(m.to_phone)}</b><span class="muted small">${esc(m.channel)} · ${esc(m.status)} · ${fmtDate(m.created_at)}</span></div><p class="small">${esc(m.body).replace(/\n/g, '<br>')}</p>${((JSON.parse(m.payload || '{}').buttons || []) as { title: string }[]).map((b) => `<span class="pill st">${esc(b.title)}</span> `).join('')}</div>`).join('') : `<p class="empty">—</p>`}</div>`;
+      ${messages.length ? messages.map((m) => `<div class="bill"><div class="row between"><b class="small">→ ${esc(m.to_phone)}</b><span class="muted small">${esc(m.channel)} · ${esc(m.status)} · ${fmtDate(m.created_at)}</span></div><p class="small">${esc(m.body).replace(/\n/g, '<br>')}</p>${m.error ? `<p class="notice">${esc(m.error)}</p>` : ''}${((JSON.parse(m.payload || '{}').buttons || []) as { title: string }[]).map((b) => `<span class="pill st">${esc(b.title)}</span> `).join('')}</div>`).join('') : `<p class="empty">—</p>`}</div>`;
   },
   async payments(el) {
     const { payments } = await api<{ payments: { bill_ref: string; kind: string; amount_usd: number; partner: string; partner_ref: string | null; status: string; failure_reason: string | null }[] }>('GET', '/api/admin/payments');
