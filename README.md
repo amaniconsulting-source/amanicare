@@ -107,16 +107,23 @@ with `rejected`, `declined`, `payment_failed` (payer can retry) and `payout_fail
 | AI | Set `ANTHROPIC_API_KEY`. Test on 30+ real bills and tune the reference prices. |
 | Prices | Replace the illustrative reference prices (Admin → Prices) with real prices from pilot clinics. |
 | Translations | Lingala and Swahili are drafts. Have native speakers review `public/i18n/ln.json` and `sw.json`. Missing keys fall back to French. |
-| Security | `NODE_ENV=production`, `OTP_DEV=0`, HTTPS, `DATABASE_SSL=1` for managed Postgres, a persistent disk for `/data` (bill photos), daily database backups. |
+| Security | `NODE_ENV=production`, `OTP_DEV=0`, no `SITE_PASSWORD`, HTTPS, `DATABASE_SSL=1` for managed Postgres if the connection string has no `sslmode`, daily database backups (they include bill photos). Have the privacy policy (`public/privacy.html`) reviewed by a lawyer. |
 | Monitoring | Set `SENTRY_DSN` and `SENTRY_ENVIRONMENT=production`; add alerts for "Payout failed" events. |
 
 ## Deploy
 
-Any host that runs Node 22 with PostgreSQL and a persistent disk for bill photos works (Render, Railway, Fly.io, a VPS). With Docker:
+**Render** (recommended): see [docs/deploy-render.md](docs/deploy-render.md); `render.yaml` sets up everything.
+While testing online, `SITE_PASSWORD` puts the whole site behind a password (the privacy page, health check
+and webhooks stay public).
+
+Any host that runs Docker and reaches PostgreSQL also works:
 
 ```bash
 docker build -t amanicare .
-docker run -p 3000:3000 -v amanicare-data:/data --env-file .env amanicare
+docker run -p 3000:3000 --env-file .env amanicare
 ```
 
-The image builds with `tsc`, ships only production dependencies and the compiled output, runs as a non-root user, and applies migrations at startup.
+The image builds with `tsc`, ships only production dependencies and the compiled output, runs as a non-root user,
+and applies migrations at startup. Bill photos are stored in PostgreSQL, so no disk or volume is needed.
+
+The privacy policy is at `/privacy.html` (French and English).

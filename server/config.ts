@@ -24,14 +24,19 @@ const SENTRY_BROWSER_SRI = 'sha384-fpjRzLWxkdRneAxDGo5pt5gKsjCWYV5ksPD+S1lx80QHB
 
 export const config = {
   port: Number(env.PORT || 3000),
-  baseUrl: env.BASE_URL || `http://localhost:${env.PORT || 3000}`,
+  // Render sets RENDER_EXTERNAL_URL automatically (e.g. https://amanicare.onrender.com).
+  baseUrl: env.BASE_URL || env.RENDER_EXTERNAL_URL || `http://localhost:${env.PORT || 3000}`,
   production: env.NODE_ENV === 'production',
   databaseUrl: env.DATABASE_URL || 'postgres://localhost:5432/amanicare',
   // Optional: run in a separate Postgres schema (used by the tests to stay isolated).
   databaseSchema: env.DATABASE_SCHEMA || '',
   databaseSsl: bool(env.DATABASE_SSL, false),
   databasePoolMax: Number(env.DATABASE_POOL_MAX || 10),
+  // Only for bill photos saved on disk by earlier versions; new photos are stored in the database.
   uploadDir: env.UPLOAD_DIR || 'data/uploads',
+  // Password-protects the whole site (browser login box) while testing online, e.g. with OTP_DEV=1.
+  // The privacy page, health check and webhooks stay public (Meta must reach them).
+  sitePassword: env.SITE_PASSWORD || '',
   sessionDays: Number(env.SESSION_DAYS || 30),
 
   // Shows the OTP code in the API response. NEVER enable in production.

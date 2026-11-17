@@ -1,7 +1,5 @@
 // Bill lifecycle: draft (photo + AI read) → screened bill → clinic confirmation → payer payment.
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
-import { writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
 import { config } from './config.js';
 import { one, all, run, tx, getSetting, audit } from './db.js';
 import { screenBill, wasEdited, mustReview, DEFAULT_SETTINGS, feeFor, round2, type ScreeningSettings, type Reason } from './screening.js';
@@ -43,11 +41,10 @@ export async function createDraft(family: UserRow, imageBase64: string, mediaTyp
   const buf = Buffer.from(imageBase64, 'base64');
   if (buf.length < 1000) throw bad('image_too_small');
   if (buf.length > 6 * 1024 * 1024) throw new HttpError(413, 'image_too_large');
-  await mkdir(config.uploadDir, { recursive: true });
   const id = randomUUID();
-  const ext = mediaType.split('/')[1].replace('jpeg', 'jpg');
-  const path = join(config.uploadDir, `${id}.${ext}`);
-  await writeFile(path, buf);
+  // Stored in the database: hosting disks don't survive redeploys, and backups then include photos.
+  await run('INSERT INTO photos(id, media_type, data) VALUES($1,$2,$3)', id, mediaType, buf);
+  const path = `db:${id}`;
   const ai = await extractBill(imageBase64, mediaType);
   // Fingerprint of the exact photo, to catch the same image submitted again.
   // (The app re-compresses photos, so a new photo of the same paper won't match: other rules cover that.)

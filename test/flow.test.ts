@@ -45,10 +45,10 @@ after(async () => {
   await admin(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
 });
 
-type Api = (method: string, path: string, body?: unknown) => Promise<{ status: number; data: any }>;
+type Api = ((method: string, path: string, body?: unknown) => Promise<{ status: number; data: any }>) & { raw: (path: string) => Promise<Response> };
 function client(): Api {
   let cookie = '';
-  return async (method, path, body) => {
+  const api = async (method: string, path: string, body?: unknown) => {
     const res = await fetch(base + path, {
       method, headers: { 'content-type': 'application/json', cookie },
       body: body ? JSON.stringify(body) : undefined,
@@ -57,6 +57,7 @@ function client(): Api {
     const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null;
     return { status: res.status, data };
   };
+  return Object.assign(api, { raw: (path: string) => fetch(base + path, { headers: { cookie } }) });
 }
 async function login(api: Api, phone: string, profile: Record<string, string> = {}) {
   const { data } = await api('POST', '/api/auth/request-otp', { phone });
@@ -108,6 +109,12 @@ test('full payment flow', async () => {
   assert.equal(created.status, 200, JSON.stringify(created.data));
   const bill = created.data.bill;
   assert.equal(bill.status, 'awaiting_clinic');
+  // The photo is stored in the database and served back to people who can see the bill.
+  const photo = await family.raw(`/api/bills/${bill.id}/photo`);
+  assert.equal(photo.status, 200);
+  assert.equal(photo.headers.get('content-type'), 'image/jpeg');
+  assert.deepEqual(Buffer.from(await photo.arrayBuffer()), Buffer.from(tinyJpeg, 'base64'));
+  assert.equal((await client().raw(`/api/bills/${bill.id}/photo`)).status, 401); // not logged in
   assert.equal(bill.risk.level, 'low');
 
   // The clinic got a WhatsApp-style request in the outbox
@@ -275,6 +282,26 @@ test('reference prices can differ by facility type and facility', async () => {
   // A price set for one facility beats the default price.
   await admin('PUT', '/api/admin/prices', { scope: { clinicId: espoir.id }, prices: [{ name: 'Consultation (Espoir)', keywords: ['consult'], usd: 40 }] });
   assert.deepEqual(await priceFlags(espoir.id, 3), []);
+});
+
+test('SITE_PASSWORD protects the test site but not the privacy page or webhooks', async () => {
+  config.sitePassword = 'test-site-pass';
+  try {
+    const get = (path: string, password?: string) => fetch(base + path, {
+      headers: password ? { authorization: 'Basic ' + Buffer.from('anyone:' + password).toString('base64') } : {},
+    });
+    assert.equal((await get('/')).status, 401);
+    assert.match((await get('/')).headers.get('www-authenticate') || '', /Basic/);
+    assert.equal((await get('/api/me')).status, 401);
+    assert.equal((await get('/', 'wrong')).status, 401);
+    assert.equal((await get('/', 'test-site-pass')).status, 200);
+    assert.equal((await get('/privacy.html')).status, 200);
+    assert.match(await (await get('/privacy.html')).text(), /Politique de confidentialité/);
+    assert.equal((await get('/healthz')).status, 200);
+    // Webhooks stay reachable (and are still protected by their own signatures).
+    const wh = await fetch(`${base}/api/webhooks/payments/sandbox`, { method: 'POST', body: '{}', headers: { 'x-signature': 'nope' } });
+    assert.equal(((await wh.json()) as { error: string }).error, 'bad_signature');
+  } finally { config.sitePassword = ''; }
 });
 
 test('payment webhooks require a valid signature', async () => {

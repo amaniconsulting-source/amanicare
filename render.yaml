@@ -1,0 +1,55 @@
+# Render blueprint: https://render.com/docs/blueprint-spec
+# Render → New → Blueprint → pick this repository. Values marked "sync: false" are asked for once
+# (paste them from your .env); "generateValue" creates a random secret you can read in the dashboard.
+services:
+  - type: web
+    name: amanicare
+    runtime: docker
+    # free: sleeps after 15 min without visits (first request then takes ~1 min). starter: always on.
+    plan: free
+    # Pick the region closest to your Neon database (Neon shows it, e.g. "AWS US East 2 (Ohio)").
+    region: ohio
+    branch: develop
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Test phase: login codes on screen, so the whole site sits behind SITE_PASSWORD.
+      - key: OTP_DEV
+        value: "1"
+      - key: SITE_PASSWORD
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_PHONE
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-5-5
+      - key: PAYMENT_PARTNER
+        value: sandbox
+      - key: PAYMENT_WEBHOOK_SECRET
+        generateValue: true
+      - key: MESSAGING
+        value: whatsapp
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_API_VERSION
+        value: v25.0
+      # Free-form messages until the templates are approved; then set to 1.
+      - key: WHATSAPP_USE_TEMPLATES
+        value: "0"
+      # Login codes need an authentication template (after Meta business verification).
+      - key: WHATSAPP_LOGIN_CODES
+        value: "0"
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_ENVIRONMENT
+        value: staging

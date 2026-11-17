@@ -241,5 +241,6 @@
  "admin.scopeHint": "Each bill is checked against the most specific price: the facility's own list first, then its facility type, then the default list. Items are recognised by their description, not by codes.",
  "admin.scopeEmpty": "No prices yet for this list: bills use the facility type or default prices.",
  "admin.copyGeneral": "Start from the default prices",
- "login.invited": "You've been invited by a relative. Log in or sign up with your phone number: the invitation will be accepted automatically."
+ "login.invited": "You've been invited by a relative. Log in or sign up with your phone number: the invitation will be accepted automatically.",
+ "privacy": "Privacy policy"
 }

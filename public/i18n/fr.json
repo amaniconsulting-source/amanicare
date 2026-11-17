@@ -241,5 +241,6 @@
  "admin.scopeHint": "Chaque facture est comparée au prix le plus précis : d'abord la liste de l'établissement, puis celle de son type, puis la liste par défaut. Les actes sont reconnus par leur description, pas par des codes.",
  "admin.scopeEmpty": "Pas encore de prix pour cette liste : les factures utilisent les prix du type d'établissement ou par défaut.",
  "admin.copyGeneral": "Partir des prix par défaut",
- "login.invited": "Un proche vous a invité. Connectez-vous ou inscrivez-vous avec votre numéro : l'invitation sera acceptée automatiquement."
+ "login.invited": "Un proche vous a invité. Connectez-vous ou inscrivez-vous avec votre numéro : l'invitation sera acceptée automatiquement.",
+ "privacy": "Politique de confidentialité"
 }

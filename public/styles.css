@@ -90,3 +90,9 @@ td input.qty{width:52px;padding:8px 6px} td input.price{width:84px;padding:8px 6
 .toast.on{opacity:1}
 .hidden{display:none!important}
 .sandbox-flag{background:#7a1f9a;color:#fff;font-size:12px;font-weight:700;padding:4px 8px;border-radius:6px;display:inline-block}
+/* Privacy policy page */
+.policy h2{font-size:17px;margin:18px 0 6px}
+.policy ul{padding-left:20px;margin:6px 0}
+.policy li{margin:4px 0}
+.policy p{margin:8px 0}
+.bar-actions a{color:var(--brand);font-size:14px}

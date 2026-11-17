@@ -125,9 +125,18 @@ router.get('/api/bills/:id', requireRole(), async ({ user, params }: AuthCtx) =>
 router.get('/api/bills/:id/photo', requireRole(), async ({ user, params, res }: AuthCtx) => {
   const b = await getBill(params.id);
   if (!canView(user, b) || !b.photo_path) throw notFound();
-  const data = await readFile(b.photo_path);
-  const ext = b.photo_path.split('.').pop();
-  res.writeHead(200, { 'content-type': ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg', 'cache-control': 'private, max-age=3600' });
+  let data: Buffer; let type: string;
+  if (b.photo_path.startsWith('db:')) {
+    const p = await one<{ data: Buffer; media_type: string }>('SELECT data, media_type FROM photos WHERE id = $1', b.photo_path.slice(3));
+    if (!p) throw notFound();
+    data = p.data; type = p.media_type;
+  } else {
+    // Photos saved on disk by earlier versions.
+    data = await readFile(b.photo_path).catch(() => { throw notFound(); });
+    const ext = b.photo_path.split('.').pop();
+    type = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+  }
+  res.writeHead(200, { 'content-type': type, 'cache-control': 'private, max-age=3600' });
   res.end(data);
   return undefined;
 });

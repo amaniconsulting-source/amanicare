@@ -1,6 +1,7 @@
 // AmaniCare server: API + static PWA. Build with `npm run build`, run with `npm start`.
 import { createServer, type Server, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { join, normalize, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as Sentry from '@sentry/node';
@@ -80,11 +81,29 @@ async function serveStatic(path: string, res: ServerResponse): Promise<boolean> 
   return false;
 }
 
+// With SITE_PASSWORD set, everything except these paths asks for the password first.
+// sw.js and the manifest are fetched by the browser without the password; neither holds private data.
+const PUBLIC_PATHS = new Set(['/healthz', '/privacy.html', '/styles.css', '/icon.svg', '/icon-192.png', '/favicon.ico', '/sw.js', '/manifest.webmanifest']);
+const isPublic = (path: string) => PUBLIC_PATHS.has(path) || path.startsWith('/api/webhooks/');
+const sha = (s: string) => createHash('sha256').update(s).digest();
+function sitePasswordOk(header: string | undefined): boolean {
+  const m = /^Basic\s+(.+)$/i.exec(header || '');
+  if (!m) return false;
+  const decoded = Buffer.from(m[1], 'base64').toString('utf8');
+  const password = decoded.slice(decoded.indexOf(':') + 1); // any user name
+  return timingSafeEqual(sha(password), sha(config.sitePassword));
+}
+
 export function createApp(): Server {
   return createServer(async (req, res) => {
     const url = new URL(req.url || '/', 'http://localhost');
     try {
       if (url.pathname === '/healthz') return sendJson(res, 200, { ok: true });
+      if (config.sitePassword && !isPublic(url.pathname) && !sitePasswordOk(req.headers.authorization)) {
+        res.writeHead(401, { 'www-authenticate': 'Basic realm="AmaniCare (test)", charset="UTF-8"', 'content-type': 'text/plain; charset=utf-8', ...securityHeaders() });
+        res.end('AmaniCare test site: password required.');
+        return;
+      }
       if (url.pathname.startsWith('/api/')) {
         const match = router.match(req.method, url.pathname);
         if (!match) throw new HttpError(404, 'not_found');

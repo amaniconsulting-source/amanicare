@@ -206,7 +206,8 @@ function renderLogin(): void {
           <input id="nm" autocomplete="name" value="${esc(s.name)}">
           <button class="block" id="finish">${t('login.start')}</button>`}
       </div>
-      <p class="muted small center">${t('login.footer')}</p>`;
+      <p class="muted small center">${t('login.footer')}</p>
+      <p class="muted small center"><a href="/privacy.html${state.lang === 'fr' ? '' : '#en'}">${t('privacy')}</a></p>`;
 
     if (s.step === 'phone') {
       $('#sendCode').onclick = (e) => busy(btn(e), async () => {
