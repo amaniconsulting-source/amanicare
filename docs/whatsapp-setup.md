@@ -95,13 +95,15 @@ Samples: `$23.00` · `Bank ••4821` · `SBX-P-1A2B3C4D` · `Josephine K.`
 Samples: `Josephine K.` · `payée à la clinique` (en: `paid to the clinic`)
 
 ### `amanicare_invite`: Utility, French and English
-- fr: `Bonjour ! {{1}} vous invite sur AmaniCare pour payer directement vos factures d'hôpital. Ouvrez {{2}}, inscrivez-vous comme famille avec ce numéro et entrez le code {{3}} pour lier vos comptes.`
-- en: `Hello! {{1}} invites you to AmaniCare to pay your hospital bills directly. Open {{2}}, sign up as family with this number, and enter the code {{3}} to link your accounts.`
+- fr: `Bonjour ! {{1}} vous invite sur AmaniCare pour payer directement vos factures d'hôpital. Ouvrez ce lien pour accepter l'invitation : {{2}} Inscrivez-vous comme famille avec ce numéro de téléphone.`
+- en: `Hello! {{1}} invites you to AmaniCare to pay your hospital bills directly. Open this link to accept the invitation: {{2}} Sign up as family with this phone number.`
 
-Samples: `Alain` · `https://amanicare.example` · `A1B2C3`
+Samples: `Alain` · `https://amanicare.example/?invite=A1B2C3`
 
-Meta may re-classify this one as *Marketing* (higher price, and recipients can opt out). The app
-works either way.
+The invitation is a link: opening it and logging in accepts the invitation automatically. Don't
+mention a "code" in this template: Meta then classifies it as an authentication message.
+Meta may re-classify it as *Marketing* (higher price, and recipients can opt out). The app works
+either way.
 
 Lingala and Swahili users receive the French templates until Lingala/Swahili versions are added
 (add the language in Meta, then add it to `languages` in `server/messaging/index.ts`).

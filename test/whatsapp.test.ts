@@ -103,7 +103,10 @@ test('WhatsApp: templates out, button replies and receipts in', async () => {
   // Invite sent by AmaniCare itself when a phone number is given.
   const inv = await payer('POST', '/api/invites', { relation: 'Mother', phone: '+243810000800' });
   assert.equal(inv.data.sent, true);
-  assert.equal(lastTo('+243810000800')!.template.name, 'amanicare_invite');
+  const invite = lastTo('+243810000800')!.template;
+  assert.equal(invite.name, 'amanicare_invite');
+  assert.deepEqual(invite.components[0].parameters.map((p: { text: string }) => p.text), ['Payer', `${config.baseUrl}/?invite=${inv.data.code}`]);
+  assert.equal(inv.data.link, `${config.baseUrl}/?invite=${inv.data.code}`);
 
   await login(family, '+243810000800', { name: 'Maman', role: 'family', lang: 'ln' });
   // Lingala user: no Lingala template exists, so the French one is used.

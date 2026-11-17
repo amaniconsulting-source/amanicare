@@ -180,12 +180,13 @@ async function showBill(id: string): Promise<void> {
 // ---------- login ----------
 function renderLogin(): void {
   const s: { phone: string; code: string; step: 'phone' | 'code' | 'profile'; role: string; name: string; devCode?: string } =
-    { phone: '', code: '', step: 'phone', role: '', name: '' };
+    { phone: '', code: '', step: 'phone', role: pendingInvite() ? 'family' : '', name: '' };
   const draw = (): void => {
     app.innerHTML = `
       <div class="card">
         <h1>${t('login.title')}</h1>
         <p class="muted">${t('login.subtitle')}</p>
+        ${pendingInvite() ? `<p class="notice info">${t('login.invited')}</p>` : ''}
         ${s.step === 'phone' ? `
           <label for="ph">${t('login.phone')}</label>
           <input id="ph" type="tel" inputmode="tel" autocomplete="tel" placeholder="+243 81 234 5678" value="${esc(s.phone)}">
@@ -241,6 +242,7 @@ async function signedIn(user: Me): Promise<void> {
   setUser(user.id, user.role);
   if (user.lang && user.lang !== state.lang) await loadLang(user.lang);
   document.getElementById('logoutBtn')!.classList.remove('hidden');
+  await acceptPendingInvite();
   route();
 }
 
@@ -294,8 +296,10 @@ function inviteFlow(): void {
     $('#mk', s).onclick = (e) => busy(btn(e), async () => {
       let phone = val('#invPhone', s).replace(/[\s\-().]/g, '');
       if (phone && !phone.startsWith('+')) phone = '+' + phone;
-      const r = await api<{ code: string; phone: string | null; sent: boolean }>('POST', '/api/invites', { relation: val('#rel', s), phone: phone || undefined });
-      const msg = t(r.phone ? 'invite.messagePhone' : 'invite.message', { name: me().name, code: r.code, url: location.origin });
+      const r = await api<{ code: string; link: string; phone: string | null; sent: boolean }>('POST', '/api/invites', { relation: val('#rel', s), phone: phone || undefined });
+      // The link carries the code: the relative just taps it. The code stays visible as a fallback.
+      const link = `${location.origin}/?invite=${r.code}`;
+      const msg = t(r.phone ? 'invite.messagePhone' : 'invite.message', { name: me().name, code: r.code, url: link });
       // wa.me opens WhatsApp (app or web) with the message ready; with a number it opens that chat directly.
       const wa = `https://wa.me/${r.phone ? r.phone.replace(/\D/g, '') : ''}?text=${encodeURIComponent(msg)}`;
       $('#out', s).innerHTML = `<div class="code">${r.code}</div>
@@ -640,7 +644,28 @@ document.getElementById('logoutBtn')!.addEventListener('click', async () => {
   state.me = null; setUser(null); document.getElementById('logoutBtn')!.classList.add('hidden'); route();
 });
 
+// An invitation link (/?invite=CODE) is kept until the relative has logged in, then accepted.
+const INVITE_KEY = 'pendingInvite';
+function pendingInvite(): string | null { try { return sessionStorage.getItem(INVITE_KEY); } catch { return null; } }
+function setPendingInvite(code: string | null): void {
+  try { if (code) sessionStorage.setItem(INVITE_KEY, code); else sessionStorage.removeItem(INVITE_KEY); } catch {}
+}
+async function acceptPendingInvite(): Promise<void> {
+  const code = pendingInvite();
+  if (!code || state.me?.role !== 'family') return;
+  setPendingInvite(null);
+  try {
+    const r = await api<{ payer: { name: string } }>('POST', '/api/invites/accept', { code });
+    toast(t('family.linked', { name: r.payer.name }));
+  } catch (e) { toast(errText(e)); }
+}
+
 (async function init() {
+  const invite = new URLSearchParams(location.search).get('invite');
+  if (invite && /^[A-Za-z0-9]{6}$/.test(invite)) {
+    setPendingInvite(invite.toUpperCase());
+    history.replaceState(null, '', location.pathname); // don't leave the code in the address bar
+  }
   let lang = 'fr';
   try { lang = localStorage.getItem('lang') || ''; } catch {}
   if (!LANGS.includes(lang as Lang)) lang = LANGS.find((l) => (navigator.language || '').startsWith(l)) || 'fr';

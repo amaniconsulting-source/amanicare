@@ -19,6 +19,8 @@ const userView = (u: UserRow | null | undefined) =>
   u && ({ id: u.id, phone: u.phone, name: u.name, role: u.role, lang: u.lang, clinicId: u.clinic_id });
 const getUser = (id: string) => one<UserRow>('SELECT * FROM users WHERE id = $1', id);
 const getClinic = (id: string) => one<ClinicRow>('SELECT * FROM clinics WHERE id = $1', id);
+/** Opening this link signs the relative up as family and accepts the invitation automatically. */
+const inviteLink = (code: string) => `${config.baseUrl.replace(/\/$/, '')}/?invite=${code}`;
 
 // ---------- Auth ----------
 router.post('/api/auth/request-otp', async ({ body }: Ctx) => {
@@ -73,9 +75,9 @@ router.post('/api/invites', requireRole('payer'), async ({ user, body }: AuthCtx
   let sent = false;
   if (to && config.messaging === 'whatsapp') {
     // Note: WhatsApp only delivers this outside a 24 h conversation window with an approved template.
-    sent = (await notify('invite', { to, kind: 'invite', lang: user.lang, params: { name: user.name, code, url: config.baseUrl } })) === 'sent';
+    sent = (await notify('invite', { to, kind: 'invite', lang: user.lang, params: { name: user.name, link: inviteLink(code) } })) === 'sent';
   }
-  return { code, expiresInDays: 7, phone: to, sent };
+  return { code, link: inviteLink(code), expiresInDays: 7, phone: to, sent };
 });
 
 router.post('/api/invites/accept', requireRole('family'), async ({ user, body }: AuthCtx) => {

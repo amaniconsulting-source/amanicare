@@ -64,7 +64,7 @@
  "invite.create": "Create code",
  "invite.expires": "Valid for 7 days, for one person.",
  "invite.copy": "Copy message",
- "invite.message": "{name} invites you to AmaniCare to pay your hospital bills directly. Open {url}, sign up as family, and enter the code {code}.",
+ "invite.message": "{name} invites you to AmaniCare to pay your hospital bills directly. Open this link to accept: {url} (sign up as family). Invitation code if asked: {code}",
  "family.newBill": "Send a new bill",
  "family.supportedBy": "Bills go to {names}",
  "family.linkTitle": "Link with your family member abroad",
@@ -222,7 +222,7 @@
  "invite.phone": "Their WhatsApp number (optional)",
  "invite.phoneHint": "With a number, only that person can use the code, and WhatsApp opens their chat directly.",
  "invite.expiresPhone": "Valid for 7 days, only for {phone}.",
- "invite.messagePhone": "{name} invites you to AmaniCare to pay your hospital bills directly. Open {url}, sign up as family with this phone number, and enter the code {code}.",
+ "invite.messagePhone": "{name} invites you to AmaniCare to pay your hospital bills directly. Open this link to accept: {url} (sign up as family with this phone number). Invitation code if asked: {code}",
  "invite.whatsapp": "Send on WhatsApp",
  "invite.whatsappAgain": "Send again on WhatsApp",
  "invite.sent": "Sent to {phone} on WhatsApp.",
@@ -240,5 +240,6 @@
  "admin.scopeAll": "All facilities (default)",
  "admin.scopeHint": "Each bill is checked against the most specific price: the facility's own list first, then its facility type, then the default list. Items are recognised by their description, not by codes.",
  "admin.scopeEmpty": "No prices yet for this list: bills use the facility type or default prices.",
- "admin.copyGeneral": "Start from the default prices"
+ "admin.copyGeneral": "Start from the default prices",
+ "login.invited": "You've been invited by a relative. Log in or sign up with your phone number: the invitation will be accepted automatically."
 }

@@ -75,10 +75,12 @@ const NOTIFICATIONS = {
   },
   invite: {
     texts: {
-      fr: (p) => `Bonjour ! ${p.name} vous invite sur AmaniCare pour payer directement vos factures d'hôpital. Ouvrez ${p.url}, inscrivez-vous comme famille avec ce numéro et entrez le code ${p.code} pour lier vos comptes.`,
-      en: (p) => `Hello! ${p.name} invites you to AmaniCare to pay your hospital bills directly. Open ${p.url}, sign up as family with this number, and enter the code ${p.code} to link your accounts.`,
+      // The invitation is a link (…/?invite=CODE), not a code to type: simpler for families, and
+      // Meta classifies any template mentioning a "code" as an authentication message.
+      fr: (p) => `Bonjour ! ${p.name} vous invite sur AmaniCare pour payer directement vos factures d'hôpital. Ouvrez ce lien pour accepter l'invitation : ${p.link} Inscrivez-vous comme famille avec ce numéro de téléphone.`,
+      en: (p) => `Hello! ${p.name} invites you to AmaniCare to pay your hospital bills directly. Open this link to accept the invitation: ${p.link} Sign up as family with this phone number.`,
     },
-    template: { name: 'amanicare_invite', languages: ['fr', 'en'], body: (p) => [p.name, p.url, p.code] },
+    template: { name: 'amanicare_invite', languages: ['fr', 'en'], body: (p) => [p.name, p.link] },
   },
 } satisfies Record<string, Notification>;
 

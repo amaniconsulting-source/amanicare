@@ -64,7 +64,7 @@
  "invite.create": "Créer le code",
  "invite.expires": "Valable 7 jours, pour une seule personne.",
  "invite.copy": "Copier le message",
- "invite.message": "{name} vous invite sur AmaniCare pour payer directement vos factures d'hôpital. Ouvrez {url}, inscrivez-vous comme famille et entrez le code {code}.",
+ "invite.message": "{name} vous invite sur AmaniCare pour payer directement vos factures d'hôpital. Ouvrez ce lien pour accepter : {url} (inscrivez-vous comme famille). Code d'invitation si demandé : {code}",
  "family.newBill": "Envoyer une nouvelle facture",
  "family.supportedBy": "Les factures vont à {names}",
  "family.linkTitle": "Liez-vous à votre parent à l'étranger",
@@ -222,7 +222,7 @@
  "invite.phone": "Son numéro WhatsApp (facultatif)",
  "invite.phoneHint": "Avec un numéro, seule cette personne peut utiliser le code, et WhatsApp ouvre directement sa conversation.",
  "invite.expiresPhone": "Valable 7 jours, uniquement pour le {phone}.",
- "invite.messagePhone": "{name} vous invite sur AmaniCare pour payer directement vos factures d'hôpital. Ouvrez {url}, inscrivez-vous comme famille avec ce numéro de téléphone et entrez le code {code}.",
+ "invite.messagePhone": "{name} vous invite sur AmaniCare pour payer directement vos factures d'hôpital. Ouvrez ce lien pour accepter : {url} (inscrivez-vous comme famille avec ce numéro de téléphone). Code d'invitation si demandé : {code}",
  "invite.whatsapp": "Envoyer sur WhatsApp",
  "invite.whatsappAgain": "Renvoyer sur WhatsApp",
  "invite.sent": "Envoyé au {phone} sur WhatsApp.",
@@ -240,5 +240,6 @@
  "admin.scopeAll": "Tous les établissements (par défaut)",
  "admin.scopeHint": "Chaque facture est comparée au prix le plus précis : d'abord la liste de l'établissement, puis celle de son type, puis la liste par défaut. Les actes sont reconnus par leur description, pas par des codes.",
  "admin.scopeEmpty": "Pas encore de prix pour cette liste : les factures utilisent les prix du type d'établissement ou par défaut.",
- "admin.copyGeneral": "Partir des prix par défaut"
+ "admin.copyGeneral": "Partir des prix par défaut",
+ "login.invited": "Un proche vous a invité. Connectez-vous ou inscrivez-vous avec votre numéro : l'invitation sera acceptée automatiquement."
 }
