@@ -150,7 +150,7 @@ async function sendWhatsApp(msg: OutboundMessage): Promise<string | null> {
 }
 
 export async function send(msg: OutboundMessage): Promise<string> {
-  const channel = config.messaging === 'whatsapp' ? 'whatsapp' : 'sandbox';
+  const channel = config.messaging === 'whatsapp' && (msg.kind !== 'otp' || config.whatsapp.loginCodes) ? 'whatsapp' : 'sandbox';
   let status = 'stored';
   let providerId: string | null = null;
   let error: string | null = null;

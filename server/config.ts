@@ -65,6 +65,10 @@ export const config = {
     useTemplates: bool(env.WHATSAPP_USE_TEMPLATES, true),
     // Optional prefix if your template names differ, e.g. "test_" → "test_amanicare_login_code".
     templatePrefix: env.WHATSAPP_TEMPLATE_PREFIX || '',
+    // Login codes need an *authentication* template, which Meta only allows after business
+    // verification. Until then set WHATSAPP_LOGIN_CODES=0: codes stay in the outbox (and on
+    // screen with OTP_DEV=1) while every other message goes out on WhatsApp.
+    loginCodes: bool(env.WHATSAPP_LOGIN_CODES, true),
   },
 
   // Error monitoring. Leave SENTRY_DSN empty to turn Sentry off (server and browser).

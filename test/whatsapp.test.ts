@@ -149,6 +149,18 @@ test('WhatsApp: templates out, button replies and receipts in', async () => {
   assert.match(failed.error, /Template not found/);
 });
 
+test('login codes can stay off WhatsApp until the business is verified', async () => {
+  const { config } = await import('../server/config.js');
+  config.whatsapp.loginCodes = false;
+  try {
+    const before = sent.length;
+    await login(client(), '+12145550900', { name: 'NoWA', role: 'payer' });
+    assert.equal(sent.length, before); // nothing sent to WhatsApp
+    const m = (await one<{ channel: string; status: string }>("SELECT channel, status FROM messages WHERE to_phone = '+12145550900' ORDER BY id LIMIT 1"))!;
+    assert.deepEqual(m, { channel: 'sandbox', status: 'stored' });
+  } finally { config.whatsapp.loginCodes = true; }
+});
+
 test('WhatsApp webhook verification handshake', async () => {
   const ok = await realFetch(`${base}/api/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=test-verify&hub.challenge=12345`);
   assert.equal(await ok.text(), '12345');

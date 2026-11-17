@@ -54,6 +54,11 @@ Create these in **WhatsApp Manager → Message templates → Create template**. 
 variables and button order must match exactly. Approval usually takes minutes, sometimes hours.
 
 ### `amanicare_login_code`: Authentication, French and English
+Meta only allows authentication templates once the business portfolio is **verified**
+("This WhatsApp business account does not have permission to create message template").
+Until then, set `WHATSAPP_LOGIN_CODES=0` in `.env`: login codes stay in the outbox (shown on screen
+with `OTP_DEV=1`) and every other message goes out on WhatsApp. Create this template after verification.
+
 Choose **Authentication** → **Copy code**. Add the security recommendation and an expiry of
 **10 minutes**. Meta writes the text itself.
 
