@@ -51,7 +51,10 @@ WhatsApp → **Configuration → Webhook → Edit**:
 
 WhatsApp only delivers messages that AmaniCare starts if they use a template Meta has approved.
 Create these in **WhatsApp Manager → Message templates → Create template**. Names, languages,
-variables and button order must match exactly. Approval usually takes minutes, sometimes hours.
+variables and button order must match exactly. Meta lets you pick one language at a time: create
+the French version, then create the English one with the same name. Use plain **French** and
+**English** (not English (US) etc.), and variable type **Number**. A template can't start or end
+with a variable (a final "." doesn't count), which is why some texts end with a short sentence. Approval usually takes minutes, sometimes hours.
 
 ### `amanicare_login_code`: Authentication, French and English
 Meta only allows authentication templates once the business portfolio is **verified**
@@ -86,14 +89,14 @@ Samples: `Centre Médical Espoir` · `Josephine K.` · `$23.00`
 Samples: `$23.00` · `Bank ••4821` · `SBX-P-1A2B3C4D` · `Josephine K.`
 
 ### `amanicare_bill_update`: Utility, French and English
-- fr: `AmaniCare : facture de {{1}} – {{2}}.`
-- en: `AmaniCare: {{1}}'s bill – {{2}}.`
+- fr: `AmaniCare : la facture de {{1}} est {{2}}. Ouvrez l'application pour les détails.`
+- en: `AmaniCare: {{1}}'s bill is {{2}}. Open the app for details.`
 
 Samples: `Josephine K.` · `payée à la clinique` (en: `paid to the clinic`)
 
 ### `amanicare_invite`: Utility, French and English
-- fr: `Bonjour ! {{1}} vous invite sur AmaniCare pour payer directement vos factures d'hôpital. Ouvrez {{2}}, inscrivez-vous comme famille avec ce numéro et entrez le code {{3}}.`
-- en: `Hello! {{1}} invites you to AmaniCare to pay your hospital bills directly. Open {{2}}, sign up as family with this number, and enter the code {{3}}.`
+- fr: `Bonjour ! {{1}} vous invite sur AmaniCare pour payer directement vos factures d'hôpital. Ouvrez {{2}}, inscrivez-vous comme famille avec ce numéro et entrez le code {{3}} pour lier vos comptes.`
+- en: `Hello! {{1}} invites you to AmaniCare to pay your hospital bills directly. Open {{2}}, sign up as family with this number, and enter the code {{3}} to link your accounts.`
 
 Samples: `Alain` · `https://amanicare.example` · `A1B2C3`
 

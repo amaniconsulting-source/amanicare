@@ -65,17 +65,18 @@ const NOTIFICATIONS = {
   },
   familyUpdate: {
     texts: {
-      fr: (p) => `AmaniCare : facture de ${p.patient} – ${p.status}.`,
-      en: (p) => `AmaniCare: ${p.patient}'s bill – ${p.status}.`,
-      ln: (p) => `AmaniCare : facture ya ${p.patient} – ${p.status}.`,
-      sw: (p) => `AmaniCare: bili ya ${p.patient} – ${p.status}.`,
+      // WhatsApp templates can't end with a variable, hence the closing sentence.
+      fr: (p) => `AmaniCare : la facture de ${p.patient} est ${p.status}. Ouvrez l'application pour les détails.`,
+      en: (p) => `AmaniCare: ${p.patient}'s bill is ${p.status}. Open the app for details.`,
+      ln: (p) => `AmaniCare : facture ya ${p.patient} – ${p.status}. Fungola application mpo na koyeba makambo nyonso.`,
+      sw: (p) => `AmaniCare: bili ya ${p.patient} – ${p.status}. Fungua programu kwa maelezo zaidi.`,
     },
     template: { name: 'amanicare_bill_update', languages: ['fr', 'en'], body: (p) => [p.patient, p.status] },
   },
   invite: {
     texts: {
-      fr: (p) => `Bonjour ! ${p.name} vous invite sur AmaniCare pour payer directement vos factures d'hôpital. Ouvrez ${p.url}, inscrivez-vous comme famille avec ce numéro et entrez le code ${p.code}.`,
-      en: (p) => `Hello! ${p.name} invites you to AmaniCare to pay your hospital bills directly. Open ${p.url}, sign up as family with this number, and enter the code ${p.code}.`,
+      fr: (p) => `Bonjour ! ${p.name} vous invite sur AmaniCare pour payer directement vos factures d'hôpital. Ouvrez ${p.url}, inscrivez-vous comme famille avec ce numéro et entrez le code ${p.code} pour lier vos comptes.`,
+      en: (p) => `Hello! ${p.name} invites you to AmaniCare to pay your hospital bills directly. Open ${p.url}, sign up as family with this number, and enter the code ${p.code} to link your accounts.`,
     },
     template: { name: 'amanicare_invite', languages: ['fr', 'en'], body: (p) => [p.name, p.url, p.code] },
   },
