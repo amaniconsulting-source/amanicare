@@ -112,7 +112,7 @@ td input.qty{width:52px;padding:8px 6px} td input.price{width:84px;padding:8px 6
 .guide-steps b{display:block;margin-bottom:2px}
 .guide-steps p{margin:0;font-size:14px;color:var(--muted)}
 .trust{display:grid;gap:10px;margin:16px 0}
-@media(min-width:640px){.trust{grid-template-columns:repeat(3,1fr)}}
+@media(min-width:640px){.trust{grid-template-columns:repeat(2,1fr)}}
 .trust div{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--card)}
 .trust span{font-size:22px}
 .trust b{display:block;margin:4px 0 2px}
@@ -159,3 +159,11 @@ a.link{color:var(--brand);font-size:14px;font-weight:600}
 .invite-row:last-child{border-bottom:0}
 .invite-row button{flex:0 0 auto;min-height:40px;padding:8px 12px;font-size:14px}
 .card.start button.secondary{margin-top:8px}
+/* Welcome: which side of the family are you on? */
+.side-q{font-weight:700;margin:18px 0 8px}
+.sides{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.side{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;background:var(--card);color:var(--ink);border:2px solid var(--line);border-radius:var(--radius);padding:12px;min-height:0;font-weight:400}
+.side b{font-size:16px}
+.side span{font-size:13px;color:var(--muted);line-height:1.3}
+.side .side-icon{font-size:24px;color:inherit}
+.side.on{border-color:var(--brand);background:var(--brand-soft)}

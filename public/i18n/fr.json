@@ -246,7 +246,7 @@
  "help": "Aide",
  "help.title": "Aide",
  "guide.title": "Comment fonctionne AmaniCare",
- "guide.intro": "Payez les factures d'hôpital de votre famille en RDC. L'argent va directement à l'hôpital, et chaque facture est vérifiée avant.",
+ "guide.intro": "La famille en RDC envoie la facture d'hôpital, la famille à l'étranger la paie, et l'argent va directement à l'hôpital. Chaque facture est vérifiée avant.",
  "guide.tab.payer": "Je vis à l'étranger",
  "guide.tab.family": "Je vis en RDC",
  "guide.tab.clinic": "Je travaille dans un hôpital",
@@ -273,7 +273,7 @@
  "guide.clinic.3.t": "Vous êtes payé",
  "guide.clinic.3.d": "Dès que la famille paie, l'argent est envoyé sur votre compte et vous recevez un message WhatsApp avec la référence.",
  "trust.1.t": "Directement à l'hôpital",
- "trust.1.d": "AmaniCare ne garde jamais votre argent. Les paiements passent par une banque agréée.",
+ "trust.1.d": "AmaniCare ne garde jamais l'argent. Les paiements passent par une banque agréée.",
  "trust.2.t": "Chaque facture est vérifiée",
  "trust.2.d": "Les prix sont comparés aux prix habituels, et l'hôpital confirme avant tout paiement.",
  "trust.3.t": "Vous voyez tout",
@@ -357,5 +357,12 @@
  "err.invite_expired": "Cette invitation a expiré. Demandez à {name} de la renvoyer depuis AmaniCare.",
  "err.invite_for_family": "Cette invitation est destinée à un proche vivant en RDC.",
  "err.invite_for_payer": "Cette invitation est destinée à une personne vivant à l'étranger.",
- "err.invite_already_used": "Cette invitation a déjà été utilisée."
+ "err.invite_already_used": "Cette invitation a déjà été utilisée.",
+ "side.question": "Où êtes-vous ?",
+ "side.family": "Je suis en RDC",
+ "side.familyHint": "J'envoie les factures d'hôpital à un proche à l'étranger",
+ "side.payer": "Je vis à l'étranger",
+ "side.payerHint": "Je paie les factures d'hôpital de ma famille",
+ "trust.4.t": "Gratuit en RDC",
+ "trust.4.d": "La famille en RDC ne paie rien et n'avance rien. L'hôpital est payé vite et le patient peut rentrer."
 }

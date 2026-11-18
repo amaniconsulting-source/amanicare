@@ -246,7 +246,7 @@
  "help": "Help",
  "help.title": "Help",
  "guide.title": "How AmaniCare works",
- "guide.intro": "Pay hospital bills for your family in the DRC. The money goes straight to the hospital, and every bill is checked first.",
+ "guide.intro": "The family in the DRC sends the hospital bill, the family abroad pays it, and the money goes straight to the hospital. Every bill is checked first.",
  "guide.tab.payer": "I live abroad",
  "guide.tab.family": "I live in the DRC",
  "guide.tab.clinic": "I work at a hospital",
@@ -273,7 +273,7 @@
  "guide.clinic.3.t": "You're paid",
  "guide.clinic.3.d": "Once the family pays, the money is sent to your account and you get a WhatsApp message with the reference.",
  "trust.1.t": "Straight to the hospital",
- "trust.1.d": "AmaniCare never holds your money. Payments go through a licensed bank.",
+ "trust.1.d": "AmaniCare never holds the money. Payments go through a licensed bank.",
  "trust.2.t": "Every bill is checked",
  "trust.2.d": "Prices are compared with usual prices, and the hospital confirms before anyone pays.",
  "trust.3.t": "You see everything",
@@ -357,5 +357,12 @@
  "err.invite_expired": "This invitation has expired. Ask {name} to send it again from AmaniCare.",
  "err.invite_for_family": "This invitation is meant for a relative living in the DRC.",
  "err.invite_for_payer": "This invitation is meant for someone living abroad.",
- "err.invite_already_used": "This invitation has already been used."
+ "err.invite_already_used": "This invitation has already been used.",
+ "side.question": "Where are you?",
+ "side.family": "I'm in the DRC",
+ "side.familyHint": "I send hospital bills to a relative abroad",
+ "side.payer": "I live abroad",
+ "side.payerHint": "I pay my family's hospital bills",
+ "trust.4.t": "Free in the DRC",
+ "trust.4.d": "The family in the DRC pays nothing and advances nothing. The hospital is paid quickly so the patient can go home."
 }

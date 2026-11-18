@@ -214,7 +214,7 @@ function wireGuide(root: ParentNode): void {
 }
 
 function trustHtml(): string {
-  return `<div class="trust">${['🔒', '🔎', '👀'].map((icon, i) => `<div><span aria-hidden="true">${icon}</span>
+  return `<div class="trust">${['🔒', '🔎', '👀', '🤝'].map((icon, i) => `<div><span aria-hidden="true">${icon}</span>
     <b>${t(`trust.${i + 1}.t`)}</b><p>${t(`trust.${i + 1}.d`)}</p></div>`).join('')}</div>`;
 }
 
@@ -256,8 +256,17 @@ function nextStep(b: Bill): string {
 
 // ---------- login ----------
 function renderLogin(): void {
-  const s: { phone: string; code: string; step: 'phone' | 'code' | 'profile'; role: string; name: string; devCode?: string } =
-    { phone: '', code: '', step: 'phone', role: pendingInvite() ? pendingInviteAs() : '', name: '' };
+  // side: which side of the family the visitor is on. Picked on the welcome card, or guessed from the
+  // phone number (+243 → in the DRC) until they pick. It sets the steps shown and the role at sign-up.
+  const s: { phone: string; code: string; step: 'phone' | 'code' | 'profile'; role: string; name: string; devCode?: string; side: '' | 'payer' | 'family'; picked: boolean } =
+    { phone: '', code: '', step: 'phone', role: pendingInvite() ? pendingInviteAs() : '', name: '', side: pendingInvite() ? pendingInviteAs() : '', picked: !!pendingInvite() };
+  const setSide = (side: 'payer' | 'family', picked: boolean): void => {
+    s.side = side; s.picked = s.picked || picked;
+    if (!s.role || picked) s.role = side;
+    $$<HTMLButtonElement>('[data-side]').forEach((b) => { b.classList.toggle('on', b.dataset.side === side); b.setAttribute('aria-pressed', String(b.dataset.side === side)); });
+    $<HTMLButtonElement>(`[data-guide-tab="${side}"]`)?.click();
+    const ph = document.querySelector<HTMLInputElement>('#ph'); if (ph) ph.placeholder = side === 'family' ? '+243 81 234 5678' : '+1 214 555 0100';
+  };
   const draw = (): void => {
     app.innerHTML = `
       <div class="card hero">
@@ -265,8 +274,11 @@ function renderLogin(): void {
         <p class="muted">${t('login.subtitle')}</p>
         ${pendingInvite() ? `<p class="notice info">${t('login.invited')}</p>` : ''}
         ${s.step === 'phone' ? `
+          <p class="side-q">${t('side.question')}</p>
+          <div class="sides">${(['family', 'payer'] as const).map((r) => `<button type="button" class="side ${s.side === r ? 'on' : ''}" data-side="${r}" aria-pressed="${s.side === r}">
+            <span class="side-icon" aria-hidden="true">${r === 'family' ? '🏠' : '✈️'}</span><b>${t('side.' + r)}</b><span>${t('side.' + r + 'Hint')}</span></button>`).join('')}</div>
           <label for="ph">${t('login.phone')}</label>
-          <input id="ph" type="tel" inputmode="tel" autocomplete="tel" placeholder="+243 81 234 5678" value="${esc(s.phone)}">
+          <input id="ph" type="tel" inputmode="tel" autocomplete="tel" placeholder="${s.side === 'payer' ? '+1 214 555 0100' : '+243 81 234 5678'}" value="${esc(s.phone)}">
           <p class="muted small">${t('login.phoneHint')}</p>
           <button class="block" id="sendCode">${t('login.sendCode')}</button>`
         : s.step === 'code' ? `
@@ -287,7 +299,7 @@ function renderLogin(): void {
       <section class="card" id="guide">
         <h2>${t('guide.title')}</h2>
         <p class="muted">${t('guide.intro')}</p>
-        ${guideHtml(pendingInvite() ? pendingInviteAs() : 'payer')}
+        ${guideHtml(s.side || 'family', ['family', 'payer', 'clinic'])}
         ${trustHtml()}
         ${faqHtml()}
       </section>
@@ -296,6 +308,13 @@ function renderLogin(): void {
     wireGuide(app);
 
     if (s.step === 'phone') {
+      $$<HTMLButtonElement>('[data-side]').forEach((b) => (b.onclick = () => { setSide(b.dataset.side as 'payer' | 'family', true); $('#ph').focus(); }));
+      // Until they pick, guess the side from the number: a DRC number means family in the DRC.
+      $('#ph').oninput = () => {
+        if (s.picked) return;
+        const digits = val('#ph').replace(/\D/g, '');
+        if (digits.length >= 3) setSide(digits.startsWith('243') || /^0[89]/.test(digits) ? 'family' : 'payer', false);
+      };
       $('#sendCode').onclick = (e) => busy(btn(e), async () => {
         s.phone = val('#ph').replace(/[\s\-().]/g, '');
         if (s.phone && !s.phone.startsWith('+')) s.phone = '+' + s.phone;
