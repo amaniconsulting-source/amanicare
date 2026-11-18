@@ -19,8 +19,9 @@ const userView = (u: UserRow | null | undefined) =>
   u && ({ id: u.id, phone: u.phone, name: u.name, role: u.role, lang: u.lang, clinicId: u.clinic_id });
 const getUser = (id: string) => one<UserRow>('SELECT * FROM users WHERE id = $1', id);
 const getClinic = (id: string) => one<ClinicRow>('SELECT * FROM clinics WHERE id = $1', id);
-/** Opening this link signs the relative up as family and accepts the invitation automatically. */
-const inviteLink = (code: string) => `${config.baseUrl.replace(/\/$/, '')}/?invite=${code}`;
+/** Opening this link signs the other side up (as=family or as=payer) and accepts the invitation automatically. */
+const inviteLink = (code: string, inviterRole: 'payer' | 'family' | string = 'payer') =>
+  `${config.baseUrl.replace(/\/$/, '')}/?invite=${code}&as=${inviterRole === 'payer' ? 'family' : 'payer'}`;
 
 // ---------- Auth ----------
 router.post('/api/auth/request-otp', async ({ body }: Ctx) => {
@@ -62,37 +63,79 @@ router.patch('/api/me', requireRole(), async ({ user, body }: AuthCtx) => {
   return { user: userView(await getUser(user.id)) };
 });
 
-// ---------- Family links (payer invites family with a short code) ----------
-// The payer can give the family member's phone number: then only that number can use the code,
-// and (once WhatsApp is live) AmaniCare sends the invite itself. Without a number it works as before.
-router.post('/api/invites', requireRole('payer'), async ({ user, body }: AuthCtx) => {
-  const code = randomBytes(4).toString('hex').slice(0, 6).toUpperCase();
+// ---------- Family links (either side invites the other with a short code or link) ----------
+// A payer abroad invites a relative in the DRC, or a relative in the DRC invites someone abroad.
+// With the invitee's phone number, only that number can use the code, and (once WhatsApp is live)
+// AmaniCare sends the invite itself. Invitations last 7 days and can be sent again ("renewed").
+const INVITE_DAYS = 7;
+const newInviteCode = () => randomBytes(4).toString('hex').slice(0, 6).toUpperCase();
+const inviterId = (i: InviteRow) => (i.inviter_role === 'payer' ? i.payer_id : i.family_id)!;
+
+async function sendInviteMessage(inviter: UserRow, code: string, to: string | null): Promise<boolean> {
+  if (!to || config.messaging !== 'whatsapp') return false;
+  // Note: WhatsApp only delivers this outside a 24 h conversation window with an approved template.
+  const key = inviter.role === 'payer' ? 'invite' : 'inviteAbroad';
+  return (await notify(key, { to, kind: 'invite', lang: inviter.lang, params: { name: inviter.name, link: inviteLink(code, inviter.role) } })) === 'sent';
+}
+
+function inviteView(i: InviteRow, inviter: UserRow) {
+  return {
+    code: i.code, link: inviteLink(i.code, inviter.role), relation: i.relation, phone: i.phone,
+    expiresAt: i.expires_at, expired: i.expires_at < Date.now(), expiresInDays: INVITE_DAYS,
+  };
+}
+
+router.post('/api/invites', requireRole('payer', 'family'), async ({ user, body }: AuthCtx) => {
+  const code = newInviteCode();
   const relation = str(body.relation, { max: 40, name: 'relation' });
   const to = body.phone ? phone(body.phone) : null;
   if (to && to === user.phone) throw bad('invite_own_phone');
-  await run('INSERT INTO invites(code, payer_id, relation, expires_at, phone) VALUES($1,$2,$3,$4,$5)',
-    code, user.id, relation, Date.now() + 7 * 864e5, to);
-  let sent = false;
-  if (to && config.messaging === 'whatsapp') {
-    // Note: WhatsApp only delivers this outside a 24 h conversation window with an approved template.
-    sent = (await notify('invite', { to, kind: 'invite', lang: user.lang, params: { name: user.name, link: inviteLink(code) } })) === 'sent';
-  }
-  return { code, link: inviteLink(code), expiresInDays: 7, phone: to, sent };
+  await run(`INSERT INTO invites(code, payer_id, family_id, inviter_role, relation, expires_at, phone) VALUES($1,$2,$3,$4,$5,$6,$7)`,
+    code, user.role === 'payer' ? user.id : null, user.role === 'family' ? user.id : null, user.role, relation,
+    Date.now() + INVITE_DAYS * 864e5, to);
+  const sent = await sendInviteMessage(user, code, to);
+  return { ...inviteView((await one<InviteRow>('SELECT * FROM invites WHERE code = $1', code))!, user), sent };
 });
 
-router.post('/api/invites/accept', requireRole('family'), async ({ user, body }: AuthCtx) => {
+/** Invitations I sent that nobody has used yet (waiting or expired). */
+router.get('/api/invites', requireRole('payer', 'family'), async ({ user }: AuthCtx) => {
+  const rows = await all<InviteRow>(`SELECT * FROM invites WHERE used_by IS NULL AND inviter_role = $2
+     AND (payer_id = $1 OR family_id = $1) ORDER BY created_at DESC LIMIT 20`, user.id, user.role);
+  return { invites: rows.map((i) => inviteView(i, user)) };
+});
+
+/** Sends an invitation again: a new code valid 7 more days; the old code stops working. */
+router.post('/api/invites/:code/renew', requireRole('payer', 'family'), async ({ user, params }: AuthCtx) => {
+  const old = await one<InviteRow>('SELECT * FROM invites WHERE code = $1', params.code.toUpperCase());
+  if (!old || inviterId(old) !== user.id) throw notFound();
+  if (old.used_by) throw bad('invite_already_used');
+  const code = newInviteCode();
+  await run('UPDATE invites SET code = $1, expires_at = $2, created_at = now() WHERE code = $3', code, Date.now() + INVITE_DAYS * 864e5, old.code);
+  const sent = await sendInviteMessage(user, code, old.phone);
+  return { ...inviteView((await one<InviteRow>('SELECT * FROM invites WHERE code = $1', code))!, user), sent };
+});
+
+router.post('/api/invites/accept', requireRole('payer', 'family'), async ({ user, body }: AuthCtx) => {
   const code = str(body.code, { min: 6, max: 6, name: 'code' }).toUpperCase();
   const inv = await tx(async () => {
     // Lock the invite so it can only be used once, even with two taps at the same moment.
     const i = await one<InviteRow>('SELECT * FROM invites WHERE code = $1 FOR UPDATE', code);
-    if (!i || i.used_by || i.expires_at < Date.now()) throw bad('invalid_invite');
+    if (!i || i.used_by) throw bad('invalid_invite');
+    const inviter = (await getUser(inviterId(i)))!;
+    // The message names the inviter, so the person knows who to ask for a new invitation.
+    if (i.expires_at < Date.now()) throw new HttpError(410, 'invite_expired', inviter.name);
     if (i.phone && i.phone !== user.phone) throw bad('invite_other_phone');
-    await run('INSERT INTO links(payer_id, family_id, relation) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', i.payer_id, user.id, i.relation);
+    // An invitation from abroad is for a relative in the DRC, and the other way round.
+    if (i.inviter_role === user.role) throw bad(i.inviter_role === 'payer' ? 'invite_for_family' : 'invite_for_payer');
+    const payerId = i.inviter_role === 'payer' ? i.payer_id! : user.id;
+    const familyId = i.inviter_role === 'family' ? i.family_id! : user.id;
+    await run('INSERT INTO links(payer_id, family_id, relation) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', payerId, familyId, i.relation);
     await run('UPDATE invites SET used_by = $1 WHERE code = $2', user.id, code);
-    return i;
+    return { inviter };
   });
-  const payer = await one<{ id: string; name: string }>('SELECT id, name FROM users WHERE id = $1', inv.payer_id);
-  return { payer };
+  const linkedWith = { id: inv.inviter.id, name: inv.inviter.name };
+  // "payer" kept for relatives in the DRC (earlier app versions read it).
+  return user.role === 'family' ? { payer: linkedWith, linkedWith } : { family: linkedWith, linkedWith };
 });
 
 router.get('/api/family', requireRole('payer'), async ({ user }: AuthCtx) => ({

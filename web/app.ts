@@ -101,7 +101,7 @@ async function api<T = any>(method: string, path: string, body?: unknown): Promi
 }
 const errText = (e: unknown): string => {
   const err = e as ApiError;
-  return t('err.' + err.code) !== 'err.' + err.code ? t('err.' + err.code) : (err.detail || t('err.generic'));
+  return t('err.' + err.code) !== 'err.' + err.code ? t('err.' + err.code, { name: err.detail || '' }) : (err.detail || t('err.generic'));
 };
 // Unexpected errors (bugs, not API answers like "wrong code") go to Sentry.
 const reportUnexpected = (e: unknown) => { if (!(e instanceof ApiError) || (e.status ?? 0) >= 500) report(e); };
@@ -190,7 +190,7 @@ const GUIDE_ICONS: Record<GuideRole, string[]> = {
   family: ['🔗', '📷', '🏥', '✅'],
   clinic: ['💬', '✅', '💰'],
 };
-const FAQ = ['cost', 'time', 'clinic', 'held', 'failed', 'many', 'privacy', 'code'];
+const FAQ = ['cost', 'invite', 'time', 'clinic', 'held', 'failed', 'many', 'privacy', 'code'];
 const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content || '';
 
 function guideSteps(role: GuideRole): string {
@@ -257,7 +257,7 @@ function nextStep(b: Bill): string {
 // ---------- login ----------
 function renderLogin(): void {
   const s: { phone: string; code: string; step: 'phone' | 'code' | 'profile'; role: string; name: string; devCode?: string } =
-    { phone: '', code: '', step: 'phone', role: pendingInvite() ? 'family' : '', name: '' };
+    { phone: '', code: '', step: 'phone', role: pendingInvite() ? pendingInviteAs() : '', name: '' };
   const draw = (): void => {
     app.innerHTML = `
       <div class="card hero">
@@ -287,7 +287,7 @@ function renderLogin(): void {
       <section class="card" id="guide">
         <h2>${t('guide.title')}</h2>
         <p class="muted">${t('guide.intro')}</p>
-        ${guideHtml(pendingInvite() ? 'family' : 'payer')}
+        ${guideHtml(pendingInvite() ? pendingInviteAs() : 'payer')}
         ${trustHtml()}
         ${faqHtml()}
       </section>
@@ -336,9 +336,10 @@ async function signedIn(user: Me): Promise<void> {
 // ---------- payer ----------
 async function renderPayer(): Promise<void> {
   app.innerHTML = `<p class="center"><span class="spinner"></span></p>`;
-  const [{ bills }, { members }] = await Promise.all([
+  const [{ bills }, { members }, sentInvites] = await Promise.all([
     api<{ bills: Bill[] }>('GET', '/api/bills'),
     api<{ members: { id: string; name: string; phone: string; relation: string }[] }>('GET', '/api/family'),
+    sentInvitesHtml(),
   ]);
   const todo = bills.filter((b) => ['awaiting_payer', 'payment_failed'].includes(b.status));
   const moving = bills.filter((b) => ['review', 'awaiting_clinic', 'payment_pending', 'paying_out'].includes(b.status));
@@ -348,7 +349,8 @@ async function renderPayer(): Promise<void> {
     <p class="muted">${t('payer.subtitle')}</p>
     ${members.length ? '' : `<div class="card start"><h2>${t('start.payer.title')}</h2><p>${t('start.payer.text')}</p>
       ${guideSteps('payer')}
-      <button class="block" data-invite>👨‍👩‍👧 ${t('start.payer.button')}</button></div>`}
+      <button class="block" data-invite>👨‍👩‍👧 ${t('start.payer.button')}</button>
+      <button class="secondary block" data-have-code>🔑 ${t('code.received')}</button></div>`}
     <div class="card"><h2>${t('payer.toApprove')}</h2>
       ${todo.length ? todo.map((b) => billCard(b, { showReasons: true, showExpected: true, showNext: false, actions: `
         ${b.status === 'payment_failed' ? `<p class="notice">${t('payer.paymentFailed')}</p>` : ''}
@@ -358,13 +360,19 @@ async function renderPayer(): Promise<void> {
     ${moving.length ? `<div class="card"><h2>${t('inProgress')}</h2>${moving.map((b) => billCard(b, { showReasons: true })).join('')}</div>` : ''}
     <div class="card"><div class="row between"><h2>${t('payer.family')}</h2><button class="small secondary" id="invite">${t('payer.invite')}</button></div>
       ${members.length ? `<table><tbody>${members.map((m) => `<tr><td><b>${esc(m.name)}</b><div class="muted small">${esc(m.relation)}</div></td><td class="num muted small">${esc(m.phone)}</td></tr>`).join('')}</tbody></table>` : `<p class="empty">${t('payer.noFamily')}</p>`}
+      <button class="link" data-have-code>🔑 ${t('code.received')}</button>
     </div>
+    ${codeCardHtml(true, t('code.title'), t('code.payerText'))}
+    ${sentInvites}
     <div class="card"><h2>${t('history')}</h2>${done.length ? done.map((b) => billCard(b)).join('') : `<p class="empty">${t('noHistory')}</p>`}</div>
     ${helpLink()}`;
   wireDetails(app);
   wireHelpLinks(app);
   $('#invite').onclick = inviteFlow;
   $$('[data-invite]').forEach((b) => (b.onclick = inviteFlow));
+  $$('[data-have-code]').forEach((b) => (b.onclick = () => { $('#linkCard').classList.remove('hidden'); $('#code').focus(); }));
+  wireCodeCard(renderPayer);
+  wireSentInvites(app);
   $$('[data-pay]').forEach((b) => (b.onclick = (e) => busy(btn(e), async () => {
     const r = await api<{ checkoutUrl: string | null }>('POST', `/api/bills/${b.dataset.pay}/pay`, {});
     if (r.checkoutUrl) location.href = r.checkoutUrl; else renderPayer();
@@ -375,65 +383,122 @@ async function renderPayer(): Promise<void> {
   }));
 }
 
+interface SentInvite { code: string; link: string; relation: string; phone: string | null; expiresAt: number; expired: boolean; sent?: boolean }
+
+/** WhatsApp message (and wa.me link) for an invitation, worded for who it's going to. */
+function inviteMessage(inv: SentInvite): { msg: string; wa: string } {
+  const abroad = me().role === 'family'; // a relative in the DRC invites someone abroad
+  const key = abroad ? (inv.phone ? 'invite.abroad.messagePhone' : 'invite.abroad.message') : (inv.phone ? 'invite.messagePhone' : 'invite.message');
+  const url = `${location.origin}/?invite=${inv.code}&as=${abroad ? 'payer' : 'family'}`;
+  const msg = t(key, { name: me().name, code: inv.code, url });
+  // wa.me opens WhatsApp (app or web) with the message ready; with a number it opens that chat directly.
+  return { msg, wa: `https://wa.me/${inv.phone ? inv.phone.replace(/\D/g, '') : ''}?text=${encodeURIComponent(msg)}` };
+}
+
+/** Code, message and Send-on-WhatsApp / Copy buttons for an invitation just created or renewed. */
+function showInvite(root: HTMLElement, inv: SentInvite): void {
+  const { msg, wa } = inviteMessage(inv);
+  root.innerHTML = `<div class="code">${inv.code}</div>
+    <p class="muted small">${inv.phone ? t('invite.expiresPhone', { phone: esc(inv.phone) }) : t('invite.expires')}</p>
+    ${inv.sent ? `<p class="notice info">${t('invite.sent', { phone: esc(inv.phone || '') })}</p>` : ''}
+    <p class="small">${esc(msg)}</p>
+    <a class="btn block" href="${esc(wa)}" target="_blank" rel="noopener">${t(inv.sent ? 'invite.whatsappAgain' : 'invite.whatsapp')}</a>
+    <button class="secondary block" data-copy>${t('invite.copy')}</button>`;
+  $('[data-copy]', root).onclick = async () => { try { await navigator.clipboard.writeText(msg); toast(t('copied')); } catch { toast(t('copyFailed')); } };
+}
+
 function inviteFlow(): void {
+  const abroad = me().role === 'family';
   openModal(`
-    <div class="row between"><h2>${t('invite.title')}</h2><button class="link" data-close>✕</button></div>
-    <p class="muted">${t('invite.subtitle')}</p>
+    <div class="row between"><h2>${t(abroad ? 'invite.abroad.title' : 'invite.title')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
+    <p class="muted">${t(abroad ? 'invite.abroad.subtitle' : 'invite.subtitle')}</p>
     <label for="rel">${t('invite.relation')}</label>
-    <input id="rel" placeholder="${t('invite.relationPh')}">
+    <input id="rel" placeholder="${t(abroad ? 'invite.abroad.relationPh' : 'invite.relationPh')}">
     <label for="invPhone">${t('invite.phone')}</label>
-    <input id="invPhone" type="tel" inputmode="tel" placeholder="+243 81 234 5678">
+    <input id="invPhone" type="tel" inputmode="tel" placeholder="${abroad ? '+1 214 555 0100' : '+243 81 234 5678'}">
     <p class="muted small">${t('invite.phoneHint')}</p>
     <button class="block" id="mk">${t('invite.create')}</button>
     <div id="out"></div>`, (s) => {
     $('#mk', s).onclick = (e) => busy(btn(e), async () => {
       let phone = val('#invPhone', s).replace(/[\s\-().]/g, '');
       if (phone && !phone.startsWith('+')) phone = '+' + phone;
-      const r = await api<{ code: string; link: string; phone: string | null; sent: boolean }>('POST', '/api/invites', { relation: val('#rel', s), phone: phone || undefined });
-      // The link carries the code: the relative just taps it. The code stays visible as a fallback.
-      const link = `${location.origin}/?invite=${r.code}`;
-      const msg = t(r.phone ? 'invite.messagePhone' : 'invite.message', { name: me().name, code: r.code, url: link });
-      // wa.me opens WhatsApp (app or web) with the message ready; with a number it opens that chat directly.
-      const wa = `https://wa.me/${r.phone ? r.phone.replace(/\D/g, '') : ''}?text=${encodeURIComponent(msg)}`;
-      $('#out', s).innerHTML = `<div class="code">${r.code}</div>
-        <p class="muted small">${r.phone ? t('invite.expiresPhone', { phone: esc(r.phone) }) : t('invite.expires')}</p>
-        ${r.sent ? `<p class="notice info">${t('invite.sent', { phone: esc(r.phone || '') })}</p>` : ''}
-        <p class="small">${esc(msg)}</p>
-        <a class="btn block" id="wa" href="${esc(wa)}" target="_blank" rel="noopener">${t(r.sent ? 'invite.whatsappAgain' : 'invite.whatsapp')}</a>
-        <button class="secondary block" id="cp">${t('invite.copy')}</button>`;
-      $('#cp', s).onclick = async () => { try { await navigator.clipboard.writeText(msg); toast(t('copied')); } catch { toast(t('copyFailed')); } };
+      const inv = await api<SentInvite>('POST', '/api/invites', { relation: val('#rel', s), phone: phone || undefined });
+      $('#mk', s).classList.add('hidden');
+      showInvite($('#out', s), inv);
+      route(); // the page behind now lists this invitation
     });
+  });
+}
+
+/** "Invitations sent" list: waiting ones can be shared again; expired ones sent again with a new code. */
+async function sentInvitesHtml(): Promise<string> {
+  const { invites } = await api<{ invites: SentInvite[] }>('GET', '/api/invites');
+  if (!invites.length) return '';
+  return `<div class="card"><h2>${t('invites.title')}</h2>${invites.map((i) => `<div class="invite-row">
+    <div><b>${esc(i.relation || i.phone || i.code)}</b><div class="muted small">${i.phone ? esc(i.phone) + ' · ' : ''}${i.expired
+      ? `<span class="pill high">${t('invites.expired')}</span>`
+      : t('invites.waiting', { date: fmtDate(new Date(i.expiresAt).toISOString()) })}</div></div>
+    <button class="small ${i.expired ? '' : 'secondary'}" data-inv="${esc(i.code)}" data-expired="${i.expired ? 1 : 0}">${t(i.expired ? 'invites.renew' : 'invites.share')}</button>
+  </div>`).join('')}</div>`;
+}
+function wireSentInvites(root: ParentNode): void {
+  $$<HTMLButtonElement>('[data-inv]', root).forEach((b) => (b.onclick = (e) => busy(btn(e), async () => {
+    let inv: SentInvite;
+    if (b.dataset.expired === '1') {
+      inv = await api<SentInvite>('POST', `/api/invites/${encodeURIComponent(b.dataset.inv!)}/renew`, {});
+      toast(t('invites.renewed'));
+    } else {
+      inv = (await api<{ invites: SentInvite[] }>('GET', '/api/invites')).invites.find((x) => x.code === b.dataset.inv)!;
+    }
+    openModal(`<div class="row between"><h2>${t(me().role === 'family' ? 'invite.abroad.title' : 'invite.title')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div><div id="out"></div>`,
+      (sheet) => showInvite($('#out', sheet), inv));
+    if (b.dataset.expired === '1') route();
+  })));
+}
+
+/** Code entry, for the code a relative sent (either direction). */
+function codeCardHtml(hidden: boolean, title: string, text: string): string {
+  return `<div class="card ${hidden ? 'hidden' : ''}" id="linkCard">
+    <h2>${title}</h2><p class="muted">${text}</p>
+    <input id="code" maxlength="6" placeholder="ABC123" autocapitalize="characters" aria-label="${t('code.title')}">
+    <button class="block" id="link">${t('family.link')}</button>
+  </div>`;
+}
+function wireCodeCard(after: () => void): void {
+  $('#link').onclick = (e) => busy(btn(e), async () => {
+    const r = await api<{ linkedWith: { name: string } }>('POST', '/api/invites/accept', { code: val('#code').trim().toUpperCase() });
+    toast(t('family.linked', { name: r.linkedWith.name })); after();
   });
 }
 
 // ---------- family ----------
 async function renderFamily(): Promise<void> {
   app.innerHTML = `<p class="center"><span class="spinner"></span></p>`;
-  const [{ bills }, { payers }] = await Promise.all([api<{ bills: Bill[] }>('GET', '/api/bills'), api<{ payers: Payer[] }>('GET', '/api/payers')]);
+  const [{ bills }, { payers }, sentInvites] = await Promise.all([
+    api<{ bills: Bill[] }>('GET', '/api/bills'), api<{ payers: Payer[] }>('GET', '/api/payers'), sentInvitesHtml(),
+  ]);
   app.innerHTML = `
     <h1>${t('hello', { name: esc(me().name) })}</h1>
     ${payers.length ? `
       <button class="block big" id="newBill">📷 ${t('family.newBill')}</button>
       <p class="muted small center">${t('family.supportedBy', { names: esc(payers.map((p) => p.name).join(', ')) })}</p>` : `
-      <div class="card start"><h2>⏳ ${t('start.family.title')}</h2><p>${t('start.family.text')}</p>${guideSteps('family')}</div>`}
-    <div class="card ${payers.length ? 'hidden' : ''}" id="linkCard">
-      <h2>${payers.length ? t('family.linkTitle') : '🔑'}</h2><p class="muted">${payers.length ? t('family.linkSubtitle') : t('start.family.code')}</p>
-      <input id="code" maxlength="6" placeholder="ABC123" autocapitalize="characters" aria-label="${t('family.linkSubtitle')}">
-      <button class="block" id="link">${t('family.link')}</button>
-    </div>
+      <div class="card start"><h2>🤝 ${t('start.family.title')}</h2><p>${t('start.family.text')}</p>
+        <button class="block" data-invite>✉️ ${t('start.family.button')}</button>
+        ${guideSteps('family')}</div>`}
+    ${codeCardHtml(payers.length > 0, payers.length ? t('family.linkTitle') : '🔑 ' + t('code.title'), payers.length ? t('family.linkSubtitle') : t('start.family.code'))}
+    ${sentInvites}
     ${payers.length ? `<div class="card"><h2>${t('family.myBills')}</h2>${bills.length ? bills.map((b) => billCard(b)).join('') : `<p class="empty">${t('start.family.noBills')}</p>`}</div>
-    <button class="link" id="addPayer">${t('family.addPayer')}</button>` : ''}
+    <div class="card"><h2>${t('family.addPayer')}</h2>
+      <button class="secondary block" data-invite>✉️ ${t('start.family.button')}</button>
+      <button class="link" data-have-code>🔑 ${t('code.received')}</button></div>` : ''}
     ${helpLink()}`;
   wireDetails(app);
   wireHelpLinks(app);
-  $('#link').onclick = (e) => busy(btn(e), async () => {
-    const r = await api<{ payer: { name: string } }>('POST', '/api/invites/accept', { code: val('#code').trim().toUpperCase() });
-    toast(t('family.linked', { name: r.payer.name })); renderFamily();
-  });
-  if (payers.length) {
-    $('#newBill').onclick = () => newBillFlow(payers);
-    $('#addPayer').onclick = () => $('#linkCard').classList.remove('hidden');
-  }
+  wireCodeCard(renderFamily);
+  wireSentInvites(app);
+  $$('[data-invite]').forEach((b) => (b.onclick = inviteFlow));
+  $$('[data-have-code]').forEach((b) => (b.onclick = () => { $('#linkCard').classList.remove('hidden'); $('#code').focus(); }));
+  if (payers.length) $('#newBill').onclick = () => newBillFlow(payers);
 }
 
 async function compressImage(file: File, max = 1600, quality = 0.82): Promise<{ b64: string; url: string }> {
@@ -755,24 +820,30 @@ document.getElementById('logoutBtn')!.addEventListener('click', async () => {
 
 // An invitation link (/?invite=CODE) is kept until the relative has logged in, then accepted.
 const INVITE_KEY = 'pendingInvite';
+const INVITE_AS_KEY = 'pendingInviteAs';
 function pendingInvite(): string | null { try { return sessionStorage.getItem(INVITE_KEY); } catch { return null; } }
-function setPendingInvite(code: string | null): void {
-  try { if (code) sessionStorage.setItem(INVITE_KEY, code); else sessionStorage.removeItem(INVITE_KEY); } catch {}
+/** Which side the invitation link is for: 'family' (sent from abroad) or 'payer' (sent from the DRC). */
+function pendingInviteAs(): 'payer' | 'family' { try { return sessionStorage.getItem(INVITE_AS_KEY) === 'payer' ? 'payer' : 'family'; } catch { return 'family'; } }
+function setPendingInvite(code: string | null, as: string | null = null): void {
+  try {
+    if (code) { sessionStorage.setItem(INVITE_KEY, code); sessionStorage.setItem(INVITE_AS_KEY, as === 'payer' ? 'payer' : 'family'); }
+    else { sessionStorage.removeItem(INVITE_KEY); sessionStorage.removeItem(INVITE_AS_KEY); }
+  } catch {}
 }
 async function acceptPendingInvite(): Promise<void> {
   const code = pendingInvite();
-  if (!code || state.me?.role !== 'family') return;
+  if (!code || (state.me?.role !== 'family' && state.me?.role !== 'payer')) return;
   setPendingInvite(null);
   try {
-    const r = await api<{ payer: { name: string } }>('POST', '/api/invites/accept', { code });
-    toast(t('family.linked', { name: r.payer.name }));
+    const r = await api<{ linkedWith: { name: string } }>('POST', '/api/invites/accept', { code });
+    toast(t('family.linked', { name: r.linkedWith.name }));
   } catch (e) { toast(errText(e)); }
 }
 
 (async function init() {
   const invite = new URLSearchParams(location.search).get('invite');
   if (invite && /^[A-Za-z0-9]{6}$/.test(invite)) {
-    setPendingInvite(invite.toUpperCase());
+    setPendingInvite(invite.toUpperCase(), new URLSearchParams(location.search).get('as'));
     history.replaceState(null, '', location.pathname); // don't leave the code in the address bar
   }
   let lang = 'fr';

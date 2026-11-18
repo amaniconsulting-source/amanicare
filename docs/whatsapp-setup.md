@@ -105,6 +105,16 @@ mention a "code" in this template: Meta then classifies it as an authentication 
 Meta may re-classify it as *Marketing* (higher price, and recipients can opt out). The app works
 either way.
 
+### `amanicare_invite_abroad`: Marketing, French and English
+Sent when a relative in the DRC invites someone abroad to help pay.
+- fr: `Bonjour ! {{1}} vous demande de l'aide sur AmaniCare pour payer des factures d'hôpital en RDC, directement à l'hôpital. Ouvrez ce lien pour accepter l'invitation : {{2}} Inscrivez-vous comme personne vivant à l'étranger avec ce numéro de téléphone.`
+- en: `Hello! {{1}} is asking for your help on AmaniCare to pay hospital bills in the DRC, directly to the hospital. Open this link to accept the invitation: {{2}} Sign up as someone living abroad with this phone number.`
+
+Samples: `Maman Jeanne` · `https://amanicare.example/?invite=A1B2C3&as=payer`
+
+Invitation links now end in `&as=family` or `&as=payer` (which side is signing up). The template
+variable is the whole link, so the already-submitted `amanicare_invite` template doesn't change.
+
 Lingala and Swahili users receive the French templates until Lingala/Swahili versions are added
 (add the language in Meta, then add it to `languages` in `server/messaging/index.ts`).
 

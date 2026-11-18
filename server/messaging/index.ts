@@ -63,6 +63,14 @@ const NOTIFICATIONS = {
     },
     template: { name: 'amanicare_clinic_paid', languages: ['fr'], body: (p) => [p.amount, p.account, p.ref, p.patient] },
   },
+  inviteAbroad: {
+    // A relative in the DRC asks someone abroad to help pay hospital bills.
+    texts: {
+      fr: (p) => `Bonjour ! ${p.name} vous demande de l'aide sur AmaniCare pour payer des factures d'hôpital en RDC, directement à l'hôpital. Ouvrez ce lien pour accepter l'invitation : ${p.link} Inscrivez-vous comme personne vivant à l'étranger avec ce numéro de téléphone.`,
+      en: (p) => `Hello! ${p.name} is asking for your help on AmaniCare to pay hospital bills in the DRC, directly to the hospital. Open this link to accept the invitation: ${p.link} Sign up as someone living abroad with this phone number.`,
+    },
+    template: { name: 'amanicare_invite_abroad', languages: ['fr', 'en'], body: (p) => [p.name, p.link] },
+  },
   familyUpdate: {
     texts: {
       // WhatsApp templates can't end with a variable, hence the closing sentence.

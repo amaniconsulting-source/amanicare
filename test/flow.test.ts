@@ -206,6 +206,64 @@ test('invites can be locked to a phone number', async () => {
   assert.equal((await wrong('POST', '/api/invites/accept', { code: open.data.code })).status, 200);
 });
 
+test('a relative in the DRC can invite someone abroad', async () => {
+  const fam = client(), abroad = client(), otherFam = client();
+  await login(fam, '+243810000500', { name: 'Maman Jeanne', role: 'family' });
+  const inv = await fam('POST', '/api/invites', { relation: 'Son', phone: '+12145550500' });
+  assert.equal(inv.status, 200, JSON.stringify(inv.data));
+  assert.match(inv.data.link, /\?invite=[A-F0-9]{6}&as=payer$/);
+  // Listed under "Invitations sent" until used.
+  assert.equal((await fam('GET', '/api/invites')).data.invites.length, 1);
+  // Another relative in the DRC can't use it: it's for someone abroad.
+  await login(otherFam, '+243810000501', { name: 'Cousin', role: 'family' });
+  assert.equal((await otherFam('POST', '/api/invites/accept', { code: inv.data.code })).data.error, 'invite_other_phone');
+  const open = await fam('POST', '/api/invites', { relation: 'Niece' });
+  assert.equal((await otherFam('POST', '/api/invites/accept', { code: open.data.code })).data.error, 'invite_for_payer');
+  // The person abroad accepts: the link goes payer → family the right way round.
+  await login(abroad, '+12145550500', { name: 'Patrick', role: 'payer' });
+  const acc = await abroad('POST', '/api/invites/accept', { code: inv.data.code });
+  assert.equal(acc.status, 200);
+  assert.equal(acc.data.linkedWith.name, 'Maman Jeanne');
+  assert.deepEqual((await abroad('GET', '/api/family')).data.members.map((m: any) => m.name), ['Maman Jeanne']);
+  assert.equal((await fam('GET', '/api/payers')).data.payers[0].name, 'Patrick');
+  // Used invitations leave the list; a second use fails.
+  assert.equal((await fam('GET', '/api/invites')).data.invites.length, 1); // only the open "Niece" one
+  assert.equal((await abroad('POST', '/api/invites/accept', { code: inv.data.code })).data.error, 'invalid_invite');
+});
+
+test('an expired invitation names who sent it and can be sent again', async () => {
+  const payer = client(), fam = client(), stranger = client();
+  await login(payer, '+12145550600', { name: 'Grace', role: 'payer' });
+  await login(fam, '+243810000600', { name: 'Papa', role: 'family' });
+  await login(stranger, '+12145550601', { name: 'Stranger', role: 'payer' });
+  const inv = await payer('POST', '/api/invites', { relation: 'Father' });
+  await admin(`UPDATE ${schema}.invites SET expires_at = 1 WHERE code = '${inv.data.code}'`);
+  const late = await fam('POST', '/api/invites/accept', { code: inv.data.code });
+  assert.equal(late.status, 410);
+  assert.equal(late.data.error, 'invite_expired');
+  assert.equal(late.data.message, 'Grace');
+  const listed = (await payer('GET', '/api/invites')).data.invites;
+  assert.equal(listed[0].expired, true);
+  // Only the sender can renew.
+  assert.equal((await stranger('POST', `/api/invites/${inv.data.code}/renew`, {})).status, 404);
+  const renewed = await payer('POST', `/api/invites/${inv.data.code}/renew`, {});
+  assert.equal(renewed.status, 200);
+  assert.notEqual(renewed.data.code, inv.data.code);
+  assert.equal(renewed.data.expired, false);
+  // The old code is gone; the new one links them.
+  assert.equal((await fam('POST', '/api/invites/accept', { code: inv.data.code })).data.error, 'invalid_invite');
+  assert.equal((await fam('POST', '/api/invites/accept', { code: renewed.data.code })).status, 200);
+  assert.equal((await payer('POST', `/api/invites/${renewed.data.code}/renew`, {})).data.error, 'invite_already_used');
+});
+
+test('an invitation from abroad cannot be accepted by another payer', async () => {
+  const p1 = client(), p2 = client();
+  await login(p1, '+12145550700', { name: 'P7', role: 'payer' });
+  await login(p2, '+12145550701', { name: 'P8', role: 'payer' });
+  const inv = await p1('POST', '/api/invites', { relation: 'Brother' });
+  assert.equal((await p2('POST', '/api/invites/accept', { code: inv.data.code })).data.error, 'invite_for_family');
+});
+
 test('the same bill sent twice is held for review', async () => {
   const payer = client(), family = client();
   await login(payer, '+12145550500', { name: 'P5', role: 'payer' });

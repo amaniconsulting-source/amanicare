@@ -105,8 +105,8 @@ test('WhatsApp: templates out, button replies and receipts in', async () => {
   assert.equal(inv.data.sent, true);
   const invite = lastTo('+243810000800')!.template;
   assert.equal(invite.name, 'amanicare_invite');
-  assert.deepEqual(invite.components[0].parameters.map((p: { text: string }) => p.text), ['Payer', `${config.baseUrl}/?invite=${inv.data.code}`]);
-  assert.equal(inv.data.link, `${config.baseUrl}/?invite=${inv.data.code}`);
+  assert.deepEqual(invite.components[0].parameters.map((p: { text: string }) => p.text), ['Payer', `${config.baseUrl}/?invite=${inv.data.code}&as=family`]);
+  assert.equal(inv.data.link, `${config.baseUrl}/?invite=${inv.data.code}&as=family`);
 
   await login(family, '+243810000800', { name: 'Maman', role: 'family', lang: 'ln' });
   // Lingala user: no Lingala template exists, so the French one is used.

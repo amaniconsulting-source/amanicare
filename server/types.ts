@@ -25,7 +25,10 @@ export interface ClinicRow {
   id: string; name: string; commune: string; city: string; whatsapp_phone: string; payout_method: string;
   payout_account: string; trust: number; active: number; category: Category; created_at: string;
 }
-export interface InviteRow { code: string; payer_id: string; relation: string; expires_at: number; used_by: string | null; phone: string | null }
+export interface InviteRow {
+  code: string; payer_id: string | null; family_id: string | null; inviter_role: 'payer' | 'family';
+  relation: string; expires_at: number; used_by: string | null; phone: string | null; created_at: string;
+}
 export interface PriceRow { id: string; name: string; keywords: string; usd: number; category: Category | null; clinic_id: string | null }
 export interface Price { id?: string; name: string; keywords: string[]; usd: number; scope?: PriceScope }
 export interface DraftRow { id: string; family_id: string; photo_path: string; ai: string | null; photo_sha256: string | null; created_at: string }
