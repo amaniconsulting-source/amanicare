@@ -5,14 +5,17 @@ import * as Sentry from '@sentry/node';
 import { config } from './config.js';
 import type { AiBill } from './types.js';
 
-const PROMPT = `You are reading a photo of a medical bill (facture) from a clinic or hospital in the Democratic Republic of the Congo. It is usually in French.
+// Today's date is included so the model doesn't call recent dates "in the future".
+const prompt = (today: string) => `You are reading a photo of a medical bill (facture) from a clinic, hospital, laboratory or pharmacy in the Democratic Republic of the Congo. It is usually in French. Today's date is ${today}.
+Bills have no common format: the number may be labelled "Facture N°", "N°", "Dossier N°" or be missing; dates are usually written DD/MM/YYYY.
 Return ONLY a JSON object, no other text:
 {"clinic_name": string, "bill_number": string, "date": "YYYY-MM-DD" or "", "patient_name": string,
  "currency": "USD" or "CDF", "items": [{"description": string, "qty": number, "unit_price": number}],
  "total": number,
- "tamper_flags": [short English strings describing visible signs of editing or forgery, e.g. "total written over in different ink", "mismatched fonts", "photo of a screen", "no stamp or signature"],
+ "tamper_flags": [short English strings, ONLY for visible signs that the bill was altered or forged, e.g. "total written over in different ink", "digits changed or scratched out", "mismatched fonts in the amounts", "photo of a screen or of a copy", "date after today"],
  "confidence": number between 0 and 1}
 Rules: copy what is written; do not invent items or prices. If a field is unreadable use "" or 0.
+Normal wear is NOT a tamper flag: torn, folded or crumpled paper, blur, shadows, an unticked checkbox, a missing stamp on a printed receipt, or which field you used as the bill number. Leave tamper_flags empty when nothing looks altered.
 If the image is not a medical bill, return "items": [] and "confidence": 0.`;
 
 export async function extractBill(imageBase64: string, mediaType = 'image/jpeg'): Promise<AiBill | null> {
@@ -32,7 +35,7 @@ export async function extractBill(imageBase64: string, mediaType = 'image/jpeg')
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 } },
-            { type: 'text', text: PROMPT },
+            { type: 'text', text: prompt(new Date().toISOString().slice(0, 10)) },
           ],
         }],
       }),

@@ -80,3 +80,11 @@ test("a facility's own price overrides the general one", () => {
   const general = screenBill(bill, ctx);
   assert.ok(general.reasons.some((r) => r.code === 'price_far_above_reference' && r.params.refScope === 'general'));
 });
+
+test('AI observations add at most 20 points', () => {
+  const flags = ['torn paper', 'no stamp', 'checkbox empty', 'odd date', 'blurry'];
+  const r = screenBill({ ...base, items: [{ d: 'Consultation', q: 1, p: 10 }], total: 10, ai: { clinic_name: 'Centre Médical Espoir', tamper_flags: flags } }, ctx);
+  assert.equal(r.reasons.filter((x) => x.code === 'ai_tamper_flag').length, 5); // all still shown to the reviewer
+  assert.equal(r.score, 20);
+  assert.equal(r.level, 'low');
+});

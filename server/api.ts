@@ -313,8 +313,19 @@ router.post('/api/webhooks/whatsapp', async ({ raw, req }: Ctx) => {
   if (!secret) throw forbidden();
   const sig = String(req.headers['x-hub-signature-256'] || '');
   const expected = 'sha256=' + createHmac('sha256', secret).update(raw).digest('hex');
-  if (sig.length !== expected.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) throw new HttpError(401, 'bad_signature');
+  if (sig.length !== expected.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+    console.warn('[whatsapp] webhook refused: bad signature (is WHATSAPP_APP_SECRET the App secret of this Meta app?)');
+    throw new HttpError(401, 'bad_signature');
+  }
   const payload = JSON.parse(raw.toString('utf8') || '{}');
+  // Logs say what arrived and why a tap was ignored, without message contents (last 4 digits only).
+  const tail = (n: unknown) => '…' + String(n ?? '').slice(-4);
+  let receipts = 0, inbound = 0;
+  for (const entry of payload.entry || []) for (const ch of entry.changes || []) {
+    receipts += (ch.value?.statuses || []).length;
+    inbound += (ch.value?.messages || []).length;
+  }
+  console.log(`[whatsapp] webhook: ${receipts} receipt(s), ${inbound} incoming message(s)`);
   for (const entry of payload.entry || []) for (const ch of entry.changes || []) {
     // Delivery receipts for messages we sent.
     for (const st of ch.value?.statuses || []) {
@@ -327,12 +338,22 @@ router.post('/api/webhooks/whatsapp', async ({ raw, req }: Ctx) => {
     // Buttons on a template arrive as type "button" (payload); on a free-form message as "interactive".
     const id: string = m.button?.payload || m.interactive?.button_reply?.id || '';
     const [decision, billId] = id.split(':');
-    if ((decision !== 'confirm' && decision !== 'reject') || !billId) continue;
+    if ((decision !== 'confirm' && decision !== 'reject') || !billId) {
+      console.log(`[whatsapp] message from ${tail(m.from)} (type ${m.type}) is not a Confirm/Reject tap: ignored`);
+      continue;
+    }
     const bill = await getBill(billId);
     const clinic = bill && (await getClinic(bill.clinic_id));
+    if (!bill || !clinic) { console.warn(`[whatsapp] ${decision} tap for an unknown bill: ignored`); continue; }
     // Only the clinic's registered WhatsApp number may answer for its bills.
-    if (!clinic || clinic.whatsapp_phone.replace(/\D/g, '') !== String(m.from)) continue;
-    try { await clinicDecision(billId, decision, null); } catch (e) { console.warn('[whatsapp]', (e as Error).message); }
+    if (clinic.whatsapp_phone.replace(/\D/g, '') !== String(m.from)) {
+      console.warn(`[whatsapp] ${decision} tap on ${bill.ref} from ${tail(m.from)}, but ${clinic.name}'s number ends ${tail(clinic.whatsapp_phone)}: ignored`);
+      continue;
+    }
+    try {
+      await clinicDecision(billId, decision, null);
+      console.log(`[whatsapp] ${bill.ref} ${decision === 'confirm' ? 'confirmed' : 'rejected'} by ${clinic.name}`);
+    } catch (e) { console.warn(`[whatsapp] ${decision} tap on ${bill.ref}: ${(e as Error).message}`); }
     }
   }
   return { ok: true };

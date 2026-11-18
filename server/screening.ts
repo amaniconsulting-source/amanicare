@@ -101,7 +101,8 @@ export function screenBill(bill: ScreenInput, ctx: ScreenContext): ScreenResult 
     add('clinic_name_mismatch', 15, { onPhoto: aiClinic, selected: ctx.clinic.name });
   }
   if (bill.edited) add('edited_after_ai', 10);
-  for (const flag of bill.ai?.tamper_flags || []) add('ai_tamper_flag', 10, { flag });
+  // The AI's observations add up to 20 points at most: they prompt a check, they don't decide alone.
+  (bill.ai?.tamper_flags || []).forEach((flag, i) => add('ai_tamper_flag', i < 2 ? 10 : 0, { flag }));
   if (ctx.recentForPatient >= 2) add('frequent_patient', 15, { count: ctx.recentForPatient + 1 });
 
   const totalUsd = toUsd(bill.total || sum, bill.currency, s);
