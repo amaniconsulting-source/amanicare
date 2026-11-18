@@ -47,6 +47,7 @@ async function loadLang(lang: Lang): Promise<void> {
   document.documentElement.lang = lang;
   (document.getElementById('langSel') as HTMLSelectElement).value = lang;
   document.getElementById('logoutBtn')!.textContent = t('logout');
+  document.getElementById('helpLabel')!.textContent = t('help');
   try { localStorage.setItem('lang', lang); } catch {}
 }
 function t(key: string, params: Params = {}): string {
@@ -136,12 +137,14 @@ async function busy<T>(button: HTMLButtonElement, fn: () => Promise<T>): Promise
 const STEP: Record<string, number> = { review: 1, awaiting_clinic: 1, awaiting_payer: 2, payment_pending: 2, payment_failed: 2, paying_out: 3, payout_failed: 3, paid: 4, rejected: -1, declined: -1 };
 function steps(status: string): string {
   const s = STEP[status];
-  return `<div class="steps" aria-hidden="true">${[1, 2, 3, 4].map((i) => `<i class="${s < 0 ? 'x' : i <= s ? 'on' : ''}"></i>`).join('')}</div>`;
+  // The four stages, labelled, so people see where the bill is without reading the status.
+  return `<div class="progress" aria-hidden="true"><div class="steps">${[1, 2, 3, 4].map((i) => `<i class="${s < 0 ? 'x' : i <= s ? 'on' : ''}"></i>`).join('')}</div>
+    ${s < 0 ? '' : `<div class="step-labels">${[1, 2, 3, 4].map((i) => `<span class="${i <= s ? 'on' : ''}">${t('step.' + i)}</span>`).join('')}</div>`}</div>`;
 }
 const riskPill = (r: Risk | undefined): string => r?.level ? `<span class="pill ${r.level}">${t('risk.' + r.level)}${r.score !== undefined ? ' · ' + r.score : ''}</span>` : '';
 const reasonText = (r: Reason): string => t('reason.' + r.code, Object.fromEntries(Object.entries(r.params || {}).map(([k, v]) => [k, typeof v === 'number' && /usd/i.test(k) ? usd(v) : String(v)])));
 
-function billCard(b: Bill, { actions = '', showReasons = false, showExpected = false } = {}): string {
+function billCard(b: Bill, { actions = '', showReasons = false, showExpected = false, showNext = true } = {}): string {
   return `<div class="bill" data-bill="${b.id}">
     <div class="top">
       <div><b>${esc(b.patientName)}</b><div class="muted small">${esc(b.clinic?.name || '')} · ${fmtDate(b.createdAt)}</div></div>
@@ -149,6 +152,7 @@ function billCard(b: Bill, { actions = '', showReasons = false, showExpected = f
     </div>
     <div class="row">${riskPill(b.risk)}<span class="pill st">${t('status.' + b.status)}</span>${b.aiUsed ? `<span class="pill st">${t('aiRead')}</span>` : ''}</div>
     ${steps(b.status)}
+    ${showNext ? nextStep(b) : ''}
     ${showExpected && b.expectedUsd !== undefined ? `<div class="muted small">${t('expectedCost', { amount: usd(b.expectedUsd) })}</div>` : ''}
     ${showReasons && b.risk?.reasons?.filter((r) => r.points).length ? `<ul class="reasons">${b.risk.reasons.filter((r) => r.points).map((r) => `<li>${esc(reasonText(r))}</li>`).join('')}</ul>` : ''}
     ${actions}
@@ -167,6 +171,8 @@ async function showBill(id: string): Promise<void> {
     <div class="row between"><h2>${esc(b.patientName)}</h2><button class="link" data-close>✕</button></div>
     <p class="muted small">${esc(b.clinic?.name || '')} · ${t('billNo')} ${esc(b.billNumber || '—')} · ${t('ref')} ${esc(b.ref)}</p>
     <div class="row">${riskPill(b.risk)}<span class="pill st">${t('status.' + b.status)}</span></div>
+    ${steps(b.status)}
+    ${nextStep(b)}
     <div class="scroll"><table><thead><tr><th>${t('item')}</th><th class="num">${t('qty')}</th><th class="num">${t('unitPrice')}</th></tr></thead><tbody>${items}</tbody></table></div>
     <p class="row between"><b>${t('total')}</b><b>${b.currency === 'CDF' ? cdf(b.total) + ' · ' : ''}${usd(b.totalUsd)}</b></p>
     ${b.expectedUsd !== undefined ? `<p class="muted small">${t('expectedCost', { amount: usd(b.expectedUsd) })}</p>` : ''}
@@ -177,13 +183,84 @@ async function showBill(id: string): Promise<void> {
   `);
 }
 
+// ---------- how it works, help, next steps ----------
+type GuideRole = 'payer' | 'family' | 'clinic';
+const GUIDE_ICONS: Record<GuideRole, string[]> = {
+  payer: ['👨‍👩‍👧', '📷', '🏥', '💳'],
+  family: ['🔗', '📷', '🏥', '✅'],
+  clinic: ['💬', '✅', '💰'],
+};
+const FAQ = ['cost', 'time', 'clinic', 'held', 'failed', 'many', 'privacy', 'code'];
+const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content || '';
+
+function guideSteps(role: GuideRole): string {
+  return `<ol class="guide-steps">${GUIDE_ICONS[role].map((icon, i) => `<li>
+    <span class="gs-icon" aria-hidden="true">${icon}<span class="gs-num">${i + 1}</span></span>
+    <div><b>${t(`guide.${role}.${i + 1}.t`)}</b><p>${t(`guide.${role}.${i + 1}.d`)}</p></div></li>`).join('')}</ol>`;
+}
+
+/** "How it works" with a tab per audience. Call wireGuide() after inserting it. */
+function guideHtml(selected: GuideRole, roles: GuideRole[] = ['payer', 'family', 'clinic']): string {
+  return `<div class="guide" data-guide>
+    <div class="seg" role="tablist">${roles.map((r) => `<button type="button" role="tab" data-guide-tab="${r}" aria-selected="${r === selected}" class="${r === selected ? 'on' : ''}">${t('guide.tab.' + r)}</button>`).join('')}</div>
+    <div data-guide-steps>${guideSteps(selected)}</div>
+  </div>`;
+}
+function wireGuide(root: ParentNode): void {
+  $$('[data-guide]', root).forEach((g) => $$<HTMLButtonElement>('[data-guide-tab]', g).forEach((b) => (b.onclick = () => {
+    $$<HTMLButtonElement>('[data-guide-tab]', g).forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-selected', String(x === b)); });
+    $('[data-guide-steps]', g).innerHTML = guideSteps(b.dataset.guideTab as GuideRole);
+  })));
+}
+
+function trustHtml(): string {
+  return `<div class="trust">${['🔒', '🔎', '👀'].map((icon, i) => `<div><span aria-hidden="true">${icon}</span>
+    <b>${t(`trust.${i + 1}.t`)}</b><p>${t(`trust.${i + 1}.d`)}</p></div>`).join('')}</div>`;
+}
+
+function supportHtml(): string {
+  const email = meta('support-email');
+  const wa = meta('support-whatsapp').replace(/\D/g, '');
+  return `<p class="contact">${email ? `<a href="mailto:${esc(email)}">✉️ ${esc(email)}</a>` : ''}${wa ? `<a href="https://wa.me/${wa}" target="_blank" rel="noopener">💬 ${t('support.whatsapp')} +${esc(wa)}</a>` : ''}</p>`;
+}
+
+function faqHtml(): string {
+  return `<div class="faq"><h2>${t('faq.title')}</h2>
+    ${FAQ.map((k) => `<details><summary>${t(`faq.${k}.q`)}</summary><p>${t(`faq.${k}.a`)}${k === 'privacy' ? ` <a href="/privacy.html${state.lang === 'fr' ? '' : '#en'}">${t('privacy')}</a>` : ''}</p></details>`).join('')}
+    <details><summary>${t('faq.contact.q')}</summary><p>${t('faq.contact.a')}</p>${supportHtml()}</details>
+  </div>`;
+}
+
+function openHelp(): void {
+  const role = state.me?.role;
+  const selected: GuideRole = role === 'family' ? 'family' : role === 'clinic' ? 'clinic' : 'payer';
+  openModal(`<div class="row between"><h2>${t('guide.title')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
+    <p class="muted">${t('guide.intro')}</p>
+    ${guideHtml(selected)}
+    ${trustHtml()}
+    ${faqHtml()}`, wireGuide);
+}
+document.getElementById('helpBtn')!.addEventListener('click', openHelp);
+const helpLink = () => `<p class="center"><button class="link" data-help>❓ ${t('howItWorks')}</button></p>`;
+const wireHelpLinks = (root: ParentNode) => $$('[data-help]', root).forEach((b) => (b.onclick = openHelp));
+
+/** One sentence telling payer or family what happens next with this bill. */
+function nextStep(b: Bill): string {
+  const role = state.me?.role;
+  if (role !== 'payer' && role !== 'family') return '';
+  const payer = esc(b.payer?.name || '');
+  const key = ['awaiting_clinic', 'awaiting_payer', 'payment_failed', 'declined'].includes(b.status) ? `next.${b.status}.${role}` : `next.${b.status}`;
+  const tone = b.status === 'paid' ? 'done' : ['rejected', 'payout_failed', 'payment_failed'].includes(b.status) ? 'bad' : '';
+  return `<p class="next ${tone}"><b>${t('next.label')}</b>${t(key, { payer })}</p>`;
+}
+
 // ---------- login ----------
 function renderLogin(): void {
   const s: { phone: string; code: string; step: 'phone' | 'code' | 'profile'; role: string; name: string; devCode?: string } =
     { phone: '', code: '', step: 'phone', role: pendingInvite() ? 'family' : '', name: '' };
   const draw = (): void => {
     app.innerHTML = `
-      <div class="card">
+      <div class="card hero">
         <h1>${t('login.title')}</h1>
         <p class="muted">${t('login.subtitle')}</p>
         ${pendingInvite() ? `<p class="notice info">${t('login.invited')}</p>` : ''}
@@ -206,8 +283,17 @@ function renderLogin(): void {
           <input id="nm" autocomplete="name" value="${esc(s.name)}">
           <button class="block" id="finish">${t('login.start')}</button>`}
       </div>
+      <p class="center"><a class="link" href="#guide">❓ ${t('login.haveQuestions')}</a></p>
+      <section class="card" id="guide">
+        <h2>${t('guide.title')}</h2>
+        <p class="muted">${t('guide.intro')}</p>
+        ${guideHtml(pendingInvite() ? 'family' : 'payer')}
+        ${trustHtml()}
+        ${faqHtml()}
+      </section>
       <p class="muted small center">${t('login.footer')}</p>
       <p class="muted small center"><a href="/privacy.html${state.lang === 'fr' ? '' : '#en'}">${t('privacy')}</a></p>`;
+    wireGuide(app);
 
     if (s.step === 'phone') {
       $('#sendCode').onclick = (e) => busy(btn(e), async () => {
@@ -260,8 +346,11 @@ async function renderPayer(): Promise<void> {
   app.innerHTML = `
     <h1>${t('hello', { name: esc(me().name) })}</h1>
     <p class="muted">${t('payer.subtitle')}</p>
+    ${members.length ? '' : `<div class="card start"><h2>${t('start.payer.title')}</h2><p>${t('start.payer.text')}</p>
+      ${guideSteps('payer')}
+      <button class="block" data-invite>👨‍👩‍👧 ${t('start.payer.button')}</button></div>`}
     <div class="card"><h2>${t('payer.toApprove')}</h2>
-      ${todo.length ? todo.map((b) => billCard(b, { showReasons: true, showExpected: true, actions: `
+      ${todo.length ? todo.map((b) => billCard(b, { showReasons: true, showExpected: true, showNext: false, actions: `
         ${b.status === 'payment_failed' ? `<p class="notice">${t('payer.paymentFailed')}</p>` : ''}
         <div class="row"><button class="grow" data-pay="${b.id}">${t('payer.pay', { amount: usd(b.totalUsd + b.feeUsd) })}</button><button class="secondary small" data-decline="${b.id}">${t('payer.decline')}</button></div>
         <p class="muted small">${t('payer.feeNote', { fee: usd(b.feeUsd) })}</p>` })).join('') : `<p class="empty">${t('payer.nothingToApprove')}</p>`}
@@ -270,9 +359,12 @@ async function renderPayer(): Promise<void> {
     <div class="card"><div class="row between"><h2>${t('payer.family')}</h2><button class="small secondary" id="invite">${t('payer.invite')}</button></div>
       ${members.length ? `<table><tbody>${members.map((m) => `<tr><td><b>${esc(m.name)}</b><div class="muted small">${esc(m.relation)}</div></td><td class="num muted small">${esc(m.phone)}</td></tr>`).join('')}</tbody></table>` : `<p class="empty">${t('payer.noFamily')}</p>`}
     </div>
-    <div class="card"><h2>${t('history')}</h2>${done.length ? done.map((b) => billCard(b)).join('') : `<p class="empty">${t('noHistory')}</p>`}</div>`;
+    <div class="card"><h2>${t('history')}</h2>${done.length ? done.map((b) => billCard(b)).join('') : `<p class="empty">${t('noHistory')}</p>`}</div>
+    ${helpLink()}`;
   wireDetails(app);
+  wireHelpLinks(app);
   $('#invite').onclick = inviteFlow;
+  $$('[data-invite]').forEach((b) => (b.onclick = inviteFlow));
   $$('[data-pay]').forEach((b) => (b.onclick = (e) => busy(btn(e), async () => {
     const r = await api<{ checkoutUrl: string | null }>('POST', `/api/bills/${b.dataset.pay}/pay`, {});
     if (r.checkoutUrl) location.href = r.checkoutUrl; else renderPayer();
@@ -321,16 +413,19 @@ async function renderFamily(): Promise<void> {
   app.innerHTML = `
     <h1>${t('hello', { name: esc(me().name) })}</h1>
     ${payers.length ? `
-      <button class="block" id="newBill">📷 ${t('family.newBill')}</button>
-      <p class="muted small center">${t('family.supportedBy', { names: esc(payers.map((p) => p.name).join(', ')) })}</p>` : ''}
+      <button class="block big" id="newBill">📷 ${t('family.newBill')}</button>
+      <p class="muted small center">${t('family.supportedBy', { names: esc(payers.map((p) => p.name).join(', ')) })}</p>` : `
+      <div class="card start"><h2>⏳ ${t('start.family.title')}</h2><p>${t('start.family.text')}</p>${guideSteps('family')}</div>`}
     <div class="card ${payers.length ? 'hidden' : ''}" id="linkCard">
-      <h2>${t('family.linkTitle')}</h2><p class="muted">${t('family.linkSubtitle')}</p>
-      <input id="code" maxlength="6" placeholder="ABC123" autocapitalize="characters">
+      <h2>${payers.length ? t('family.linkTitle') : '🔑'}</h2><p class="muted">${payers.length ? t('family.linkSubtitle') : t('start.family.code')}</p>
+      <input id="code" maxlength="6" placeholder="ABC123" autocapitalize="characters" aria-label="${t('family.linkSubtitle')}">
       <button class="block" id="link">${t('family.link')}</button>
     </div>
-    <div class="card"><h2>${t('family.myBills')}</h2>${bills.length ? bills.map((b) => billCard(b)).join('') : `<p class="empty">${t('family.noBills')}</p>`}</div>
-    ${payers.length ? `<button class="link" id="addPayer">${t('family.addPayer')}</button>` : ''}`;
+    ${payers.length ? `<div class="card"><h2>${t('family.myBills')}</h2>${bills.length ? bills.map((b) => billCard(b)).join('') : `<p class="empty">${t('start.family.noBills')}</p>`}</div>
+    <button class="link" id="addPayer">${t('family.addPayer')}</button>` : ''}
+    ${helpLink()}`;
   wireDetails(app);
+  wireHelpLinks(app);
   $('#link').onclick = (e) => busy(btn(e), async () => {
     const r = await api<{ payer: { name: string } }>('POST', '/api/invites/accept', { code: val('#code').trim().toUpperCase() });
     toast(t('family.linked', { name: r.payer.name })); renderFamily();
@@ -355,6 +450,10 @@ async function compressImage(file: File, max = 1600, quality = 0.82): Promise<{ 
 
 interface ItemDraft { d: string; q: number | string; p: number | string }
 
+/** "1 Photo · 2 Check · 3 Send" indicator for sending a bill (4 = all done). */
+const flowSteps = (current: number) => `<div class="flow" aria-hidden="true">${[1, 2, 3].map((i) =>
+  `<span class="${i < current ? 'done' : i === current ? 'on' : ''}">${i < current ? '✓' : i} ${t('flow.' + i)}</span>`).join('')}</div>`;
+
 async function newBillFlow(payers: Payer[]): Promise<void> {
   const { clinics } = await api<{ clinics: Clinic[] }>('GET', '/api/clinics');
   const f: { draftId: string | null; ai: AiRead | null; aiAvailable?: boolean; items: ItemDraft[]; photoUrl: string | null } =
@@ -363,12 +462,18 @@ async function newBillFlow(payers: Payer[]): Promise<void> {
     app.innerHTML = `
       <button class="link" id="cancel">← ${t('back')}</button>
       <h1>${t('family.newBill')}</h1>
+      ${flowSteps(1)}
       <div class="card">
         <label class="photo-drop" for="file"><b>📷 ${t('family.takePhoto')}</b>${t('family.photoHint')}
           <input id="file" type="file" accept="image/*" capture="environment"></label>
+        <label class="btn secondary block gallery" for="file2">🖼️ ${t('photo.gallery')}
+          <input id="file2" type="file" accept="image/*"></label>
         <div id="reading"></div>
+        <h2>${t('photo.tips')}</h2>
+        <ul class="tips">${[1, 2, 3, 4].map((i) => `<li>${t('photo.tip' + i)}</li>`).join('')}</ul>
       </div>`;
     $('#cancel').onclick = renderFamily;
+    $<HTMLInputElement>('#file2').onchange = (e) => $<HTMLInputElement>('#file').onchange!(e);
     $<HTMLInputElement>('#file').onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0]; if (!file) return;
       $('#reading').innerHTML = `<p class="center"><span class="spinner"></span> ${t('family.reading')}</p>`;
@@ -388,6 +493,7 @@ async function newBillFlow(payers: Payer[]): Promise<void> {
     app.innerHTML = `
       <button class="link" id="cancel">← ${t('back')}</button>
       <h1>${t('family.checkDetails')}</h1>
+      ${flowSteps(2)}
       ${f.ai ? `<p class="notice info">${t('family.aiDone', { pct: Math.round((ai.confidence || 0) * 100) })}</p>` : `<p class="notice">${f.aiAvailable ? t('family.aiFailed') : t('family.aiOff')}</p>`}
       <div class="card">
         <img class="preview" src="${f.photoUrl}" alt="${t('billPhoto')}">
@@ -431,7 +537,7 @@ async function newBillFlow(payers: Payer[]): Promise<void> {
         patientName: val('#patient').trim(), billNumber: val('#billNo').trim(), billDate: val('#date'),
         currency: val('#cur'), items, total: Number(val('#total')) || undefined,
       });
-      app.innerHTML = `<div class="card center"><h1>${bill.status === 'review' ? '🔎' : '✅'}</h1>
+      app.innerHTML = `${flowSteps(4)}<div class="card center"><h1>${bill.status === 'review' ? '🔎' : '✅'}</h1>
         <h2>${bill.status === 'review' ? t('family.sentReview') : t('family.sentClinic')}</h2>
         <p class="muted">${t('family.nextSteps')}</p>${billCard(bill)}<button class="block" id="home">${t('family.done')}</button></div>`;
       wireDetails(app);
@@ -454,8 +560,10 @@ async function renderClinic(): Promise<void> {
         ${b.risk?.level === 'med' ? `<p class="notice">${t('clinic.checkCarefully')}</p>` : ''}
         <div class="row"><button class="grow" data-ok="${b.id}">✅ ${t('clinic.confirm')}</button><button class="grow danger" data-no="${b.id}">❌ ${t('clinic.reject')}</button></div>` })).join('') : `<p class="empty">${t('clinic.nothing')}</p>`}
     </div>
-    <div class="card"><h2>${t('history')}</h2>${rest.length ? rest.map((b) => billCard(b, { actions: b.payout && b.status === 'paid' ? `<p class="notice info">${t('payoutSent', { ref: esc(b.payout.ref), account: esc(b.payout.account || '') })}</p>` : '' })).join('') : `<p class="empty">${t('noHistory')}</p>`}</div>`;
+    <div class="card"><h2>${t('history')}</h2>${rest.length ? rest.map((b) => billCard(b, { actions: b.payout && b.status === 'paid' ? `<p class="notice info">${t('payoutSent', { ref: esc(b.payout.ref), account: esc(b.payout.account || '') })}</p>` : '' })).join('') : `<p class="empty">${t('noHistory')}</p>`}</div>
+    ${helpLink()}`;
   wireDetails(app);
+  wireHelpLinks(app);
   $$('[data-ok]').forEach((b) => (b.onclick = async () => {
     if (!(await confirmDialog(t('clinic.confirmQ'), t('clinic.confirm')))) return;
     try { await api('POST', `/api/bills/${b.dataset.ok}/confirm`, {}); toast(t('clinic.confirmed')); renderClinic(); } catch (e) { reportUnexpected(e); toast(errText(e)); }

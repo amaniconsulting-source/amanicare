@@ -37,6 +37,9 @@ export const config = {
   // Password-protects the whole site (browser login box) while testing online, e.g. with OTP_DEV=1.
   // The privacy page, health check and webhooks stay public (Meta must reach them).
   sitePassword: env.SITE_PASSWORD || '',
+  // Shown in the app's Help and FAQ. SUPPORT_WHATSAPP is optional (international format).
+  supportEmail: env.SUPPORT_EMAIL || 'info@amaniconsultinggroup.com',
+  supportWhatsApp: env.SUPPORT_WHATSAPP || '',
   sessionDays: Number(env.SESSION_DAYS || 30),
 
   // Shows the OTP code in the API response. NEVER enable in production.

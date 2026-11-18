@@ -50,11 +50,16 @@ function securityHeaders(): Record<string, string> {
   };
 }
 
-// HTML pages carry a <!--sentry--> marker; it becomes the Sentry config and SDK tag (or nothing).
+const meta = (name: string, value: string) => (value ? `<meta name="${name}" content="${esc(value)}">` : '');
+
+// HTML pages carry a <!--sentry--> marker; it becomes the support contact (for Help) and,
+// when Sentry is on, the Sentry config and SDK tag.
+function headExtras(): string {
+  return meta('support-email', config.supportEmail) + meta('support-whatsapp', config.supportWhatsApp) + sentryHead();
+}
 function sentryHead(): string {
   const s = browserSentry();
   if (!s) return '';
-  const meta = (name: string, value: string) => (value ? `<meta name="${name}" content="${esc(value)}">` : '');
   const sri = config.sentry.browserBundleSri;
   return meta('sentry-dsn', s.dsn) + meta('sentry-environment', config.sentry.environment) + meta('sentry-release', config.sentry.release)
     + `<script id="sentry-sdk" async src="${esc(config.sentry.browserBundleUrl)}"${sri ? ` integrity="${esc(sri)}"` : ''} crossorigin="anonymous"></script>`;
@@ -69,7 +74,7 @@ async function serveStatic(path: string, res: ServerResponse): Promise<boolean> 
     let data: Buffer;
     try { data = await readFile(file); } catch { continue; }
     const ext = extname(file);
-    const body = ext === '.html' ? data.toString('utf8').replace('<!--sentry-->', sentryHead()) : data;
+    const body = ext === '.html' ? data.toString('utf8').replace('<!--sentry-->', headExtras()) : data;
     res.writeHead(200, {
       'content-type': TYPES[ext] || 'application/octet-stream',
       'cache-control': rel.endsWith('sw.js') || ext === '.html' ? 'no-cache' : 'public, max-age=3600',
