@@ -206,6 +206,16 @@ test('invites can be locked to a phone number', async () => {
   assert.equal((await wrong('POST', '/api/invites/accept', { code: open.data.code })).status, 200);
 });
 
+test('app files are re-checked on every load so code and translations never mismatch', async () => {
+  const first = await fetch(base + '/i18n/en.json');
+  assert.equal(first.headers.get('cache-control'), 'no-cache');
+  const etag = first.headers.get('etag')!;
+  assert.ok(etag);
+  const again = await fetch(base + '/i18n/en.json', { headers: { 'if-none-match': etag } });
+  assert.equal(again.status, 304);
+  assert.equal((await fetch(base + '/icon-192.png')).headers.get('cache-control'), 'public, max-age=86400');
+});
+
 test('a relative in the DRC can invite someone abroad', async () => {
   const fam = client(), abroad = client(), otherFam = client();
   await login(fam, '+243810000500', { name: 'Maman Jeanne', role: 'family' });

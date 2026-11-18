@@ -65,7 +65,7 @@ function sentryHead(): string {
     + `<script id="sentry-sdk" async src="${esc(config.sentry.browserBundleUrl)}"${sri ? ` integrity="${esc(sri)}"` : ''} crossorigin="anonymous"></script>`;
 }
 
-async function serveStatic(path: string, res: ServerResponse): Promise<boolean> {
+async function serveStatic(path: string, res: ServerResponse, req?: IncomingMessage): Promise<boolean> {
   if (path === '/favicon.ico') path = '/icon-192.png';
   const rel = normalize(path === '/' ? '/index.html' : path).replace(/^(\.\.[/\\])+/, '');
   for (const dir of STATIC_DIRS) {
@@ -74,12 +74,18 @@ async function serveStatic(path: string, res: ServerResponse): Promise<boolean> 
     let data: Buffer;
     try { data = await readFile(file); } catch { continue; }
     const ext = extname(file);
-    const body = ext === '.html' ? data.toString('utf8').replace('<!--sentry-->', headExtras()) : data;
-    res.writeHead(200, {
+    const body = ext === '.html' ? Buffer.from(data.toString('utf8').replace('<!--sentry-->', headExtras())) : data;
+    // App code, styles and translations must always match each other after a deploy, so the browser
+    // checks for a newer copy on every load (a quick "304 Not Modified" when nothing changed).
+    // Only images are kept for a day without checking.
+    const etag = '"' + createHash('sha1').update(body).digest('base64url') + '"';
+    const headers = {
       'content-type': TYPES[ext] || 'application/octet-stream',
-      'cache-control': rel.endsWith('sw.js') || ext === '.html' ? 'no-cache' : 'public, max-age=3600',
-      ...securityHeaders(),
-    });
+      'cache-control': ['.png', '.svg', '.ico', '.jpg', '.webp'].includes(ext) ? 'public, max-age=86400' : 'no-cache',
+      etag, ...securityHeaders(),
+    };
+    if (req?.headers['if-none-match'] === etag) { res.writeHead(304, headers); res.end(); return true; }
+    res.writeHead(200, headers);
     res.end(body);
     return true;
   }
@@ -177,8 +183,8 @@ export function createApp(): Server {
         if (result !== undefined && !res.headersSent) sendJson(res, 200, result);
         return;
       }
-      if (req.method === 'GET' && (await serveStatic(url.pathname, res))) return;
-      if (req.method === 'GET' && !extname(url.pathname) && (await serveStatic('/index.html', res))) return;
+      if (req.method === 'GET' && (await serveStatic(url.pathname, res, req))) return;
+      if (req.method === 'GET' && !extname(url.pathname) && (await serveStatic('/index.html', res, req))) return;
       sendJson(res, 404, { error: 'not_found' });
     } catch (e) {
       if (e instanceof HttpError) {

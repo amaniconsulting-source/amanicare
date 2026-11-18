@@ -2,7 +2,7 @@
 // Compiled as a classic script (no import/export), because sw.js is registered without type: 'module'.
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
-const CACHE = 'amanicare-v3';
+const CACHE = 'amanicare-v4';
 const SHELL = ['/', '/index.html', '/app.js', '/monitoring.js', '/styles.css', '/icon.svg', '/manifest.webmanifest',
   '/i18n/fr.json', '/i18n/en.json', '/i18n/ln.json', '/i18n/sw.json'];
 
