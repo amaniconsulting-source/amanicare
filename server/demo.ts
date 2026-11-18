@@ -108,10 +108,10 @@ async function main(): Promise<void> {
   }
 
   // The family. Numbers can be real phones (to receive WhatsApp) or the fictional defaults.
-  const patrick = await user(cleanPhone(arg('--payer-phone')) || '+12145550142', 'Patrick Mbuyi', 'payer', 'en');
+  const patrick = await user(cleanPhone(arg('--payer-phone')) || '+12145550142', 'Patrick Amani', 'payer', 'en');
   const grace = await user('+32470555014', 'Grace Kalonji', 'payer', 'fr');
-  const jeanne = await user(cleanPhone(arg('--family-phone')) || '+243815550142', 'Jeanne Mbuyi', 'family', 'fr');
-  const daniel = await user('+243815550143', 'Daniel Mbuyi', 'family', 'fr');
+  const jeanne = await user(cleanPhone(arg('--family-phone')) || '+243815550142', 'Jeanne Amani', 'family', 'fr');
+  const daniel = await user('+243815550143', 'Daniel Amani', 'family', 'fr');
   for (const [payer, fam, relation] of [[patrick, jeanne, 'Maman'], [patrick, daniel, 'Frère'], [grace, jeanne, 'Tante']] as const) {
     await run('INSERT INTO links(payer_id, family_id, relation) VALUES($1,$2,$3) ON CONFLICT (payer_id, family_id) DO UPDATE SET relation = $3', payer.id, fam.id, relation);
   }
@@ -160,10 +160,10 @@ async function main(): Promise<void> {
   const espoir = (await one<{ whatsapp_phone: string }>('SELECT whatsapp_phone FROM clinics WHERE id = $1', clinicIds['Centre Médical Espoir']))!;
   console.log(`
 Demo ready. Log in with (codes show on screen while OTP_DEV=1):
-  Abroad (payer):        Patrick Mbuyi   ${patrick.phone}
-  In Kinshasa (family):  Jeanne Mbuyi    ${jeanne.phone}   ·  Daniel Mbuyi ${daniel.phone}
+  Abroad (payer):        Patrick Amani   ${patrick.phone}
+  In Kinshasa (family):  Jeanne Amani    ${jeanne.phone}   ·  Daniel Amani ${daniel.phone}
   Hospital:              Centre Médical Espoir receives WhatsApp requests on ${espoir.whatsapp_phone}
-Live bill to photograph: demo/bills/live-demo.jpg (Centre Médical Espoir, Joseph Mbuyi, 29 USD).`);
+Live bill to photograph: demo/bills/live-demo.jpg (Centre Médical Espoir, Joseph Amani, 29 USD).`);
 }
 
 main().then(() => closeDb()).catch(async (e) => { console.error(e); await closeDb().catch(() => {}); process.exit(1); });
