@@ -248,6 +248,8 @@ test('duplicate checks tolerate how bills are written', async () => {
   assert.equal(again.status, 'review');
   // No number, name in another order and without accents, total off by a few cents.
   assert.equal((await submit('Budiayi Debora', '', 10.05)).status, 'review');
+  // A title on the bill ("Mme") doesn't make it another person.
+  assert.equal((await submit('Mme Débora Budiayi', '', 10)).status, 'review');
   // A genuinely different bill for the same patient (different amount, no number) is not held for being a duplicate.
   assert.equal((await submit('Budiayi Debora', '', 25)).status, 'awaiting_clinic');
 });
