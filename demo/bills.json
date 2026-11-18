@@ -5,7 +5,7 @@
       "items": [["Consultation générale", 1, 10], ["TDR paludisme", 1, 5], ["Coartem 80/480 (6 cp)", 1, 8]], "outcome": "paid" },
     { "key": "paid-lab", "clinic": "Laboratoire Bio-Lumière", "number": "BL-7781", "patient": "Daniel Amani", "family": "daniel", "currency": "USD", "daysAgo": 6, "date": -6,
       "items": [["NFS (hémogramme)", 1, 12], ["Widal (fièvre typhoïde)", 1, 8], ["Glycémie à jeun", 1, 4]], "outcome": "paid" },
-    { "key": "to-pay-maternity", "clinic": "Hôpital Mère-Enfant Tujenge", "number": "HMT/0938", "patient": "Esther Amani", "family": "jeanne", "currency": "CDF", "daysAgo": 1, "date": -1,
+    { "key": "to-pay-maternity", "clinic": "Hôpital Mère-Enfant Tujenge", "number": "HMT/0938", "patient": "Jane Amani", "family": "jeanne", "currency": "CDF", "daysAgo": 1, "date": -1,
       "items": [["Accouchement eutocique", 1, 427500], ["Journée d'hospitalisation", 2, 85500], ["Perfusion Ringer lactate", 2, 17100], ["Amoxicilline 500 mg", 1, 17100]], "outcome": "confirmed" },
     { "key": "at-hospital", "clinic": "Polyclinique La Grâce", "number": "", "patient": "Daniel Amani", "family": "daniel", "currency": "USD", "minutesAgo": 40, "date": 0,
       "items": [["Consultation", 1, 10], ["Échographie abdominale", 1, 30]], "outcome": "waiting" },

@@ -1,4 +1,4 @@
-// Resets the database to a clean, realistic demo: a fictional family (Patrick abroad; his mother Jeanne
+// Resets the database to a clean, realistic demo: a fictional family (John abroad; his mother Jeanne
 // and brother Daniel in Kinshasa), six fictional facilities with their own prices, and six bills at
 // every stage, each with a photo of the printed bill. Used before demos (e.g. for Equity BCDC).
 //
@@ -108,11 +108,11 @@ async function main(): Promise<void> {
   }
 
   // The family. Numbers can be real phones (to receive WhatsApp) or the fictional defaults.
-  const patrick = await user(cleanPhone(arg('--payer-phone')) || '+12145550142', 'Patrick Amani', 'payer', 'en');
+  const john = await user(cleanPhone(arg('--payer-phone')) || '+12145550142', 'John Amani', 'payer', 'en');
   const grace = await user('+32470555014', 'Grace Kalonji', 'payer', 'fr');
   const jeanne = await user(cleanPhone(arg('--family-phone')) || '+243815550142', 'Jeanne Amani', 'family', 'fr');
   const daniel = await user('+243815550143', 'Daniel Amani', 'family', 'fr');
-  for (const [payer, fam, relation] of [[patrick, jeanne, 'Maman'], [patrick, daniel, 'Frère'], [grace, jeanne, 'Tante']] as const) {
+  for (const [payer, fam, relation] of [[john, jeanne, 'Maman'], [john, daniel, 'Frère'], [grace, jeanne, 'Tante']] as const) {
     await run('INSERT INTO links(payer_id, family_id, relation) VALUES($1,$2,$3) ON CONFLICT (payer_id, family_id) DO UPDATE SET relation = $3', payer.id, fam.id, relation);
   }
   const families = { jeanne, daniel };
@@ -127,7 +127,7 @@ async function main(): Promise<void> {
     await run('INSERT INTO photos(id, media_type, data) VALUES($1,$2,$3)', photoId, 'image/jpeg', photo);
     const billDate = new Date(Date.now() + d.date * 864e5).toISOString().slice(0, 10);
     const created = await createBill(families[d.family], {
-      payerId: patrick.id, clinicId: clinicIds[d.clinic], patientName: d.patient, billNumber: d.number, billDate, currency: d.currency,
+      payerId: john.id, clinicId: clinicIds[d.clinic], patientName: d.patient, billNumber: d.number, billDate, currency: d.currency,
       items: d.items.map(([desc, q, p]) => ({ d: desc, q, p })), total: d.items.reduce((s, [, q, p]) => s + q * p, 0),
     });
     await run('UPDATE bills SET photo_path = $2, photo_sha256 = $3 WHERE id = $1', created.id, `db:${photoId}`, createHash('sha256').update(photo).digest('hex'));
@@ -139,7 +139,7 @@ async function main(): Promise<void> {
     }
     if (d.outcome === 'confirmed' || d.outcome === 'paid') await clinicDecision(created.id, 'confirm', null);
     if (d.outcome === 'paid') {
-      const { paymentId } = await startPayment(created.id, patrick);
+      const { paymentId } = await startPayment(created.id, john);
       await applyPaymentUpdate({ paymentId, status: 'succeeded' });
       for (let i = 0; i < 50 && (await getBill(created.id))!.status !== 'paid'; i++) await new Promise((r) => setTimeout(r, 100));
     }
@@ -160,7 +160,7 @@ async function main(): Promise<void> {
   const espoir = (await one<{ whatsapp_phone: string }>('SELECT whatsapp_phone FROM clinics WHERE id = $1', clinicIds['Centre Médical Espoir']))!;
   console.log(`
 Demo ready. Log in with (codes show on screen while OTP_DEV=1):
-  Abroad (payer):        Patrick Amani   ${patrick.phone}
+  Abroad (payer):        John Amani   ${john.phone}
   In Kinshasa (family):  Jeanne Amani    ${jeanne.phone}   ·  Daniel Amani ${daniel.phone}
   Hospital:              Centre Médical Espoir receives WhatsApp requests on ${espoir.whatsapp_phone}
 Live bill to photograph: demo/bills/live-demo.jpg (Centre Médical Espoir, Joseph Amani, 29 USD).`);

@@ -52,7 +52,7 @@ Hosted Postgres connection strings work as given (e.g. Neon's `…?sslmode=requi
 ## Demo data
 
 `npm run demo:reset -- --yes` clears every bill, payment, message and pending invitation in the
-database `DATABASE_URL` points at, then loads a realistic demo: a fictional family (Patrick Amani
+database `DATABASE_URL` points at, then loads a realistic demo: a fictional family (John Amani
 abroad; Jeanne and Daniel Amani in Kinshasa), six fictional facilities (a clinic, a health centre, a
 lab, a maternity hospital…) with their own prices, and six bills at every stage, each with a photo of
 the printed bill (`demo/bills/`). Users and links are kept; facilities outside the demo are switched off.
