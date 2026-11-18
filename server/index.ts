@@ -1,7 +1,7 @@
 // AmaniCare server: API + static PWA. Build with `npm run build`, run with `npm start`.
-import { createServer, type Server, type ServerResponse } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { join, normalize, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as Sentry from '@sentry/node';
@@ -9,7 +9,7 @@ import { config } from './config.js';
 import { openDb } from './db.js';
 import { migrate } from './migrate.js';
 import { router } from './api.js';
-import { readBody, sendJson, HttpError, type Body, type Ctx } from './http.js';
+import { readBody, sendJson, parseCookies, HttpError, type Body, type Ctx } from './http.js';
 import { currentUser } from './auth.js';
 import { seedIfEmpty } from './seed.js';
 
@@ -85,13 +85,56 @@ async function serveStatic(path: string, res: ServerResponse): Promise<boolean> 
 // sw.js and the manifest are fetched by the browser without the password; neither holds private data.
 const PUBLIC_PATHS = new Set(['/healthz', '/privacy.html', '/styles.css', '/icon.svg', '/icon-192.png', '/favicon.ico', '/sw.js', '/manifest.webmanifest']);
 const isPublic = (path: string) => PUBLIC_PATHS.has(path) || path.startsWith('/api/webhooks/');
+const SITE_COOKIE = 'amc_site';
+const SITE_LOGIN_PATH = '/__site-login';
 const sha = (s: string) => createHash('sha256').update(s).digest();
-function sitePasswordOk(header: string | undefined): boolean {
-  const m = /^Basic\s+(.+)$/i.exec(header || '');
+const same = (a: string, b: string) => timingSafeEqual(sha(a), sha(b));
+// The cookie holds a value derived from the password: changing SITE_PASSWORD logs everyone out.
+const siteToken = () => createHmac('sha256', config.sitePassword).update('amanicare-site-access').digest('base64url');
+
+function siteAccessOk(req: IncomingMessage): boolean {
+  const cookie = parseCookies(req)[SITE_COOKIE];
+  if (cookie && same(cookie, siteToken())) return true;
+  // Also accepts the browser's own password box / https://user:password@host (scripts, curl).
+  const m = /^Basic\s+(.+)$/i.exec(req.headers.authorization || '');
   if (!m) return false;
   const decoded = Buffer.from(m[1], 'base64').toString('utf8');
-  const password = decoded.slice(decoded.indexOf(':') + 1); // any user name
-  return timingSafeEqual(sha(password), sha(config.sitePassword));
+  return same(decoded.slice(decoded.indexOf(':') + 1), config.sitePassword);
+}
+
+/** Only same-site paths, so the form can't be used to send people elsewhere. */
+const safeNext = (v: string | null) => (v && v.startsWith('/') && !v.startsWith('//') && !v.startsWith('/\\') ? v : '/');
+
+function sitePasswordPage(res: ServerResponse, next: string, wrong = false): void {
+  res.writeHead(401, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...securityHeaders() });
+  res.end(`<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0f6b5c">
+<title>AmaniCare</title><link rel="icon" href="/icon.svg"><link rel="stylesheet" href="/styles.css"></head><body>
+<header class="bar"><div class="brand"><img src="/icon.svg" alt="" width="28" height="28"><span>AmaniCare</span></div></header>
+<main><form class="card" method="post" action="${SITE_LOGIN_PATH}">
+<h1>Site de test</h1>
+<p class="muted">AmaniCare est en test. Entrez le mot de passe qui vous a été donné.<br>
+<span lang="en">AmaniCare is being tested. Enter the password you were given.</span></p>
+${wrong ? '<p class="notice">Mot de passe incorrect. · <span lang="en">Wrong password.</span></p>' : ''}
+<label for="pw">Mot de passe · <span lang="en">Password</span></label>
+<input id="pw" name="password" type="password" autocomplete="current-password" required autofocus>
+<input type="hidden" name="next" value="${esc(next)}">
+<button class="block" type="submit">Continuer · <span lang="en">Continue</span></button>
+</form>
+<p class="muted small center"><a href="/privacy.html">Politique de confidentialité · Privacy policy</a></p></main>
+</body></html>`);
+}
+
+async function handleSiteLogin(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const form = new URLSearchParams((await readBody(req, 10_000)).toString('utf8'));
+  const next = safeNext(form.get('next'));
+  if (!same(form.get('password') || '', config.sitePassword)) return sitePasswordPage(res, next, true);
+  res.writeHead(303, {
+    location: next,
+    'set-cookie': `${SITE_COOKIE}=${siteToken()}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${30 * 86400}${config.production ? '; Secure' : ''}`,
+    'cache-control': 'no-store',
+  });
+  res.end();
 }
 
 export function createApp(): Server {
@@ -99,10 +142,13 @@ export function createApp(): Server {
     const url = new URL(req.url || '/', 'http://localhost');
     try {
       if (url.pathname === '/healthz') return sendJson(res, 200, { ok: true });
-      if (config.sitePassword && !isPublic(url.pathname) && !sitePasswordOk(req.headers.authorization)) {
-        res.writeHead(401, { 'www-authenticate': 'Basic realm="AmaniCare (test)", charset="UTF-8"', 'content-type': 'text/plain; charset=utf-8', ...securityHeaders() });
-        res.end('AmaniCare test site: password required.');
-        return;
+      if (config.sitePassword) {
+        if (url.pathname === SITE_LOGIN_PATH && req.method === 'POST') return await handleSiteLogin(req, res);
+        if (!isPublic(url.pathname) && !siteAccessOk(req)) {
+          if (url.pathname.startsWith('/api/')) return sendJson(res, 401, { error: 'site_password_required' });
+          // Keeps the full address (e.g. an invitation link ?invite=…) to come back to after the password.
+          return sitePasswordPage(res, url.pathname + url.search);
+        }
       }
       if (url.pathname.startsWith('/api/')) {
         const match = router.match(req.method, url.pathname);

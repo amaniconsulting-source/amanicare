@@ -287,18 +287,35 @@ test('reference prices can differ by facility type and facility', async () => {
 test('SITE_PASSWORD protects the test site but not the privacy page or webhooks', async () => {
   config.sitePassword = 'test-site-pass';
   try {
-    const get = (path: string, password?: string) => fetch(base + path, {
-      headers: password ? { authorization: 'Basic ' + Buffer.from('anyone:' + password).toString('base64') } : {},
+    const get = (path: string, headers: Record<string, string> = {}) => fetch(base + path, { headers, redirect: 'manual' });
+    const login = (password: string, next: string) => fetch(base + '/__site-login', {
+      method: 'POST', redirect: 'manual',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ password, next }).toString(),
     });
-    assert.equal((await get('/')).status, 401);
-    assert.match((await get('/')).headers.get('www-authenticate') || '', /Basic/);
-    assert.equal((await get('/api/me')).status, 401);
-    assert.equal((await get('/', 'wrong')).status, 401);
-    assert.equal((await get('/', 'test-site-pass')).status, 200);
+    // Pages show a password form (keeping the address to return to); the API answers 401.
+    const page = await get('/?invite=ABC123');
+    assert.equal(page.status, 401);
+    const html = await page.text();
+    assert.match(html, /name="password"/);
+    assert.match(html, /value="\/\?invite=ABC123"/);
+    assert.equal(((await (await get('/api/me')).json()) as { error: string }).error, 'site_password_required');
+    // Wrong password: the form again. Right password: a cookie, back to where they were going.
+    assert.match(await (await login('wrong', '/')).text(), /Wrong password/);
+    const ok = await login('test-site-pass', '/?invite=ABC123');
+    assert.equal(ok.status, 303);
+    assert.equal(ok.headers.get('location'), '/?invite=ABC123');
+    const cookie = ok.headers.get('set-cookie')!.split(';')[0];
+    assert.equal((await get('/', { cookie })).status, 200);
+    assert.equal((await get('/api/me', { cookie })).status, 200);
+    assert.equal((await get('/', { cookie: 'amc_site=forged' })).status, 401);
+    // No redirects to other sites.
+    assert.equal((await login('test-site-pass', '//evil.example')).headers.get('location'), '/');
+    // The browser password box (Basic auth) still works for scripts.
+    assert.equal((await get('/', { authorization: 'Basic ' + Buffer.from('x:test-site-pass').toString('base64') })).status, 200);
+    // Public: privacy page, health check, webhooks (protected by their own signatures).
     assert.equal((await get('/privacy.html')).status, 200);
-    assert.match(await (await get('/privacy.html')).text(), /Politique de confidentialité/);
     assert.equal((await get('/healthz')).status, 200);
-    // Webhooks stay reachable (and are still protected by their own signatures).
     const wh = await fetch(`${base}/api/webhooks/payments/sandbox`, { method: 'POST', body: '{}', headers: { 'x-signature': 'nope' } });
     assert.equal(((await wh.json()) as { error: string }).error, 'bad_signature');
   } finally { config.sitePassword = ''; }
