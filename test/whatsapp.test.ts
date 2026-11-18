@@ -152,6 +152,40 @@ test('WhatsApp: templates out, button replies and receipts in', async () => {
   assert.match(failed.error, /Template not found/);
 });
 
+test('WhatsApp: a hospital that rejects is asked why, and the family sees the answer', async () => {
+  const payer = client(), family = client();
+  await login(payer, '+12145550810', { name: 'Payer2', role: 'payer', lang: 'en' });
+  const inv = await payer('POST', '/api/invites', { relation: 'Aunt' });
+  await login(family, '+243810000810', { name: 'Tantine', role: 'family', lang: 'fr' });
+  await family('POST', '/api/invites/accept', { code: inv.data.code });
+  const payerId = (await family('GET', '/api/payers')).data.payers[0].id;
+  const clinicId = (await family('GET', '/api/clinics')).data.clinics.find((c: { name: string }) => c.name === 'Centre Médical Espoir').id;
+  const bill = (await family('POST', '/api/bills', { payerId, clinicId, patientName: 'Tantine', billNumber: 'WA-2', currency: 'USD',
+    items: [{ d: 'Consultation', q: 1, p: 12 }], total: 12 })).data.bill;
+
+  // The family reminds the hospital: the request goes out again; a second reminder right away is refused.
+  const before = sent.filter((m) => m.to === '243810000001').length;
+  assert.equal((await family('POST', `/api/bills/${bill.id}/resend-clinic`, {})).status, 200);
+  assert.equal(sent.filter((m) => m.to === '243810000001').length, before + 1);
+  assert.equal((await family('POST', `/api/bills/${bill.id}/resend-clinic`, {})).data.error, 'resend_too_soon');
+
+  const msg = (m: object) => ({ entry: [{ changes: [{ value: { messages: [{ from: '243810000001', ...m }] } }] }] });
+  await webhook(msg({ type: 'button', button: { payload: `reject:${bill.id}`, text: '❌ Rejeter' } }));
+  let b = (await family('GET', `/api/bills/${bill.id}`)).data.bill;
+  assert.equal(b.status, 'rejected');
+  assert.deepEqual(b.rejection, { by: 'hospital', reason: null, note: '' });
+  // Right after the tap, the hospital gets a list of reasons.
+  const why = lastTo('+243810000001') as any;
+  assert.equal(why.interactive.type, 'list');
+  assert.ok(why.interactive.action.sections[0].rows.some((r: { id: string }) => r.id === `why:${bill.id}:wrong_amount`));
+  // It picks one: the family sees it. A second answer doesn't overwrite it.
+  await webhook(msg({ type: 'interactive', interactive: { type: 'list_reply', list_reply: { id: `why:${bill.id}:wrong_amount` } } }));
+  await webhook(msg({ type: 'interactive', interactive: { type: 'list_reply', list_reply: { id: `why:${bill.id}:other` } } }));
+  b = (await family('GET', `/api/bills/${bill.id}`)).data.bill;
+  assert.equal(b.rejection.reason, 'wrong_amount');
+  assert.equal((await payer('GET', `/api/bills/${bill.id}`)).data.bill.rejection.reason, 'wrong_amount');
+});
+
 test('login codes can stay off WhatsApp until the business is verified', async () => {
   const { config } = await import('../server/config.js');
   config.whatsapp.loginCodes = false;

@@ -40,6 +40,7 @@ export interface BillRow {
   bill_number: string; bill_date: string; currency: Currency; items: string; total: number; total_usd: number;
   fee_usd: number; expected_usd: number; ai: string | null; edited: number; risk_score: number; risk_level: RiskLevel;
   risk_reasons: string; status: BillStatus; photo_path: string | null; photo_sha256: string | null; created_at: string; updated_at: string;
+  rejected_by: 'hospital' | 'review' | null; reject_reason: string | null; reject_note: string;
 }
 
 export interface PaymentRow {

@@ -19,6 +19,7 @@ COPY --from=build /app/dist/server ./dist/server
 COPY --from=build /app/dist/public ./dist/public
 COPY migrations ./migrations
 COPY public ./public
+COPY demo ./demo
 # Everything, bill photos included, is stored in PostgreSQL (DATABASE_URL): no disk needed.
 USER node
 EXPOSE 3000

@@ -1,0 +1,19 @@
+{
+  "_note": "Fictional facilities, people and bills for demos. Amounts in the bill's currency (CDF bills use 2850 CDF = 1 USD).",
+  "bills": [
+    { "key": "paid-consult", "clinic": "Centre Médical Espoir", "number": "CME-2026-0412", "patient": "Jeanne Mbuyi", "family": "jeanne", "currency": "USD", "daysAgo": 12, "date": -12,
+      "items": [["Consultation générale", 1, 10], ["TDR paludisme", 1, 5], ["Coartem 80/480 (6 cp)", 1, 8]], "outcome": "paid" },
+    { "key": "paid-lab", "clinic": "Laboratoire Bio-Lumière", "number": "BL-7781", "patient": "Daniel Mbuyi", "family": "daniel", "currency": "USD", "daysAgo": 6, "date": -6,
+      "items": [["NFS (hémogramme)", 1, 12], ["Widal (fièvre typhoïde)", 1, 8], ["Glycémie à jeun", 1, 4]], "outcome": "paid" },
+    { "key": "to-pay-maternity", "clinic": "Hôpital Mère-Enfant Tujenge", "number": "HMT/0938", "patient": "Esther Mbuyi", "family": "jeanne", "currency": "CDF", "daysAgo": 1, "date": -1,
+      "items": [["Accouchement eutocique", 1, 427500], ["Journée d'hospitalisation", 2, 85500], ["Perfusion Ringer lactate", 2, 17100], ["Amoxicilline 500 mg", 1, 17100]], "outcome": "confirmed" },
+    { "key": "at-hospital", "clinic": "Polyclinique La Grâce", "number": "", "patient": "Daniel Mbuyi", "family": "daniel", "currency": "USD", "minutesAgo": 40, "date": 0,
+      "items": [["Consultation", 1, 10], ["Échographie abdominale", 1, 30]], "outcome": "waiting" },
+    { "key": "held-overpriced", "clinic": "Clinique Bonne Santé", "number": "0457", "patient": "Jeanne Mbuyi", "family": "jeanne", "currency": "USD", "daysAgo": 2, "date": -2,
+      "items": [["Consultation", 1, 40], ["Perfusion sérum glucosé", 5, 25], ["Hospitalisation (journée)", 3, 60]], "outcome": "review" },
+    { "key": "rejected-amount", "clinic": "Centre de Santé Amani", "number": "CSA-118", "patient": "Daniel Mbuyi", "family": "daniel", "currency": "USD", "daysAgo": 4, "date": -4,
+      "items": [["Consultation", 1, 8], ["TDR paludisme", 1, 15]], "outcome": "rejected", "reason": "wrong_amount", "note": "Le TDR coûte 5 USD chez nous, pas 15." }
+  ],
+  "live": { "key": "live-demo", "clinic": "Centre Médical Espoir", "number": "CME-2026-0457", "patient": "Joseph Mbuyi", "currency": "USD", "date": 0,
+    "items": [["Consultation générale", 1, 10], ["Goutte épaisse", 1, 5], ["Artésunate injectable 60 mg", 3, 4], ["Paracétamol 500 mg", 1, 2]] }
+}

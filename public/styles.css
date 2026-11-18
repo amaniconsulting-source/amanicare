@@ -78,6 +78,7 @@ td input.qty{width:52px;padding:8px 6px} td input.price{width:84px;padding:8px 6
 .code{font:700 34px ui-monospace,Menlo,monospace;letter-spacing:6px;text-align:center;padding:14px;border-radius:12px;background:var(--brand-soft);color:var(--brand)}
 .notice{font-size:13px;padding:10px 12px;border-radius:10px;background:var(--warn-bg);color:var(--warn);margin:10px 0}
 .notice.info{background:var(--brand-soft);color:var(--brand)}
+.notice.bad{background:var(--bad-bg);color:var(--bad)}
 .empty{color:var(--muted);font-size:14px;padding:6px 0}
 .spinner{display:inline-block;width:18px;height:18px;border:3px solid var(--line);border-top-color:var(--brand);border-radius:50%;animation:spin 1s linear infinite;vertical-align:-4px}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -167,3 +168,8 @@ a.link{color:var(--brand);font-size:14px;font-weight:600}
 .side span{font-size:13px;color:var(--muted);line-height:1.3}
 .side .side-icon{font-size:24px;color:inherit}
 .side.on{border-color:var(--brand);background:var(--brand-soft)}
+/* Rejection reason, reason picker, reminder button */
+.notice.reject{display:grid;gap:4px;margin:10px 0}
+label.radio{display:flex;gap:10px;align-items:flex-start;font-weight:400;padding:10px 12px;border:1px solid var(--line);border-radius:12px;margin-top:8px;cursor:pointer}
+label.radio input{width:auto;margin-top:3px}
+[data-resend]{margin:6px 0}

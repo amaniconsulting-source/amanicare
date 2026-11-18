@@ -49,6 +49,23 @@ Hosted Postgres connection strings work as given (e.g. Neon's `…?sslmode=requi
 
 **Tests** use `TEST_DATABASE_URL` (or `DATABASE_URL`). Each run creates a throwaway schema, runs the migrations in it and drops it afterwards, so your data is never touched.
 
+## Demo data
+
+`npm run demo:reset -- --yes` clears every bill, payment, message and pending invitation in the
+database `DATABASE_URL` points at, then loads a realistic demo: a fictional family (Patrick Mbuyi
+abroad; Jeanne and Daniel Mbuyi in Kinshasa), six fictional facilities (a clinic, a health centre, a
+lab, a maternity hospital…) with their own prices, and six bills at every stage, each with a photo of
+the printed bill (`demo/bills/`). Users and links are kept; facilities outside the demo are switched off.
+
+```
+npm run build
+npm run demo:reset -- --yes --hospital-whatsapp "+243 81 234 5678"
+```
+
+Options: `--hospital-whatsapp` (Centre Médical Espoir's WhatsApp, the phone that plays the hospital),
+`--payer-phone`, `--family-phone` (use real phones instead of the fictional numbers). Only runs with
+`PAYMENT_PARTNER=sandbox`. `demo/bills/live-demo.jpg` is a bill to photograph during the demo.
+
 ## Error monitoring (Sentry)
 
 Set `SENTRY_DSN` in `.env` to turn Sentry on for both the server and the browser. Leave it empty to turn it off.

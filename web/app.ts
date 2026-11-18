@@ -21,6 +21,7 @@ interface Bill {
   risk: Risk; aiUsed: boolean; edited: boolean;
   events: { at: string; type: string; note: string }[];
   payout?: { ref: string | null; status: string; account?: string };
+  rejection?: { by: 'hospital' | 'review'; reason: string | null; note: string };
 }
 interface Payer { id: string; name: string; relation: string }
 type Category = 'health_centre' | 'clinic' | 'hospital' | 'diagnostic' | 'pharmacy';
@@ -152,7 +153,9 @@ function billCard(b: Bill, { actions = '', showReasons = false, showExpected = f
     </div>
     <div class="row">${riskPill(b.risk)}<span class="pill st">${t('status.' + b.status)}</span>${b.aiUsed ? `<span class="pill st">${t('aiRead')}</span>` : ''}</div>
     ${steps(b.status)}
+    ${rejectionHtml(b)}
     ${showNext ? nextStep(b) : ''}
+    ${showNext ? resendHtml(b) : ''}
     ${showExpected && b.expectedUsd !== undefined ? `<div class="muted small">${t('expectedCost', { amount: usd(b.expectedUsd) })}</div>` : ''}
     ${showReasons && b.risk?.reasons?.filter((r) => r.points).length ? `<ul class="reasons">${b.risk.reasons.filter((r) => r.points).map((r) => `<li>${esc(reasonText(r))}</li>`).join('')}</ul>` : ''}
     ${actions}
@@ -162,6 +165,52 @@ function billCard(b: Bill, { actions = '', showReasons = false, showExpected = f
 
 function wireDetails(root: ParentNode): void {
   $$('[data-detail]', root).forEach((el) => el.addEventListener('click', () => showBill(el.dataset.detail!)));
+  wireResend(root);
+}
+
+// ---------- rejection reasons and reminders ----------
+const HOSPITAL_REASONS = ['patient_unknown', 'wrong_amount', 'already_paid', 'not_our_bill', 'other'];
+const REVIEW_REASONS = ['unverifiable', 'duplicate', 'unreadable_photo', 'not_in_network', 'other'];
+
+/** Who stopped the bill and why, in plain words. */
+function rejectionHtml(b: Bill): string {
+  const r = b.rejection;
+  if (b.status !== 'rejected' || !r) return '';
+  return `<div class="notice bad reject"><b>${t('reject.by.' + r.by)}</b>
+    <div>${r.reason ? t('reject.' + r.reason) : t('reject.noReason')}</div>
+    ${r.note ? `<div class="muted small">“${esc(r.note)}”</div>` : ''}</div>`;
+}
+/** While the hospital hasn't answered, the family or payer can send the WhatsApp request again. */
+function resendHtml(b: Bill): string {
+  const role = state.me?.role;
+  if (b.status !== 'awaiting_clinic' || !['family', 'payer', 'admin'].includes(role || '')) return '';
+  return `<button class="secondary small" data-resend="${b.id}">📲 ${t('resend.button')}</button>`;
+}
+function wireResend(root: ParentNode): void {
+  $$<HTMLButtonElement>('[data-resend]', root).forEach((b) => (b.onclick = (e) => busy(btn(e), async () => {
+    await api('POST', `/api/bills/${b.dataset.resend}/resend-clinic`, {});
+    toast(t('resend.done'));
+  })));
+}
+/** Asks why a bill is being rejected. Resolves to null if cancelled. */
+function rejectDialog(reasons: string[]): Promise<{ reason: string; note: string } | null> {
+  return new Promise((resolve) => {
+    let done = false;
+    openModal(`<div class="row between"><h2>${t('reject.pick')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
+      <p class="muted small">${t('reject.pickHint')}</p>
+      ${reasons.map((r, i) => `<label class="radio"><input type="radio" name="why" value="${r}" ${i === 0 ? 'checked' : ''}> ${t('reject.' + r)}</label>`).join('')}
+      <label for="whyNote">${t('reject.note')}</label>
+      <input id="whyNote" maxlength="300" placeholder="${t('reject.notePh')}">
+      <div class="row"><button class="secondary grow" data-close>${t('cancel')}</button><button class="grow danger" id="whyOk">${t('reject.confirm')}</button></div>`, (s) => {
+      $('#whyOk', s).onclick = () => {
+        done = true;
+        const reason = $<HTMLInputElement>('input[name="why"]:checked', s).value;
+        const note = val('#whyNote', s);
+        closeModal(); resolve({ reason, note });
+      };
+      $$('[data-close]', s).forEach((b) => b.addEventListener('click', () => { if (!done) resolve(null); }));
+    });
+  });
 }
 
 async function showBill(id: string): Promise<void> {
@@ -172,7 +221,9 @@ async function showBill(id: string): Promise<void> {
     <p class="muted small">${esc(b.clinic?.name || '')} · ${t('billNo')} ${esc(b.billNumber || '—')} · ${t('ref')} ${esc(b.ref)}</p>
     <div class="row">${riskPill(b.risk)}<span class="pill st">${t('status.' + b.status)}</span></div>
     ${steps(b.status)}
+    ${rejectionHtml(b)}
     ${nextStep(b)}
+    ${resendHtml(b)}
     <div class="scroll"><table><thead><tr><th>${t('item')}</th><th class="num">${t('qty')}</th><th class="num">${t('unitPrice')}</th></tr></thead><tbody>${items}</tbody></table></div>
     <p class="row between"><b>${t('total')}</b><b>${b.currency === 'CDF' ? cdf(b.total) + ' · ' : ''}${usd(b.totalUsd)}</b></p>
     ${b.expectedUsd !== undefined ? `<p class="muted small">${t('expectedCost', { amount: usd(b.expectedUsd) })}</p>` : ''}
@@ -180,7 +231,7 @@ async function showBill(id: string): Promise<void> {
     ${b.payout ? `<p class="notice info">${t('payoutSent', { ref: esc(b.payout.ref), account: esc(b.payout.account || '') })}</p>` : ''}
     <ul class="timeline">${b.events.map((e) => `<li>${fmtDate(e.at)} · ${esc(t('event.' + e.type))}</li>`).join('')}</ul>
     ${b.hasPhoto ? `<img class="photo-full" src="/api/bills/${b.id}/photo" alt="${t('billPhoto')}">` : ''}
-  `);
+  `, wireResend);
 }
 
 // ---------- how it works, help, next steps ----------
@@ -248,6 +299,7 @@ const wireHelpLinks = (root: ParentNode) => $$('[data-help]', root).forEach((b) 
 function nextStep(b: Bill): string {
   const role = state.me?.role;
   if (role !== 'payer' && role !== 'family') return '';
+  if (b.status === 'rejected' && b.rejection?.reason) return ''; // the reason already says what to do
   const payer = esc(b.payer?.name || '');
   const key = ['awaiting_clinic', 'awaiting_payer', 'payment_failed', 'declined'].includes(b.status) ? `next.${b.status}.${role}` : `next.${b.status}`;
   const tone = b.status === 'paid' ? 'done' : ['rejected', 'payout_failed', 'payment_failed'].includes(b.status) ? 'bad' : '';
@@ -653,8 +705,9 @@ async function renderClinic(): Promise<void> {
     try { await api('POST', `/api/bills/${b.dataset.ok}/confirm`, {}); toast(t('clinic.confirmed')); renderClinic(); } catch (e) { reportUnexpected(e); toast(errText(e)); }
   }));
   $$('[data-no]').forEach((b) => (b.onclick = async () => {
-    if (!(await confirmDialog(t('clinic.rejectQ'), t('clinic.reject'), true))) return;
-    try { await api('POST', `/api/bills/${b.dataset.no}/reject`, {}); renderClinic(); } catch (e) { reportUnexpected(e); toast(errText(e)); }
+    const why = await rejectDialog(HOSPITAL_REASONS);
+    if (!why) return;
+    try { await api('POST', `/api/bills/${b.dataset.no}/reject`, why); renderClinic(); } catch (e) { reportUnexpected(e); toast(errText(e)); }
   }));
 }
 
@@ -690,7 +743,11 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
       </div>`;
     wireDetails(el);
     $$('[data-approve]', el).forEach((b) => (b.onclick = (e) => busy(btn(e), async () => { await api('POST', `/api/bills/${b.dataset.approve}/review`, { approve: true }); renderAdmin(); })));
-    $$('[data-reject]', el).forEach((b) => (b.onclick = (e) => busy(btn(e), async () => { await api('POST', `/api/bills/${b.dataset.reject}/review`, { approve: false }); renderAdmin(); })));
+    $$('[data-reject]', el).forEach((b) => (b.onclick = async () => {
+      const why = await rejectDialog(REVIEW_REASONS);
+      if (!why) return;
+      try { await api('POST', `/api/bills/${b.dataset.reject}/review`, { approve: false, ...why }); renderAdmin(); } catch (e) { reportUnexpected(e); toast(errText(e)); }
+    }));
     $$('[data-retry]', el).forEach((b) => (b.onclick = (e) => busy(btn(e), async () => { await api('POST', `/api/bills/${b.dataset.retry}/retry-payout`, {}); renderAdmin(); })));
   },
   async bills(el) {

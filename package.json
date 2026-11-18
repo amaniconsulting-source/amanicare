@@ -14,7 +14,8 @@
     "start": "node --import ./dist/server/instrument.js dist/server/index.js",
     "dev": "npm run build && node --import ./dist/server/instrument.js --watch dist/server/index.js",
     "pretest": "npm run build",
-    "test": "node --test \"dist/test/**/*.test.js\""
+    "test": "node --test \"dist/test/**/*.test.js\"",
+    "demo:reset": "node dist/server/demo.js"
   },
   "license": "UNLICENSED",
   "dependencies": {

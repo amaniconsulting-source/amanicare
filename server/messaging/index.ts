@@ -20,7 +20,12 @@ export interface Template {
   /** Authentication templates: the code for the "copy code" button. */
   copyCode?: string;
 }
-export interface OutboundMessage { to: string; text: string; buttons?: Button[]; kind?: string; template?: Template }
+/** A WhatsApp list: one button that opens up to 10 choices. Only sent as a reply (within 24 h of the person's last message). */
+export interface ListChoice { id: string; title: string; description?: string }
+export interface OutboundMessage {
+  to: string; text: string; buttons?: Button[]; kind?: string; template?: Template;
+  list?: { button: string; choices: ListChoice[] };
+}
 
 type Params = Record<string, any>;
 type Texts = { fr: (p: Params) => string } & Partial<Record<'en' | 'ln' | 'sw', (p: Params) => string>>;
@@ -133,7 +138,19 @@ function whatsappBody(to: string, msg: OutboundMessage): Record<string, unknown>
       components.push({ type: 'button', sub_type: 'quick_reply', index: String(i), parameters: [{ type: 'payload', payload }] }));
     return { messaging_product: 'whatsapp', to: phone, type: 'template', template: { name: t.name, language: { code: t.language }, components } };
   }
-  // Free-form messages: only delivered within 24 h of the recipient's last message to us (testing only).
+  // Free-form messages: only delivered within 24 h of the recipient's last message to us.
+  if (msg.list) {
+    return {
+      messaging_product: 'whatsapp', to: phone, type: 'interactive',
+      interactive: {
+        type: 'list', body: { text: msg.text.slice(0, 1024) },
+        action: {
+          button: msg.list.button.slice(0, 20),
+          sections: [{ title: 'AmaniCare', rows: msg.list.choices.slice(0, 10).map((c) => ({ id: c.id, title: c.title.slice(0, 24), description: c.description?.slice(0, 72) })) }],
+        },
+      },
+    };
+  }
   return msg.buttons?.length
     ? {
         messaging_product: 'whatsapp', to: phone, type: 'interactive',

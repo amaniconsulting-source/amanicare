@@ -5,11 +5,11 @@ import { config } from './config.js';
 import { one, all, run, tx, audit, setSetting } from './db.js';
 import { Router, HttpError, bad, notFound, forbidden, str, num, oneOf, phone, type AuthCtx, type Body, type Ctx } from './http.js';
 import { requestOtp, verifyOtp, createSession, sessionCookie, destroySession, findOrCreateUser, requireRole } from './auth.js';
-import { createDraft, createBill, clinicDecision, reviewDecision, payerDecline, listBillsFor, view, canView, getBill, settings, prices, STATUSES } from './bills.js';
+import { createDraft, createBill, clinicDecision, reviewDecision, payerDecline, resendToClinic, hospitalReason, listBillsFor, view, canView, getBill, settings, prices, STATUSES } from './bills.js';
 import { startPayment, applyPaymentUpdate, retryPayout } from './payments/flow.js';
 import { getPartner, hasPartner } from './payments/partners.js';
 import { DEFAULT_SETTINGS } from './screening.js';
-import { notify, updateDelivery } from './messaging/index.js';
+import { notify, send, updateDelivery } from './messaging/index.js';
 import { CATEGORIES, type Category, type ClinicRow, type InviteRow, type Lang, type PaymentRow, type UserRow } from './types.js';
 
 export const router = new Router();
@@ -186,10 +186,12 @@ router.get('/api/bills/:id/photo', requireRole(), async ({ user, params, res }: 
 
 router.post('/api/bills/:id/confirm', requireRole('clinic', 'admin'), async ({ user, params }: AuthCtx) =>
   ({ bill: await view(await clinicDecision(params.id, 'confirm', user), user) }));
-router.post('/api/bills/:id/reject', requireRole('clinic', 'admin'), async ({ user, params }: AuthCtx) =>
-  ({ bill: await view(await clinicDecision(params.id, 'reject', user), user) }));
+router.post('/api/bills/:id/reject', requireRole('clinic', 'admin'), async ({ user, params, body }: AuthCtx) =>
+  ({ bill: await view(await clinicDecision(params.id, 'reject', user, body), user) }));
 router.post('/api/bills/:id/review', requireRole('admin'), async ({ user, params, body }: AuthCtx) =>
-  ({ bill: await view(await reviewDecision(params.id, body.approve === true, user), user) }));
+  ({ bill: await view(await reviewDecision(params.id, body.approve === true, user, body), user) }));
+router.post('/api/bills/:id/resend-clinic', requireRole('family', 'payer', 'admin'), async ({ user, params }: AuthCtx) =>
+  resendToClinic(params.id, user));
 router.post('/api/bills/:id/pay', requireRole('payer'), async ({ user, params }: AuthCtx) => startPayment(params.id, user));
 router.post('/api/bills/:id/decline', requireRole('payer'), async ({ user, params }: AuthCtx) =>
   ({ bill: await view(await payerDecline(params.id, user), user) }));
@@ -379,8 +381,19 @@ router.post('/api/webhooks/whatsapp', async ({ raw, req }: Ctx) => {
     }
     for (const m of ch.value?.messages || []) {
     // Buttons on a template arrive as type "button" (payload); on a free-form message as "interactive".
-    const id: string = m.button?.payload || m.interactive?.button_reply?.id || '';
-    const [decision, billId] = id.split(':');
+    const id: string = m.button?.payload || m.interactive?.button_reply?.id || m.interactive?.list_reply?.id || '';
+    const [decision, billId, reason] = id.split(':');
+    if (decision === 'why' && billId && reason) {
+      // The hospital's answer to "why was it rejected?" (list sent after a Rejeter tap).
+      const b = await getBill(billId);
+      const c = b && (await getClinic(b.clinic_id));
+      if (b && c && c.whatsapp_phone.replace(/\D/g, '') === String(m.from)) {
+        const done = await hospitalReason(billId, reason);
+        console.log(`[whatsapp] ${b.ref} reject reason ${done ? reason : 'ignored (already set)'}`);
+        if (done) await send({ to: c.whatsapp_phone, kind: 'clinic_reason', text: 'Merci. La famille est informée.' });
+      }
+      continue;
+    }
     if ((decision !== 'confirm' && decision !== 'reject') || !billId) {
       console.log(`[whatsapp] message from ${tail(m.from)} (type ${m.type}) is not a Confirm/Reject tap: ignored`);
       continue;

@@ -155,8 +155,11 @@ test('full payment flow', async () => {
 
   // Admin rejects it
   await login(admin, '+15550000001');
-  const rev = await admin('POST', `/api/bills/${dup.data.bill.id}/review`, { approve: false });
+  // A reason is required, and the family sees it.
+  assert.equal((await admin('POST', `/api/bills/${dup.data.bill.id}/review`, { approve: false })).data.error, 'reason_required');
+  const rev = await admin('POST', `/api/bills/${dup.data.bill.id}/review`, { approve: false, reason: 'duplicate', note: 'Same bill as last week' });
   assert.equal(rev.data.bill.status, 'rejected');
+  assert.deepEqual((await family('GET', `/api/bills/${dup.data.bill.id}`)).data.bill.rejection, { by: 'review', reason: 'duplicate', note: 'Same bill as last week' });
   const ov = await admin('GET', '/api/admin/overview');
   assert.equal(ov.data.counts.paid, 1);
 

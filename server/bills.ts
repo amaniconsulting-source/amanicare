@@ -4,7 +4,7 @@ import { config } from './config.js';
 import { one, all, run, tx, getSetting, audit } from './db.js';
 import { screenBill, wasEdited, mustReview, DEFAULT_SETTINGS, feeFor, round2, type ScreeningSettings, type Reason } from './screening.js';
 import { extractBill } from './ai.js';
-import { notify } from './messaging/index.js';
+import { notify, send } from './messaging/index.js';
 import { bad, forbidden, notFound, HttpError, str, num, oneOf, type Body } from './http.js';
 import type { AiBill, BillItem, BillRow, BillStatus, ClinicRow, DraftRow, Price, PriceRow, UserRow } from './types.js';
 
@@ -126,10 +126,10 @@ export const getBill = (id: string) => one<BillRow>('SELECT * FROM bills WHERE i
 const getClinic = (id: string) => one<ClinicRow>('SELECT * FROM clinics WHERE id = $1', id);
 
 // ---------- Notifications ----------
-export async function notifyClinic(bill: BillRow): Promise<void> {
+export async function notifyClinic(bill: BillRow): Promise<string> {
   const clinic = await getClinic(bill.clinic_id);
-  if (!clinic?.whatsapp_phone) return;
-  await notify('clinicRequest', {
+  if (!clinic?.whatsapp_phone) return 'no_whatsapp';
+  return notify('clinicRequest', {
     to: clinic.whatsapp_phone, kind: 'clinic_request', lang: 'fr',
     params: {
       patient: bill.patient_name, billNumber: bill.bill_number || bill.ref, amount: fmtUsd(bill.total_usd),
@@ -139,7 +139,7 @@ export async function notifyClinic(bill: BillRow): Promise<void> {
   });
 }
 const STATUS_WORDS: Record<string, Record<string, string>> = {
-  paid: { fr: 'payée à la clinique', en: 'paid to the clinic', ln: 'efuti na clinique', sw: 'imelipwa kwa kliniki' },
+  paid: { fr: "payée à l'hôpital", en: 'paid to the hospital', ln: 'efuti na lopitalo', sw: 'imelipwa kwa hospitali' },
   rejected: { fr: 'rejetée', en: 'rejected', ln: 'eboyami', sw: 'imekataliwa' },
   declined: { fr: 'refusée par le payeur', en: 'declined by the payer', ln: 'mofuti aboyi', sw: 'imekataliwa na mlipaji' },
 };
@@ -154,6 +154,57 @@ async function notifyPayer(bill: BillRow): Promise<void> {
   if (payer) await notify('payerApprove', { to: payer.phone, kind: 'payer_approve', lang: payer.lang, params: { clinic: clinic?.name, patient: bill.patient_name, amount: fmtUsd(bill.total_usd) } });
 }
 
+// ---------- Rejection reasons ----------
+// The family and payer see why a bill was stopped and what to do. Texts are in the app's translations
+// (reject.<code>); WhatsApp list titles below are for hospital staff, who use French.
+export const HOSPITAL_REJECT_REASONS = ['patient_unknown', 'wrong_amount', 'already_paid', 'not_our_bill', 'other'] as const;
+export const REVIEW_REJECT_REASONS = ['unverifiable', 'duplicate', 'unreadable_photo', 'not_in_network', 'other'] as const;
+const WHY_TITLES: Record<(typeof HOSPITAL_REJECT_REASONS)[number], [string, string]> = {
+  patient_unknown: ['Patient inconnu', "Ce patient n'est pas chez nous"],
+  wrong_amount: ['Montant incorrect', 'Le montant ou les lignes ne correspondent pas'],
+  already_paid: ['Déjà payée', 'Cette facture est déjà réglée'],
+  not_our_bill: ['Pas notre facture', "La facture ne vient pas de notre établissement"],
+  other: ['Autre raison', ''],
+};
+function checkReason(reason: unknown, allowed: readonly string[]): string {
+  if (typeof reason !== 'string' || !allowed.includes(reason)) throw bad('reason_required');
+  return reason;
+}
+const cleanNote = (note: unknown) => (typeof note === 'string' ? note.trim().slice(0, 300) : '');
+
+/** After a hospital taps "Rejeter" on WhatsApp, ask why with a list (it's a reply, so no template needed). */
+async function askHospitalWhy(bill: BillRow, to: string): Promise<void> {
+  await send({
+    to, kind: 'clinic_reason',
+    text: `Facture ${bill.bill_number || bill.ref} (${bill.patient_name}) rejetée. Pourquoi ? La famille verra votre réponse.`,
+    list: { button: 'Choisir la raison', choices: HOSPITAL_REJECT_REASONS.map((r) => ({ id: `why:${bill.id}:${r}`, title: WHY_TITLES[r][0], description: WHY_TITLES[r][1] || undefined })) },
+  });
+}
+
+/** The hospital's answer to "why?". Only fills in a reason not given yet. */
+export async function hospitalReason(billId: string, reason: string): Promise<BillRow | undefined> {
+  if (!(HOSPITAL_REJECT_REASONS as readonly string[]).includes(reason)) return undefined;
+  const b = await one<BillRow>(`UPDATE bills SET reject_reason = $2, updated_at = now()
+    WHERE id = $1 AND status = 'rejected' AND rejected_by = 'hospital' AND reject_reason IS NULL RETURNING *`, billId, reason);
+  if (b) await event(b.id, null, 'reject_reason', reason);
+  return b;
+}
+
+/** Asks the hospital again (WhatsApp) to confirm a bill that's still waiting. At most every 5 minutes. */
+export async function resendToClinic(billId: string, user: UserRow): Promise<{ status: string }> {
+  const b = await getBill(billId);
+  if (!canView(user, b)) throw notFound();
+  if (b.status !== 'awaiting_clinic') throw new HttpError(409, 'not_awaiting_clinic');
+  const clinic = await getClinic(b.clinic_id);
+  if (!clinic?.whatsapp_phone) throw new HttpError(409, 'clinic_no_whatsapp');
+  const recent = await one<{ n: number }>(`SELECT COUNT(*) n FROM bill_events WHERE bill_id = $1 AND type = 'clinic_reminded'
+    AND at > now() - interval '5 minutes'`, b.id);
+  if (user.role !== 'admin' && recent!.n > 0) throw new HttpError(429, 'resend_too_soon');
+  const status = await notifyClinic(b);
+  await event(b.id, user.id, 'clinic_reminded', status);
+  return { status };
+}
+
 // ---------- Decisions ----------
 // Each decision re-reads the bill with FOR UPDATE inside its transaction, so two concurrent
 // requests (e.g. the app and a WhatsApp button) can't both move the same bill.
@@ -161,7 +212,10 @@ async function lockBill(billId: string): Promise<BillRow | undefined> {
   return one<BillRow>('SELECT * FROM bills WHERE id = $1 FOR UPDATE', billId);
 }
 
-export async function clinicDecision(billId: string, decision: 'confirm' | 'reject', actor: UserRow | null): Promise<BillRow> {
+export async function clinicDecision(billId: string, decision: 'confirm' | 'reject', actor: UserRow | null,
+  why: { reason?: unknown; note?: unknown } = {}): Promise<BillRow> {
+  // In the app a reason is required; a WhatsApp tap has none yet (the hospital is asked right after).
+  const reason = decision === 'reject' && actor ? checkReason(why.reason, HOSPITAL_REJECT_REASONS) : null;
   const bill = await tx(async () => {
     const b = await lockBill(billId);
     if (!b) throw notFound();
@@ -173,16 +227,22 @@ export async function clinicDecision(billId: string, decision: 'confirm' | 'reje
       await event(b.id, actor?.id, 'clinic_confirmed', actor ? 'app' : 'whatsapp');
     } else {
       await setStatus(b.id, 'rejected');
+      await run("UPDATE bills SET rejected_by = 'hospital', reject_reason = $2, reject_note = $3 WHERE id = $1", b.id, reason, cleanNote(why.note));
       await event(b.id, actor?.id, 'clinic_rejected', actor ? 'app' : 'whatsapp');
     }
     return b;
   });
   if (decision === 'confirm') await notifyPayer(bill);
-  else await notifyFamily(bill, 'rejected');
+  else {
+    await notifyFamily(bill, 'rejected');
+    if (!actor) { const c = await getClinic(bill.clinic_id); if (c?.whatsapp_phone) await askHospitalWhy(bill, c.whatsapp_phone); }
+  }
   return (await getBill(bill.id))!;
 }
 
-export async function reviewDecision(billId: string, approve: boolean, admin: UserRow): Promise<BillRow> {
+export async function reviewDecision(billId: string, approve: boolean, admin: UserRow,
+  why: { reason?: unknown; note?: unknown } = {}): Promise<BillRow> {
+  const reason = approve ? null : checkReason(why.reason, REVIEW_REJECT_REASONS);
   const bill = await tx(async () => {
     const b = await lockBill(billId);
     if (!b) throw notFound();
@@ -192,6 +252,7 @@ export async function reviewDecision(billId: string, approve: boolean, admin: Us
       await event(b.id, admin.id, 'review_approved');
     } else {
       await setStatus(b.id, 'rejected');
+      await run("UPDATE bills SET rejected_by = 'review', reject_reason = $2, reject_note = $3 WHERE id = $1", b.id, reason, cleanNote(why.note));
       await run('UPDATE clinics SET trust = GREATEST(0, trust - 3) WHERE id = $1', b.clinic_id);
       await event(b.id, admin.id, 'review_rejected');
     }
@@ -249,6 +310,7 @@ export interface BillView {
   aiUsed: boolean; edited: boolean;
   events: { at: string; type: string; note: string }[];
   payout?: { ref: string | null; status: string; account?: string };
+  rejection?: { by: 'hospital' | 'review'; reason: string | null; note: string };
 }
 
 export async function view(b: BillRow, user: UserRow): Promise<BillView> {
@@ -273,6 +335,7 @@ export async function view(b: BillRow, user: UserRow): Promise<BillView> {
     events,
   };
   if (payout) out.payout = { ref: payout.partner_ref, status: payout.status, account: clinic?.payout_account };
+  if (b.status === 'rejected' && b.rejected_by) out.rejection = { by: b.rejected_by, reason: b.reject_reason, note: b.reject_note };
   // Clinics see what they need to confirm; risk details stay with payer/admin.
   if (user.role === 'clinic') { out.risk = { level: b.risk_level }; delete out.expectedUsd; delete out.payer; }
   if (user.role === 'family') { out.risk = { level: b.risk_level }; }
