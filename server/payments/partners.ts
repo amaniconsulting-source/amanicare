@@ -1,5 +1,6 @@
 // Payment partner adapters. AmaniCare never holds customer money: a licensed partner
-// collects from the diaspora payer and pays out to the clinic. Every partner implements PaymentPartner.
+// (the bank, acting as gateway) collects from the diaspora payer and pays out to the facility's bank account
+// or mobile wallet (clinic.payout_method: bank, mpesa, orange, airtel). Every partner implements PaymentPartner.
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
 import { config } from '../config.js';

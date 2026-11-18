@@ -29,13 +29,14 @@ interface DemoBill {
 const ROOT = join(import.meta.dirname, '..', '..');
 const DEMO = JSON.parse(readFileSync(join(ROOT, 'demo', 'bills.json'), 'utf8')) as { bills: DemoBill[] };
 
-/** The demo network: [name, commune, category, payout method, payout account, default WhatsApp]. */
+/** The demo network: [name, commune, category, payout method, payout account, default WhatsApp].
+ *  The bank is the gateway; each facility is paid to its bank account or its mobile wallet. */
 const FACILITIES: [string, string, Category, string, string, string][] = [
   ['Centre Médical Espoir', 'Lemba', 'clinic', 'bank', 'Equity BCDC ••4821', '+243810000001'],
   ['Clinique Bonne Santé', 'Bandalungwa', 'clinic', 'bank', 'Equity BCDC ••1937', '+243810000002'],
-  ['Polyclinique La Grâce', 'Ngaliema', 'clinic', 'bank', 'Equity BCDC ••7710', '+243810000003'],
-  ['Centre de Santé Amani', 'Kintambo', 'health_centre', 'mpesa', 'M-Pesa marchand ••3305', '+243810000004'],
-  ['Laboratoire Bio-Lumière', 'Gombe', 'diagnostic', 'bank', 'Equity BCDC ••5502', '+243810000005'],
+  ['Polyclinique La Grâce', 'Ngaliema', 'clinic', 'orange', 'Orange Money ••7710', '+243810000003'],
+  ['Centre de Santé Amani', 'Kintambo', 'health_centre', 'mpesa', 'M-Pesa ••3305', '+243810000004'],
+  ['Laboratoire Bio-Lumière', 'Gombe', 'diagnostic', 'airtel', 'Airtel Money ••5502', '+243810000005'],
   ['Hôpital Mère-Enfant Tujenge', 'Ngaliema', 'hospital', 'bank', 'Equity BCDC ••6618', '+243810000006'],
 ];
 /** Prices that differ by facility type or facility (the general list comes from seed.ts). */

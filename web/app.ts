@@ -770,7 +770,7 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
           <div><label>${t('admin.commune')}</label><input id="cCommune"></div>
           <div><label>${t('admin.city')}</label><input id="cCity" value="Kinshasa"></div>
           <div><label>${t('admin.whatsapp')}</label><input id="cWa" type="tel" placeholder="+243…"></div>
-          <div><label>${t('admin.payoutMethod')}</label><select id="cMethod"><option value="bank">Bank</option><option value="mpesa">M-Pesa</option><option value="orange">Orange Money</option><option value="airtel">Airtel Money</option></select></div>
+          <div><label>${t('admin.payoutMethod')}</label><select id="cMethod"><option value="bank">Bank account</option><option value="mpesa">M-Pesa</option><option value="orange">Orange Money</option><option value="airtel">Airtel Money</option></select></div>
           <div><label>${t('admin.payoutAccount')}</label><input id="cAcct"></div>
         </div>
         <button class="block" id="addClinic">${t('admin.addClinic')}</button>
