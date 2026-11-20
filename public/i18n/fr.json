@@ -406,5 +406,10 @@
  "pay.walletNote": "Vous recevrez une demande de paiement sur ce téléphone. Validez-la avec votre code PIN.",
  "pay.continue": "Continuer",
  "pay.approveOnPhone": "Demande de paiement envoyée. Validez-la sur votre téléphone avec votre code PIN.",
- "err.invalid_pay_method": "Choisissez comment payer."
+ "err.invalid_pay_method": "Choisissez comment payer.",
+ "admin.flexpayMerchant": "Code marchand FlexPay",
+ "admin.payoutPhone": "Numéro mobile money pour les versements",
+ "admin.optional": "facultatif",
+ "admin.flexpaySetup": "Configurer FlexPay",
+ "admin.flexpayHint": "Pilote FlexPay : avec son propre code marchand FlexPay, l'hôpital est payé directement sur son compte FlexPay et retire quand il veut. Sans code, AmaniCare verse l'argent sur son numéro mobile money."
 }

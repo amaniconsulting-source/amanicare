@@ -54,6 +54,17 @@ export const config = {
   paymentPartner: env.PAYMENT_PARTNER || 'sandbox',
   paymentWebhookSecret: env.PAYMENT_WEBHOOK_SECRET || 'dev-webhook-secret',
   sandboxAutoComplete: bool(env.SANDBOX_AUTO_COMPLETE, false),
+  // FlexPay (DRC aggregator: M-Pesa, Orange Money, Airtel Money, Afrimoney, Visa/Mastercard): pilot / POC.
+  // FlexPay issues a merchant code and a token per merchant account (sandbox and live).
+  flexpay: {
+    token: env.FLEXPAY_TOKEN || '',
+    merchant: env.FLEXPAY_MERCHANT || '', // AmaniCare's own merchant code (used when a hospital has none)
+    // Production endpoints are built in; set these to the test addresses FlexPay gives you for the pilot.
+    paymentUrl: env.FLEXPAY_PAYMENT_URL || '',
+    cardUrl: env.FLEXPAY_CARD_URL || '',
+    checkUrl: env.FLEXPAY_CHECK_URL || '',
+    payoutUrl: env.FLEXPAY_PAYOUT_URL || '',
+  },
   equity: {
     apiBase: env.EQUITY_API_BASE || '',
     clientId: env.EQUITY_CLIENT_ID || '',

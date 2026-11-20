@@ -6,16 +6,19 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
 import { config } from '../config.js';
 import type { BillRow, ClinicRow, PaymentRow, PaymentStatus, UserRow } from '../types.js';
+import { flexpayPartner } from './flexpay.js';
 
 export interface PartnerResult { partnerRef: string; status: PaymentStatus; checkoutUrl?: string; autoComplete?: boolean }
 export interface PaymentUpdate { paymentId?: string; partnerRef?: string; status: PaymentStatus; reason?: string }
 
 export interface PaymentPartner {
   name: string;
-  createCollection(args: { payment: PaymentRow; payer: UserRow; bill: BillRow }): Promise<PartnerResult>;
-  createPayout(args: { payment: PaymentRow; clinic: ClinicRow; bill: BillRow }): Promise<PartnerResult>;
+  createCollection(args: { payment: PaymentRow; payer: UserRow; bill: BillRow; clinic: ClinicRow }): Promise<PartnerResult>;
+  createPayout(args: { payment: PaymentRow; clinic: ClinicRow; bill: BillRow; collection: PaymentRow | null }): Promise<PartnerResult>;
   verifyWebhook(rawBody: Buffer, headers: IncomingHttpHeaders): boolean;
   parseWebhook(json: any): PaymentUpdate;
+  /** Optional: re-check an update with the partner's own status API before trusting it (for unsigned callbacks). */
+  confirm?(payment: PaymentRow, update: PaymentUpdate): Promise<PaymentUpdate>;
 }
 
 export function hmacHex(secret: string, body: string | Buffer): string {
@@ -85,7 +88,7 @@ export const equityPartner: PaymentPartner = {
   parseWebhook: genericParse, // TODO(partner): map the partner's payload fields
 };
 
-const PARTNERS: Record<string, PaymentPartner> = { sandbox: sandboxPartner, equity: equityPartner };
+const PARTNERS: Record<string, PaymentPartner> = { sandbox: sandboxPartner, equity: equityPartner, flexpay: flexpayPartner };
 
 export const hasPartner = (name: string): boolean => Object.hasOwn(PARTNERS, name);
 

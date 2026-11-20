@@ -29,7 +29,7 @@ export interface PayChoice { method: PayMethod; walletPhone: string | null }
 export async function startPayment(billId: string, payer: UserRow, how: PayChoice = { method: 'card', walletPhone: null }): Promise<{ paymentId: string; checkoutUrl: string | null; method: PayMethod }> {
   const partner = getPartner();
   // The bill row is locked while the payment is created, so a double tap can't start two collections.
-  const { bill, payment } = await tx(async () => {
+  const { bill, payment, clinic } = await tx(async () => {
     const b = await lockBill(billId);
     if (!b || b.payer_id !== payer.id) throw notFound();
     if (!['awaiting_payer', 'payment_failed'].includes(b.status)) throw new HttpError(409, 'not_payable');
@@ -38,10 +38,11 @@ export async function startPayment(billId: string, payer: UserRow, how: PayChoic
     p.method = how.method; p.wallet_phone = how.walletPhone;
     await setStatus(b.id, 'payment_pending');
     await event(b.id, payer.id, 'payment_started', `${round2(b.total_usd + b.fee_usd)} USD · ${how.method}`);
-    return { bill: b, payment: p };
+    const c = (await one<ClinicRow>('SELECT * FROM clinics WHERE id = $1', b.clinic_id))!;
+    return { bill: b, payment: p, clinic: c };
   });
   try {
-    const r = await partner.createCollection({ payment, payer, bill });
+    const r = await partner.createCollection({ payment, payer, bill, clinic });
     await run('UPDATE payments SET partner_ref = $1, checkout_url = $2, updated_at = now() WHERE id = $3', r.partnerRef, r.checkoutUrl || null, payment.id);
     if (r.status !== 'pending') await applyPaymentUpdate({ paymentId: payment.id, status: r.status });
     return { paymentId: payment.id, checkoutUrl: r.checkoutUrl || null, method: how.method };
@@ -54,16 +55,18 @@ export async function startPayment(billId: string, payer: UserRow, how: PayChoic
 
 export async function startPayout(billId: string, actorId: string | null = null): Promise<void> {
   const partner = getPartner();
-  const { bill, clinic, payment } = await tx(async () => {
+  const { bill, clinic, payment, collection } = await tx(async () => {
     const b = (await lockBill(billId))!;
     const c = (await one<ClinicRow>('SELECT * FROM clinics WHERE id = $1', b.clinic_id))!;
     const p = await insertPayment(b.id, 'payout', b.total_usd, partner.name, (await attempts(b.id, 'payout')) + 1);
+    // The successful collection: some partners (FlexPay, direct mode) already paid the hospital with it.
+    const col = await one<PaymentRow>("SELECT * FROM payments WHERE bill_id = $1 AND kind = 'collection' AND status = 'succeeded' ORDER BY created_at DESC LIMIT 1", b.id);
     await setStatus(b.id, 'paying_out');
     await event(b.id, actorId, 'payout_started', c.payout_account);
-    return { bill: b, clinic: c, payment: p };
+    return { bill: b, clinic: c, payment: p, collection: col || null };
   });
   try {
-    const r = await partner.createPayout({ payment, clinic, bill });
+    const r = await partner.createPayout({ payment, clinic, bill, collection });
     await run('UPDATE payments SET partner_ref = $1, updated_at = now() WHERE id = $2', r.partnerRef, payment.id);
     if (r.status !== 'pending') await applyPaymentUpdate({ paymentId: payment.id, status: r.status });
     else if (r.autoComplete) {

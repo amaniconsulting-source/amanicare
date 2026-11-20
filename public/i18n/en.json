@@ -406,5 +406,10 @@
  "pay.walletNote": "You'll get a payment request on this phone. Approve it with your PIN.",
  "pay.continue": "Continue",
  "pay.approveOnPhone": "Payment request sent. Approve it on your phone with your PIN.",
- "err.invalid_pay_method": "Choose how to pay."
+ "err.invalid_pay_method": "Choose how to pay.",
+ "admin.flexpayMerchant": "FlexPay merchant code",
+ "admin.payoutPhone": "Mobile-money payout number",
+ "admin.optional": "optional",
+ "admin.flexpaySetup": "FlexPay setup",
+ "admin.flexpayHint": "FlexPay pilot: with its own FlexPay merchant code, the hospital is paid directly into its FlexPay account and withdraws when it wants. Without one, AmaniCare pays its mobile-money payout number."
 }

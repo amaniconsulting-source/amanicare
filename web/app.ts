@@ -28,7 +28,7 @@ interface Payer { id: string; name: string; relation: string }
 type Category = 'health_centre' | 'clinic' | 'hospital' | 'diagnostic' | 'pharmacy';
 const CATEGORIES: Category[] = ['health_centre', 'clinic', 'hospital', 'diagnostic', 'pharmacy'];
 interface Clinic { id: string; name: string; commune: string; city: string; category: Category }
-interface AdminClinic extends Clinic { whatsapp_phone: string; payout_method: string; payout_account: string; trust: number; active: number }
+interface AdminClinic extends Clinic { whatsapp_phone: string; payout_method: string; payout_account: string; trust: number; active: number; flexpay_merchant: string; payout_phone: string }
 interface AiRead {
   clinic_name: string; bill_number: string; date: string; patient_name: string; currency: 'USD' | 'CDF';
   items: { description: string; qty: number; unit_price: number }[]; total: number; tamper_flags: string[]; confidence: number;
@@ -815,7 +815,7 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
     const { clinics } = await api<{ clinics: AdminClinic[] }>('GET', '/api/admin/clinics');
     el.innerHTML = `
       <div class="card scroll"><h2>${t('admin.network')}</h2><table><thead><tr><th>${t('family.clinic')}</th><th>${t('admin.whatsapp')}</th><th>${t('admin.payoutAccount')}</th><th class="num">${t('admin.trust')}</th><th></th></tr></thead><tbody>
-        ${clinics.map((c) => `<tr><td><b>${esc(c.name)}</b><div class="muted small">${t('cat.' + c.category)} · ${esc(c.commune)}, ${esc(c.city)}</div></td><td class="small">${esc(c.whatsapp_phone)}</td><td class="small">${esc(c.payout_method)} · ${esc(c.payout_account)}</td><td class="num"><span class="pill ${c.trust >= 80 ? 'low' : c.trust >= 65 ? 'med' : 'high'}">${c.trust}</span></td><td><button class="link" data-toggle="${c.id}" data-active="${c.active}">${c.active ? t('admin.deactivate') : t('admin.activate')}</button></td></tr>`).join('')}
+        ${clinics.map((c) => `<tr><td><b>${esc(c.name)}</b><div class="muted small">${t('cat.' + c.category)} · ${esc(c.commune)}, ${esc(c.city)}</div></td><td class="small">${esc(c.whatsapp_phone)}</td><td class="small">${esc(c.payout_method)} · ${esc(c.payout_account)}${c.flexpay_merchant ? `<div><span class="pill low">FlexPay ${esc(c.flexpay_merchant)}</span></div>` : c.payout_phone ? `<div class="muted">${t('admin.payoutPhone')}: ${esc(c.payout_phone)}</div>` : ''}<div><button class="link small" data-flexpay="${c.id}">${t('admin.flexpaySetup')}</button></div></td><td class="num"><span class="pill ${c.trust >= 80 ? 'low' : c.trust >= 65 ? 'med' : 'high'}">${c.trust}</span></td><td><button class="link" data-toggle="${c.id}" data-active="${c.active}">${c.active ? t('admin.deactivate') : t('admin.activate')}</button></td></tr>`).join('')}
       </tbody></table></div>
       <div class="card"><h2>${t('admin.addClinic')}</h2>
         <div class="grid2">
@@ -826,7 +826,10 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
           <div><label>${t('admin.whatsapp')}</label><input id="cWa" type="tel" placeholder="+243…"></div>
           <div><label>${t('admin.payoutMethod')}</label><select id="cMethod"><option value="bank">Bank account</option><option value="mpesa">M-Pesa</option><option value="orange">Orange Money</option><option value="airtel">Airtel Money</option></select></div>
           <div><label>${t('admin.payoutAccount')}</label><input id="cAcct"></div>
+          <div><label>${t('admin.flexpayMerchant')}</label><input id="cFlex" placeholder="${t('admin.optional')}"></div>
+          <div><label>${t('admin.payoutPhone')}</label><input id="cPayPhone" type="tel" placeholder="+243… (${t('admin.optional')})"></div>
         </div>
+        <p class="muted small">${t('admin.flexpayHint')}</p>
         <button class="block" id="addClinic">${t('admin.addClinic')}</button>
       </div>
       <div class="card"><h2>${t('admin.addStaff')}</h2><p class="muted small">${t('admin.addStaffHint')}</p>
@@ -839,8 +842,22 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
         <button class="block" id="addStaff">${t('admin.addStaff')}</button>
       </div>`;
     $$('[data-toggle]', el).forEach((b) => (b.onclick = (e) => busy(btn(e), async () => { await api('PATCH', `/api/admin/clinics/${b.dataset.toggle}`, { active: b.dataset.active !== '1' }); renderAdmin(); })));
+    // FlexPay setup for an existing hospital: its own merchant code, and/or its mobile-money payout number.
+    $$('[data-flexpay]', el).forEach((b) => (b.onclick = () => {
+      const c = clinics.find((x) => x.id === b.dataset.flexpay)!;
+      openModal(`<div class="row between"><h2>${esc(c.name)}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
+        <p class="muted small">${t('admin.flexpayHint')}</p>
+        <label for="fxCode">${t('admin.flexpayMerchant')}</label><input id="fxCode" value="${esc(c.flexpay_merchant)}">
+        <label for="fxPhone">${t('admin.payoutPhone')}</label><input id="fxPhone" type="tel" value="${esc(c.payout_phone)}" placeholder="+243…">
+        <div class="row"><button class="secondary grow" data-close>${t('cancel')}</button><button class="grow" id="fxSave">${t('save')}</button></div>`, (sheet) => {
+        $('#fxSave', sheet).onclick = (e) => busy(btn(e), async () => {
+          await api('PATCH', `/api/admin/clinics/${c.id}`, { flexpayMerchant: val('#fxCode', sheet), payoutPhone: val('#fxPhone', sheet).replace(/\s/g, '') });
+          closeModal(); toast(t('saved')); renderAdmin();
+        });
+      });
+    }));
     $('#addClinic', el).onclick = (e) => busy(btn(e), async () => {
-      await api('POST', '/api/admin/clinics', { name: val('#cName'), commune: val('#cCommune'), city: val('#cCity'), whatsappPhone: val('#cWa').replace(/\s/g, ''), payoutMethod: val('#cMethod'), payoutAccount: val('#cAcct'), category: val('#cCat') });
+      await api('POST', '/api/admin/clinics', { name: val('#cName'), commune: val('#cCommune'), city: val('#cCity'), whatsappPhone: val('#cWa').replace(/\s/g, ''), payoutMethod: val('#cMethod'), payoutAccount: val('#cAcct'), category: val('#cCat'), flexpayMerchant: val('#cFlex'), payoutPhone: val('#cPayPhone').replace(/\s/g, '') });
       toast(t('saved')); renderAdmin();
     });
     $('#addStaff', el).onclick = (e) => busy(btn(e), async () => {

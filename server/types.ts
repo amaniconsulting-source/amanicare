@@ -24,6 +24,7 @@ export interface SessionRow { token_hash: string; user_id: string; expires_at: n
 export interface ClinicRow {
   id: string; name: string; commune: string; city: string; whatsapp_phone: string; payout_method: string;
   payout_account: string; trust: number; active: number; category: Category; created_at: string;
+  flexpay_merchant: string; payout_phone: string;
 }
 export interface InviteRow {
   code: string; payer_id: string | null; family_id: string | null; inviter_role: 'payer' | 'family';

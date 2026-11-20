@@ -118,7 +118,8 @@ with `rejected`, `declined`, `payment_failed` (payer can retry) and `payout_fail
 
 | Area | What's needed |
 |---|---|
-| Payments | API docs + sandbox credentials from the partner (Equity BCDC). Implement `equityPartner` in `server/payments/partners.ts`, set `PAYMENT_PARTNER=equity`, and set the partner's webhook to `/api/webhooks/payments/equity`. |
+| Payments (pilot) | FlexPay is built in for the pilot: set `PAYMENT_PARTNER=flexpay` and the `FLEXPAY_*` variables (see `docs/flexpay-setup.md`). |
+| Payments (bank) | API docs + sandbox credentials from the partner (Equity BCDC). Implement `equityPartner` in `server/payments/partners.ts`, set `PAYMENT_PARTNER=equity`, and set the partner's webhook to `/api/webhooks/payments/equity`. |
 | Compliance | KYC of payers (by the partner), AML screening, terms and privacy policy, DRC data-protection review, health-data consent. Confirm where Sentry stores data (choose the EU or US region accordingly). |
 | WhatsApp | Follow [docs/whatsapp-setup.md](docs/whatsapp-setup.md): Meta app, credentials, webhook, and the six message templates (texts included). For going live: Business verification and a real number. |
 | AI | Set `ANTHROPIC_API_KEY`. Test on 30+ real bills and tune the reference prices. |

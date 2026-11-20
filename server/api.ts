@@ -230,12 +230,14 @@ const clinicFields = (b: Body) => ({
   payout_method: oneOf(b.payoutMethod || 'bank', ['bank', 'mpesa', 'orange', 'airtel'], 'payout_method'),
   payout_account: str(b.payoutAccount, { min: 3, max: 60, name: 'payout_account' }),
   category: oneOf(b.category || 'clinic', CATEGORIES, 'category'),
+  flexpay_merchant: str(b.flexpayMerchant ?? '', { max: 40, name: 'flexpay_merchant' }).trim(),
+  payout_phone: b.payoutPhone ? phone(b.payoutPhone) : '',
 });
 
 router.post('/api/admin/clinics', requireRole('admin'), async ({ user, body }: AuthCtx) => {
   const f = clinicFields(body); const id = randomUUID();
-  await run('INSERT INTO clinics(id, name, commune, city, whatsapp_phone, payout_method, payout_account, category) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
-    id, f.name, f.commune, f.city, f.whatsapp_phone, f.payout_method, f.payout_account, f.category);
+  await run('INSERT INTO clinics(id, name, commune, city, whatsapp_phone, payout_method, payout_account, category, flexpay_merchant, payout_phone) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+    id, f.name, f.commune, f.city, f.whatsapp_phone, f.payout_method, f.payout_account, f.category, f.flexpay_merchant, f.payout_phone);
   await audit(user.id, 'clinic_create', f.name);
   return { clinic: await getClinic(id) };
 });
@@ -246,8 +248,13 @@ router.patch('/api/admin/clinics/:id', requireRole('admin'), async ({ user, para
   if (body.active !== undefined) await run('UPDATE clinics SET active = $1 WHERE id = $2', body.active ? 1 : 0, c.id);
   if (body.name !== undefined) {
     const f = clinicFields({ ...body });
-    await run('UPDATE clinics SET name=$1, commune=$2, city=$3, whatsapp_phone=$4, payout_method=$5, payout_account=$6, category=$7 WHERE id=$8',
-      f.name, f.commune, f.city, f.whatsapp_phone, f.payout_method, f.payout_account, f.category, c.id);
+    await run('UPDATE clinics SET name=$1, commune=$2, city=$3, whatsapp_phone=$4, payout_method=$5, payout_account=$6, category=$7, flexpay_merchant=$8, payout_phone=$9 WHERE id=$10',
+      f.name, f.commune, f.city, f.whatsapp_phone, f.payout_method, f.payout_account, f.category, f.flexpay_merchant, f.payout_phone, c.id);
+  } else if (body.flexpayMerchant !== undefined || body.payoutPhone !== undefined) {
+    // Just the FlexPay merchant code and/or mobile-money payout number.
+    if (body.flexpayMerchant !== undefined) await run('UPDATE clinics SET flexpay_merchant = $1 WHERE id = $2', str(body.flexpayMerchant, { max: 40, name: 'flexpay_merchant' }).trim(), c.id);
+    if (body.payoutPhone !== undefined) await run('UPDATE clinics SET payout_phone = $1 WHERE id = $2', body.payoutPhone ? phone(body.payoutPhone) : '', c.id);
+    await audit(user.id, 'clinic_payment_setup', c.name);
   } else if (body.category !== undefined) {
     await run('UPDATE clinics SET category = $1 WHERE id = $2', oneOf(body.category, CATEGORIES, 'category'), c.id);
   }
@@ -330,7 +337,14 @@ router.post('/api/webhooks/payments/:partner', async ({ params, raw, req }: Ctx)
   if (!hasPartner(params.partner)) throw notFound();
   const partner = getPartner(params.partner);
   if (!partner.verifyWebhook(raw, req.headers)) throw new HttpError(401, 'bad_signature');
-  const update = partner.parseWebhook(JSON.parse(raw.toString('utf8') || '{}'));
+  let update = partner.parseWebhook(JSON.parse(raw.toString('utf8') || '{}'));
+  if (partner.confirm) {
+    // Unsigned callbacks (FlexPay): only the partner's status API decides, for a payment of that partner.
+    const p = update.paymentId ? await one<PaymentRow>('SELECT * FROM payments WHERE id = $1', update.paymentId)
+      : update.partnerRef ? await one<PaymentRow>('SELECT * FROM payments WHERE partner_ref = $1', update.partnerRef) : undefined;
+    if (!p || p.partner !== partner.name) return { ok: true };
+    update = await partner.confirm(p, update);
+  }
   await applyPaymentUpdate(update);
   return { ok: true };
 });
