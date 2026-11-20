@@ -1,5 +1,6 @@
 // Payment partner adapters. AmaniCare never holds customer money: a licensed partner
-// (the bank, acting as gateway) collects from the diaspora payer and pays out to the facility's bank account
+// (the bank, acting as gateway) collects from the payer, by bank card or by mobile money
+// (payment.method, from payment.wallet_phone), and pays out to the facility's bank account
 // or mobile wallet (clinic.payout_method: bank, mpesa, orange, airtel). Every partner implements PaymentPartner.
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
@@ -38,6 +39,8 @@ const genericParse = (b: any): PaymentUpdate => ({
 export const sandboxPartner: PaymentPartner = {
   name: 'sandbox',
   async createCollection({ payment }) {
+    // Card: the partner's hosted card page. Mobile money: the partner pushes a payment request to the
+    // wallet phone, which the payer approves with their PIN; the sandbox page simulates that phone.
     return {
       partnerRef: `SBX-C-${payment.id.slice(-8).toUpperCase()}`,
       status: 'pending',
@@ -65,8 +68,11 @@ export const equityPartner: PaymentPartner = {
   name: 'equity',
   async createCollection(/* { payment, payer, bill } */) {
     assertEquityConfigured();
-    // TODO(partner): create a hosted card checkout or account debit for payment.amount_usd,
-    // with payment.id as the merchant reference, and return { partnerRef, status:'pending', checkoutUrl }.
+    // TODO(partner): collect payment.amount_usd with payment.id as the merchant reference.
+    //  - payment.method 'card': create a hosted card checkout; return { partnerRef, status:'pending', checkoutUrl }.
+    //  - 'mpesa' | 'orange' | 'airtel': push a payment request to payment.wallet_phone on that network
+    //    (the payer approves with their PIN); return { partnerRef, status:'pending' } with no checkoutUrl.
+    //    The result arrives by webhook.
     throw new Error('Equity collection API not implemented yet');
   },
   async createPayout(/* { payment, clinic, bill } */) {

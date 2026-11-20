@@ -393,5 +393,18 @@
  "family.notJoinedYet": "hasn't joined yet",
  "family.billWaits": "{name} hasn't accepted your invitation yet. Send the bill now: the hospital confirms it, and {name} sees it as soon as they join.",
  "next.awaiting_clinic.waiting": "The hospital has the bill and is confirming it. {name} will see it as soon as they accept your invitation.",
- "next.awaiting_payer.waiting": "The hospital confirmed. Waiting for {name} to accept your invitation and pay. You can share the invitation again below."
+ "next.awaiting_payer.waiting": "The hospital confirmed. Waiting for {name} to accept your invitation and pay. You can share the invitation again below.",
+ "pay.title": "Pay {amount}",
+ "pay.hint": "Choose how to pay. The money goes straight to the hospital.",
+ "pay.card": "Bank card",
+ "pay.cardHint": "Visa or Mastercard, on the bank's secure page.",
+ "pay.mpesa": "M-Pesa",
+ "pay.orange": "Orange Money",
+ "pay.airtel": "Airtel Money",
+ "pay.mobileHint": "From your mobile money account.",
+ "pay.walletPhone": "Mobile money number",
+ "pay.walletNote": "You'll get a payment request on this phone. Approve it with your PIN.",
+ "pay.continue": "Continue",
+ "pay.approveOnPhone": "Payment request sent. Approve it on your phone with your PIN.",
+ "err.invalid_pay_method": "Choose how to pay."
 }

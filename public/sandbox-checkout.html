@@ -11,11 +11,13 @@
 <main>
   <div class="card">
     <span class="sandbox-flag">SANDBOX · NO REAL MONEY</span>
-    <h1>Partner checkout</h1>
-    <p class="muted">In production, the licensed partner (for example Equity BCDC) shows its own secure card or bank payment page here. AmaniCare never sees card details.</p>
+    <h1 id="title">Partner checkout</h1>
+    <p class="muted" id="explain">In production, the licensed partner (for example Equity BCDC) shows its own secure card or bank payment page here. AmaniCare never sees card details.</p>
     <div id="info"><span class="spinner"></span></div>
-    <label for="card">Card number (any value)</label>
-    <input id="card" value="4242 4242 4242 4242" inputmode="numeric">
+    <div id="cardBox">
+      <label for="card">Card number (any value)</label>
+      <input id="card" value="4242 4242 4242 4242" inputmode="numeric">
+    </div>
     <div class="row">
       <button class="grow" id="pay">Pay</button>
       <button class="grow danger" id="fail">Simulate a declined card</button>

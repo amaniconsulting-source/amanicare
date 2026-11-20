@@ -182,10 +182,21 @@ test('failed card payment can be retried', async () => {
   assert.equal(bill.totalUsd, 10);
   await login(clinic, '+243810000002');
   await clinic('POST', `/api/bills/${bill.id}/confirm`, {});
-  const p1 = await payer('POST', `/api/bills/${bill.id}/pay`, {});
+  // The payer chooses how to pay: an unknown method or a bad wallet number is refused.
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'paypal' })).data.error, 'invalid_pay_method');
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'mpesa', walletPhone: '0812' })).data.error, 'invalid_phone');
+  // First try: M-Pesa from a wallet number, refused on the phone.
+  const p1 = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'mpesa', walletPhone: '+243 81 555 0199' });
+  assert.equal(p1.data.method, 'mpesa');
+  const sbx = (await payer('GET', `/api/sandbox/payments/${p1.data.paymentId}`)).data.payment;
+  assert.equal(sbx.method, 'mpesa');
+  assert.equal(sbx.wallet_phone, '+243815550199');
   await payer('POST', `/api/sandbox/payments/${p1.data.paymentId}/complete`, { outcome: 'fail' });
   assert.equal((await payer('GET', `/api/bills/${bill.id}`)).data.bill.status, 'payment_failed');
+  assert.match((await one<{ failure_reason: string }>('SELECT failure_reason FROM payments WHERE id = $1', p1.data.paymentId))!.failure_reason, /Mobile money/);
+  // Second try: bank card (the default).
   const p2 = await payer('POST', `/api/bills/${bill.id}/pay`, {});
+  assert.equal(p2.data.method, 'card');
   assert.notEqual(p2.data.paymentId, p1.data.paymentId);
   await payer('POST', `/api/sandbox/payments/${p2.data.paymentId}/complete`, { outcome: 'succeed' });
   await waitForStatus(bill.id, 'paid');

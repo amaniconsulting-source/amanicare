@@ -46,8 +46,13 @@ export interface BillRow {
 export interface PaymentRow {
   id: string; bill_id: string; kind: PaymentKind; amount_usd: number; partner: string; partner_ref: string | null;
   status: PaymentStatus; checkout_url: string | null; idempotency_key: string; failure_reason: string | null;
+  method: PayMethod | null; wallet_phone: string | null;
   created_at: string; updated_at: string;
 }
+
+/** How the payer pays: a bank card, or a mobile-money wallet. */
+export const PAY_METHODS = ['card', 'mpesa', 'orange', 'airtel'] as const;
+export type PayMethod = (typeof PAY_METHODS)[number];
 
 /** What the AI read from a bill photo (after sanitizing). */
 export interface AiBill {

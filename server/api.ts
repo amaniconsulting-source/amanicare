@@ -10,7 +10,7 @@ import { startPayment, applyPaymentUpdate, retryPayout } from './payments/flow.j
 import { getPartner, hasPartner } from './payments/partners.js';
 import { DEFAULT_SETTINGS } from './screening.js';
 import { notify, send, updateDelivery } from './messaging/index.js';
-import { CATEGORIES, type Category, type ClinicRow, type InviteRow, type Lang, type PaymentRow, type UserRow } from './types.js';
+import { CATEGORIES, PAY_METHODS, type Category, type ClinicRow, type InviteRow, type Lang, type PaymentRow, type UserRow } from './types.js';
 
 export const router = new Router();
 const LANGS: Lang[] = ['fr', 'en', 'ln', 'sw'];
@@ -195,7 +195,12 @@ router.post('/api/bills/:id/review', requireRole('admin'), async ({ user, params
   ({ bill: await view(await reviewDecision(params.id, body.approve === true, user, body), user) }));
 router.post('/api/bills/:id/resend-clinic', requireRole('family', 'payer', 'admin'), async ({ user, params }: AuthCtx) =>
   resendToClinic(params.id, user));
-router.post('/api/bills/:id/pay', requireRole('payer'), async ({ user, params }: AuthCtx) => startPayment(params.id, user));
+router.post('/api/bills/:id/pay', requireRole('payer'), async ({ user, params, body }: AuthCtx) => {
+  // Bank card (default) or mobile money: M-Pesa, Orange Money or Airtel Money, from a wallet number.
+  const method = oneOf(body.method ?? 'card', PAY_METHODS, 'pay_method');
+  const walletPhone = method === 'card' ? null : phone(body.walletPhone ?? user.phone);
+  return startPayment(params.id, user, { method, walletPhone });
+});
 router.post('/api/bills/:id/decline', requireRole('payer'), async ({ user, params }: AuthCtx) =>
   ({ bill: await view(await payerDecline(params.id, user), user) }));
 router.post('/api/bills/:id/retry-payout', requireRole('admin'), async ({ user, params }: AuthCtx) =>
@@ -333,7 +338,7 @@ router.post('/api/webhooks/payments/:partner', async ({ params, raw, req }: Ctx)
 // ---------- Sandbox checkout (only when the sandbox partner is active) ----------
 const sandboxOnly = () => { if (config.paymentPartner !== 'sandbox') throw notFound(); };
 router.get('/api/sandbox/payments/:id', sandboxOnly, async ({ params }: Ctx) => {
-  const p = await one(`SELECT p.id, p.amount_usd, p.status, b.ref, b.patient_name, c.name clinic FROM payments p
+  const p = await one(`SELECT p.id, p.amount_usd, p.status, p.method, p.wallet_phone, b.ref, b.patient_name, c.name clinic FROM payments p
     JOIN bills b ON b.id = p.bill_id JOIN clinics c ON c.id = b.clinic_id WHERE p.id = $1 AND p.kind = 'collection'`, params.id);
   if (!p) throw notFound();
   return { payment: p };
@@ -342,7 +347,7 @@ router.post('/api/sandbox/payments/:id/complete', sandboxOnly, requireRole('paye
   const p = await one<PaymentRow & { payer_id: string }>(
     "SELECT p.*, b.payer_id FROM payments p JOIN bills b ON b.id = p.bill_id WHERE p.id = $1 AND p.kind = 'collection'", params.id);
   if (!p || p.payer_id !== user.id) throw notFound();
-  await applyPaymentUpdate({ paymentId: p.id, status: body.outcome === 'fail' ? 'failed' : 'succeeded', reason: body.outcome === 'fail' ? 'Card declined (sandbox)' : undefined });
+  await applyPaymentUpdate({ paymentId: p.id, status: body.outcome === 'fail' ? 'failed' : 'succeeded', reason: body.outcome === 'fail' ? (p.method && p.method !== 'card' ? 'Mobile money payment refused (sandbox)' : 'Card declined (sandbox)') : undefined });
   return { ok: true };
 });
 

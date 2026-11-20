@@ -9,7 +9,7 @@ import { getBill, setStatus, event, notifyFamily } from '../bills.js';
 import { notify } from '../messaging/index.js';
 import { HttpError, notFound } from '../http.js';
 import { round2 } from '../screening.js';
-import type { BillRow, ClinicRow, PaymentKind, PaymentRow, UserRow } from '../types.js';
+import type { BillRow, ClinicRow, PaymentKind, PaymentRow, PayMethod, UserRow } from '../types.js';
 
 export const sandboxPayoutDelayMs = { value: Number(process.env.SANDBOX_PAYOUT_DELAY_MS ?? 1500) };
 
@@ -24,7 +24,9 @@ const attempts = async (billId: string, kind: PaymentKind): Promise<number> =>
 
 const lockBill = (billId: string) => one<BillRow>('SELECT * FROM bills WHERE id = $1 FOR UPDATE', billId);
 
-export async function startPayment(billId: string, payer: UserRow): Promise<{ paymentId: string; checkoutUrl: string | null }> {
+export interface PayChoice { method: PayMethod; walletPhone: string | null }
+
+export async function startPayment(billId: string, payer: UserRow, how: PayChoice = { method: 'card', walletPhone: null }): Promise<{ paymentId: string; checkoutUrl: string | null; method: PayMethod }> {
   const partner = getPartner();
   // The bill row is locked while the payment is created, so a double tap can't start two collections.
   const { bill, payment } = await tx(async () => {
@@ -32,15 +34,17 @@ export async function startPayment(billId: string, payer: UserRow): Promise<{ pa
     if (!b || b.payer_id !== payer.id) throw notFound();
     if (!['awaiting_payer', 'payment_failed'].includes(b.status)) throw new HttpError(409, 'not_payable');
     const p = await insertPayment(b.id, 'collection', b.total_usd + b.fee_usd, partner.name, (await attempts(b.id, 'collection')) + 1);
+    await run('UPDATE payments SET method = $1, wallet_phone = $2 WHERE id = $3', how.method, how.walletPhone, p.id);
+    p.method = how.method; p.wallet_phone = how.walletPhone;
     await setStatus(b.id, 'payment_pending');
-    await event(b.id, payer.id, 'payment_started', `${round2(b.total_usd + b.fee_usd)} USD`);
+    await event(b.id, payer.id, 'payment_started', `${round2(b.total_usd + b.fee_usd)} USD · ${how.method}`);
     return { bill: b, payment: p };
   });
   try {
     const r = await partner.createCollection({ payment, payer, bill });
     await run('UPDATE payments SET partner_ref = $1, checkout_url = $2, updated_at = now() WHERE id = $3', r.partnerRef, r.checkoutUrl || null, payment.id);
     if (r.status !== 'pending') await applyPaymentUpdate({ paymentId: payment.id, status: r.status });
-    return { paymentId: payment.id, checkoutUrl: r.checkoutUrl || null };
+    return { paymentId: payment.id, checkoutUrl: r.checkoutUrl || null, method: how.method };
   } catch (e) {
     await applyPaymentUpdate({ paymentId: payment.id, status: 'failed', reason: (e as Error).message });
     Sentry.captureException(e, { tags: { area: 'payments', step: 'collection', partner: partner.name } });

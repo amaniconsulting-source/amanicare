@@ -214,6 +214,36 @@ function rejectDialog(reasons: string[]): Promise<{ reason: string; note: string
   });
 }
 
+/** How the payer pays: bank card, or mobile money from a wallet number. Resolves to null if cancelled. */
+const WALLETS = ['mpesa', 'orange', 'airtel'] as const;
+function payDialog(amount: string): Promise<{ method: string; walletPhone?: string } | null> {
+  return new Promise((resolve) => {
+    let done = false;
+    const myPhone = me().phone || '';
+    openModal(`<div class="row between"><h2>${t('pay.title', { amount: esc(amount) })}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
+      <p class="muted small">${t('pay.hint')}</p>
+      <label class="radio"><input type="radio" name="how" value="card" checked> <span><b>${t('pay.card')}</b><br><span class="muted small">${t('pay.cardHint')}</span></span></label>
+      ${WALLETS.map((w) => `<label class="radio"><input type="radio" name="how" value="${w}"> <span><b>${t('pay.' + w)}</b><br><span class="muted small">${t('pay.mobileHint')}</span></span></label>`).join('')}
+      <div id="walletBox" class="hidden">
+        <label for="walletPhone">${t('pay.walletPhone')}</label>
+        <input id="walletPhone" type="tel" inputmode="tel" autocomplete="tel" value="${esc(myPhone.startsWith('+243') ? myPhone : '')}" placeholder="+243 81 234 5678">
+        <p class="muted small">${t('pay.walletNote')}</p>
+      </div>
+      <div class="row"><button class="secondary grow" data-close>${t('cancel')}</button><button class="grow" id="payOk">${t('pay.continue')}</button></div>`, (sheet) => {
+      const picked = () => $<HTMLInputElement>('input[name="how"]:checked', sheet).value;
+      $$<HTMLInputElement>('input[name="how"]', sheet).forEach((r) => (r.onchange = () => $('#walletBox', sheet).classList.toggle('hidden', picked() === 'card')));
+      $('#payOk', sheet).onclick = () => {
+        const method = picked();
+        const walletPhone = val('#walletPhone', sheet);
+        if (method !== 'card' && !walletPhone) { $('#walletPhone', sheet).focus(); return; }
+        done = true; closeModal();
+        resolve(method === 'card' ? { method } : { method, walletPhone });
+      };
+      $$('[data-close]', sheet).forEach((b) => b.addEventListener('click', () => { if (!done) resolve(null); }));
+    });
+  });
+}
+
 async function showBill(id: string): Promise<void> {
   const { bill: b } = await api<{ bill: Bill }>('GET', `/api/bills/${id}`);
   const items = b.items.map((i) => `<tr><td>${esc(i.d)}</td><td class="num">${i.q}</td><td class="num">${b.currency === 'CDF' ? cdf(i.p) : usd(i.p)}</td></tr>`).join('');
@@ -431,7 +461,7 @@ async function renderPayer(): Promise<void> {
     <div class="card"><h2>${t('payer.toApprove')}</h2>
       ${todo.length ? todo.map((b) => billCard(b, { showReasons: true, showExpected: true, showNext: false, actions: `
         ${b.status === 'payment_failed' ? `<p class="notice">${t('payer.paymentFailed')}</p>` : ''}
-        <div class="row"><button class="grow" data-pay="${b.id}">${t('payer.pay', { amount: usd(b.totalUsd + b.feeUsd) })}</button><button class="secondary small" data-decline="${b.id}">${t('payer.decline')}</button></div>
+        <div class="row"><button class="grow" data-pay="${b.id}" data-amount="${usd(b.totalUsd + b.feeUsd)}">${t('payer.pay', { amount: usd(b.totalUsd + b.feeUsd) })}</button><button class="secondary small" data-decline="${b.id}">${t('payer.decline')}</button></div>
         <p class="muted small">${t('payer.feeNote', { fee: usd(b.feeUsd) })}</p>` })).join('') : `<p class="empty">${t('payer.nothingToApprove')}</p>`}
     </div>
     ${moving.length ? `<div class="card"><h2>${t('inProgress')}</h2>${moving.map((b) => billCard(b, { showReasons: true })).join('')}</div>` : ''}
@@ -451,8 +481,12 @@ async function renderPayer(): Promise<void> {
   wireCodeCard(renderPayer);
   wireSentInvites(app);
   $$('[data-pay]').forEach((b) => (b.onclick = (e) => busy(btn(e), async () => {
-    const r = await api<{ checkoutUrl: string | null }>('POST', `/api/bills/${b.dataset.pay}/pay`, {});
-    if (r.checkoutUrl) location.href = r.checkoutUrl; else renderPayer();
+    const how = await payDialog(b.dataset.amount || '');
+    if (!how) return;
+    const r = await api<{ checkoutUrl: string | null; method: string }>('POST', `/api/bills/${b.dataset.pay}/pay`, how);
+    if (r.checkoutUrl) { location.href = r.checkoutUrl; return; }
+    if (r.method !== 'card') toast(t('pay.approveOnPhone'));
+    renderPayer();
   })));
   $$('[data-decline]').forEach((b) => (b.onclick = async () => {
     if (!(await confirmDialog(t('payer.declineConfirm'), t('payer.decline'), true))) return;

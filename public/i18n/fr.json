@@ -393,5 +393,18 @@
  "family.notJoinedYet": "pas encore inscrit",
  "family.billWaits": "{name} n'a pas encore accepté votre invitation. Envoyez la facture maintenant : l'hôpital la confirme, et {name} la verra dès son inscription.",
  "next.awaiting_clinic.waiting": "L'hôpital a la facture et la vérifie. {name} la verra dès que l'invitation sera acceptée.",
- "next.awaiting_payer.waiting": "L'hôpital a confirmé. En attente que {name} accepte votre invitation et paie. Vous pouvez renvoyer l'invitation plus bas."
+ "next.awaiting_payer.waiting": "L'hôpital a confirmé. En attente que {name} accepte votre invitation et paie. Vous pouvez renvoyer l'invitation plus bas.",
+ "pay.title": "Payer {amount}",
+ "pay.hint": "Choisissez comment payer. L'argent va directement à l'hôpital.",
+ "pay.card": "Carte bancaire",
+ "pay.cardHint": "Visa ou Mastercard, sur la page sécurisée de la banque.",
+ "pay.mpesa": "M-Pesa",
+ "pay.orange": "Orange Money",
+ "pay.airtel": "Airtel Money",
+ "pay.mobileHint": "Depuis votre compte mobile money.",
+ "pay.walletPhone": "Numéro mobile money",
+ "pay.walletNote": "Vous recevrez une demande de paiement sur ce téléphone. Validez-la avec votre code PIN.",
+ "pay.continue": "Continuer",
+ "pay.approveOnPhone": "Demande de paiement envoyée. Validez-la sur votre téléphone avec votre code PIN.",
+ "err.invalid_pay_method": "Choisissez comment payer."
 }
