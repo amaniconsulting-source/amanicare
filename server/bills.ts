@@ -57,8 +57,19 @@ export async function createDraft(family: UserRow, imageBase64: string, mediaTyp
 // ---------- Create & screen ----------
 export async function createBill(family: UserRow, input: Body): Promise<BillRow> {
   const s = await settings();
-  const payerId = str(input.payerId, { min: 1, name: 'payer' });
-  if (!(await one('SELECT 1 FROM links WHERE payer_id = $1 AND family_id = $2', payerId, family.id))) throw bad('payer_not_linked');
+  // Either a linked relative abroad pays, or the bill waits for the relative the family invited
+  // (it gets its payer when they accept: see attachWaitingBills).
+  let payerId: string | null = null;
+  let inviteCode: string | null = null;
+  if (input.payerId) {
+    payerId = str(input.payerId, { min: 1, name: 'payer' });
+    if (!(await one('SELECT 1 FROM links WHERE payer_id = $1 AND family_id = $2', payerId, family.id))) throw bad('payer_not_linked');
+  } else {
+    inviteCode = str(input.inviteCode, { min: 6, max: 6, name: 'invite' }).toUpperCase();
+    if (!(await one("SELECT 1 FROM invites WHERE code = $1 AND family_id = $2 AND inviter_role = 'family' AND used_by IS NULL", inviteCode, family.id))) {
+      throw bad('payer_not_linked');
+    }
+  }
   const clinic = await one<ClinicRow>('SELECT * FROM clinics WHERE id = $1', str(input.clinicId, { min: 1, name: 'clinic' }));
   if (!clinic || !clinic.active) throw bad('clinic_not_registered');
 
@@ -109,11 +120,11 @@ export async function createBill(family: UserRow, input: Body): Promise<BillRow>
   const status: BillStatus = mustReview(result) ? 'review' : 'awaiting_clinic';
   await tx(async () => {
     await run(`INSERT INTO bills(id, ref, family_id, payer_id, clinic_id, patient_name, bill_number, bill_date, currency, items, total,
-         total_usd, fee_usd, expected_usd, ai, edited, risk_score, risk_level, risk_reasons, status, photo_path, photo_sha256)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+         total_usd, fee_usd, expected_usd, ai, edited, risk_score, risk_level, risk_reasons, status, photo_path, photo_sha256, invite_code)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
     id, ref, family.id, payerId, clinic.id, bill.patientName, bill.billNumber, bill.billDate, currency, JSON.stringify(items), total,
     result.totalUsd, feeFor(result.totalUsd, s), result.expectedUsd, ai ? JSON.stringify(ai) : null, bill.edited ? 1 : 0,
-    result.score, result.level, JSON.stringify(result.reasons), status, draft?.photo_path || null, draft?.photo_sha256 || null);
+    result.score, result.level, JSON.stringify(result.reasons), status, draft?.photo_path || null, draft?.photo_sha256 || null, inviteCode);
     await event(id, family.id, 'submitted');
     await event(id, null, 'screened', `${result.level}:${result.score}`);
     await event(id, null, status === 'review' ? 'held_for_review' : 'sent_to_clinic');
@@ -149,6 +160,7 @@ export async function notifyFamily(bill: BillRow, statusKey: string): Promise<vo
   if (fam && words) await notify('familyUpdate', { to: fam.phone, kind: 'family_update', lang: fam.lang, params: { patient: bill.patient_name, status: words[fam.lang] || words.fr } });
 }
 async function notifyPayer(bill: BillRow): Promise<void> {
+  if (!bill.payer_id) return; // still waiting for the invited relative: told when they accept
   const payer = await one<UserRow>('SELECT * FROM users WHERE id = $1', bill.payer_id);
   const clinic = await getClinic(bill.clinic_id);
   if (payer) await notify('payerApprove', { to: payer.phone, kind: 'payer_approve', lang: payer.lang, params: { clinic: clinic?.name, patient: bill.patient_name, amount: fmtUsd(bill.total_usd) } });
@@ -277,6 +289,15 @@ export async function payerDecline(billId: string, payer: UserRow): Promise<Bill
   return (await getBill(bill.id))!;
 }
 
+/** When an invited relative abroad accepts, bills sent while waiting become theirs.
+ *  Called inside the accept transaction; returns the bills that already need payment. */
+export async function attachWaitingBills(code: string, payerId: string): Promise<BillRow[]> {
+  const bills = await all<BillRow>('UPDATE bills SET payer_id = $1 WHERE invite_code = $2 AND payer_id IS NULL RETURNING *', payerId, code);
+  for (const b of bills) await event(b.id, payerId, 'payer_linked');
+  return bills.filter((b) => b.status === 'awaiting_payer');
+}
+export const notifyPayerOf = notifyPayer;
+
 // ---------- Access & views ----------
 export function canView(user: UserRow | null, bill: BillRow | undefined): bill is BillRow {
   if (!user || !bill) return false;
@@ -305,6 +326,8 @@ export interface BillView {
   createdAt: string; hasPhoto: boolean;
   clinic: { id: string; name: string; commune: string } | null;
   payer?: { id: string; name: string } | null;
+  /** Bill sent before the relative abroad accepted the invitation: who it waits for. */
+  waitingFor?: { relation: string; phone: string | null };
   family: { id: string; name: string } | null;
   risk: { score?: number; level: string; reasons?: Reason[] };
   aiUsed: boolean; edited: boolean;
@@ -334,10 +357,14 @@ export async function view(b: BillRow, user: UserRow): Promise<BillView> {
     aiUsed: Boolean(b.ai), edited: Boolean(b.edited),
     events,
   };
+  if (!b.payer_id && b.invite_code) {
+    const inv = await one<{ relation: string; phone: string | null }>('SELECT relation, phone FROM invites WHERE code = $1', b.invite_code);
+    out.waitingFor = { relation: inv?.relation || '', phone: inv?.phone || null };
+  }
   if (payout) out.payout = { ref: payout.partner_ref, status: payout.status, account: clinic?.payout_account };
   if (b.status === 'rejected' && b.rejected_by) out.rejection = { by: b.rejected_by, reason: b.reject_reason, note: b.reject_note };
   // Clinics see what they need to confirm; risk details stay with payer/admin.
-  if (user.role === 'clinic') { out.risk = { level: b.risk_level }; delete out.expectedUsd; delete out.payer; }
+  if (user.role === 'clinic') { out.risk = { level: b.risk_level }; delete out.expectedUsd; delete out.payer; delete out.waitingFor; }
   if (user.role === 'family') { out.risk = { level: b.risk_level }; }
   return out;
 }

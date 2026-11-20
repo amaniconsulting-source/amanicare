@@ -388,5 +388,10 @@
  "event.reject_reason": "L'hôpital a donné la raison",
  "err.resend_too_soon": "Un rappel vient d'être envoyé. Attendez quelques minutes avant d'en envoyer un autre.",
  "err.clinic_no_whatsapp": "Cet hôpital n'a pas encore de numéro WhatsApp. Contactez AmaniCare.",
- "err.reason_required": "Choisissez une raison."
+ "err.reason_required": "Choisissez une raison.",
+ "family.waitingFor": "Vos factures iront à {names} dès que l'invitation sera acceptée.",
+ "family.notJoinedYet": "pas encore inscrit",
+ "family.billWaits": "{name} n'a pas encore accepté votre invitation. Envoyez la facture maintenant : l'hôpital la confirme, et {name} la verra dès son inscription.",
+ "next.awaiting_clinic.waiting": "L'hôpital a la facture et la vérifie. {name} la verra dès que l'invitation sera acceptée.",
+ "next.awaiting_payer.waiting": "L'hôpital a confirmé. En attente que {name} accepte votre invitation et paie. Vous pouvez renvoyer l'invitation plus bas."
 }

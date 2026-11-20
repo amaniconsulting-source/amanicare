@@ -36,7 +36,7 @@ export interface DraftRow { id: string; family_id: string; photo_path: string; a
 export interface BillItem { d: string; q: number; p: number }
 
 export interface BillRow {
-  id: string; ref: string; family_id: string; payer_id: string; clinic_id: string; patient_name: string;
+  id: string; ref: string; family_id: string; payer_id: string | null; invite_code: string | null; clinic_id: string; patient_name: string;
   bill_number: string; bill_date: string; currency: Currency; items: string; total: number; total_usd: number;
   fee_usd: number; expected_usd: number; ai: string | null; edited: number; risk_score: number; risk_level: RiskLevel;
   risk_reasons: string; status: BillStatus; photo_path: string | null; photo_sha256: string | null; created_at: string; updated_at: string;

@@ -400,3 +400,39 @@ test('payment webhooks require a valid signature', async () => {
   assert.equal(r.status, 401);
   void api;
 });
+
+test('a relative in the DRC can send a bill before the invited relative abroad joins', async () => {
+  const fam = client(), abroad = client(), clinic = client(), stranger = client();
+  await login(fam, '+243810000900', { name: 'Alain Test', role: 'family' });
+  const inv = await fam('POST', '/api/invites', { relation: 'Sister', phone: '+14690009001' });
+  // The invitation is renewed before anything is sent: bills follow the new code.
+  const renewed = await fam('POST', `/api/invites/${inv.data.code}/renew`, {});
+  const code = renewed.data.code;
+  const { data: { clinics } } = await fam('GET', '/api/clinics');
+  const espoir = clinics.find((c: { name: string }) => c.name === 'Centre Médical Espoir');
+  const draft = await fam('POST', '/api/bills/extract', { image: Buffer.alloc(2500, 90).toString('base64'), mediaType: 'image/jpeg' });
+  const body = { draftId: draft.data.draftId, clinicId: espoir.id, patientName: 'Waiting Patient', billNumber: 'CME-9001', currency: 'USD',
+    items: [{ d: 'Consultation', q: 1, p: 10 }], total: 10 };
+  // Someone else's invitation code can't be used.
+  await login(stranger, '+243810000901', { name: 'Stranger', role: 'family' });
+  assert.equal((await stranger('POST', '/api/bills', { ...body, inviteCode: code })).data.error, 'payer_not_linked');
+  const created = await fam('POST', '/api/bills', { ...body, inviteCode: code });
+  assert.equal(created.status, 200, JSON.stringify(created.data));
+  assert.equal(created.data.bill.status, 'awaiting_clinic');
+  assert.equal(created.data.bill.payer, null);
+  assert.equal(created.data.bill.waitingFor.relation, 'Sister');
+  // The hospital confirms while the relative abroad still hasn't joined.
+  await login(clinic, '+243810000001');
+  assert.equal((await clinic('POST', `/api/bills/${created.data.bill.id}/confirm`, {})).data.bill.status, 'awaiting_payer');
+  // The relative abroad accepts: the bill is theirs, and they're told it's ready to pay.
+  await login(abroad, '+14690009001', { name: 'Sister Abroad', role: 'payer' });
+  assert.equal((await abroad('POST', '/api/invites/accept', { code })).status, 200);
+  const theirs = (await abroad('GET', '/api/bills')).data.bills;
+  assert.deepEqual(theirs.map((b: any) => b.patientName), ['Waiting Patient']);
+  assert.equal(theirs[0].status, 'awaiting_payer');
+  assert.ok(await one("SELECT 1 FROM messages WHERE to_phone = '+14690009001' AND body LIKE '%Waiting Patient%'"));
+  const famView = (await fam('GET', `/api/bills/${created.data.bill.id}`)).data.bill;
+  assert.equal(famView.payer.name, 'Sister Abroad');
+  assert.equal(famView.waitingFor, undefined);
+  assert.equal((await abroad('POST', `/api/bills/${created.data.bill.id}/pay`, {})).status, 200);
+});

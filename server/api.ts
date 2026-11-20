@@ -5,7 +5,7 @@ import { config } from './config.js';
 import { one, all, run, tx, audit, setSetting } from './db.js';
 import { Router, HttpError, bad, notFound, forbidden, str, num, oneOf, phone, type AuthCtx, type Body, type Ctx } from './http.js';
 import { requestOtp, verifyOtp, createSession, sessionCookie, destroySession, findOrCreateUser, requireRole } from './auth.js';
-import { createDraft, createBill, clinicDecision, reviewDecision, payerDecline, resendToClinic, hospitalReason, listBillsFor, view, canView, getBill, settings, prices, STATUSES } from './bills.js';
+import { createDraft, createBill, clinicDecision, reviewDecision, payerDecline, resendToClinic, hospitalReason, listBillsFor, view, canView, getBill, settings, prices, STATUSES, attachWaitingBills, notifyPayerOf } from './bills.js';
 import { startPayment, applyPaymentUpdate, retryPayout } from './payments/flow.js';
 import { getPartner, hasPartner } from './payments/partners.js';
 import { DEFAULT_SETTINGS } from './screening.js';
@@ -131,8 +131,11 @@ router.post('/api/invites/accept', requireRole('payer', 'family'), async ({ user
     const familyId = i.inviter_role === 'family' ? i.family_id! : user.id;
     await run('INSERT INTO links(payer_id, family_id, relation) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', payerId, familyId, i.relation);
     await run('UPDATE invites SET used_by = $1 WHERE code = $2', user.id, code);
-    return { inviter };
+    // Bills the family sent while waiting for this relative now go to them.
+    const toPay = i.inviter_role === 'family' ? await attachWaitingBills(code, payerId) : [];
+    return { inviter, toPay };
   });
+  for (const b of inv.toPay) await notifyPayerOf(b);
   const linkedWith = { id: inv.inviter.id, name: inv.inviter.name };
   // "payer" kept for relatives in the DRC (earlier app versions read it).
   return user.role === 'family' ? { payer: linkedWith, linkedWith } : { family: linkedWith, linkedWith };

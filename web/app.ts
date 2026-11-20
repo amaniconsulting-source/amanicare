@@ -17,6 +17,7 @@ interface Bill {
   expectedUsd?: number; createdAt: string; hasPhoto: boolean;
   clinic: { id: string; name: string; commune: string } | null;
   payer?: { id: string; name: string } | null;
+  waitingFor?: { relation: string; phone: string | null };
   family: { id: string; name: string } | null;
   risk: Risk; aiUsed: boolean; edited: boolean;
   events: { at: string; type: string; note: string }[];
@@ -301,6 +302,11 @@ function nextStep(b: Bill): string {
   if (role !== 'payer' && role !== 'family') return '';
   if (b.status === 'rejected' && b.rejection?.reason) return ''; // the reason already says what to do
   const payer = esc(b.payer?.name || '');
+  // Sent before the relative abroad accepted the invitation.
+  if (role === 'family' && !b.payer && b.waitingFor && ['awaiting_clinic', 'awaiting_payer'].includes(b.status)) {
+    const name = esc(b.waitingFor.relation || b.waitingFor.phone || '');
+    return `<p class="next"><b>${t('next.label')}</b>${t(`next.${b.status}.waiting`, { name })}</p>`;
+  }
   const key = ['awaiting_clinic', 'awaiting_payer', 'payment_failed', 'declined'].includes(b.status) ? `next.${b.status}.${role}` : `next.${b.status}`;
   const tone = b.status === 'paid' ? 'done' : ['rejected', 'payout_failed', 'payment_failed'].includes(b.status) ? 'bad' : '';
   return `<p class="next ${tone}"><b>${t('next.label')}</b>${t(key, { payer })}</p>`;
@@ -502,8 +508,8 @@ function inviteFlow(): void {
 }
 
 /** "Invitations sent" list: waiting ones can be shared again; expired ones sent again with a new code. */
-async function sentInvitesHtml(): Promise<string> {
-  const { invites } = await api<{ invites: SentInvite[] }>('GET', '/api/invites');
+async function sentInvitesHtml(list?: SentInvite[]): Promise<string> {
+  const invites = list || (await api<{ invites: SentInvite[] }>('GET', '/api/invites')).invites;
   if (!invites.length) return '';
   return `<div class="card"><h2>${t('invites.title')}</h2>${invites.map((i) => `<div class="invite-row">
     <div><b>${esc(i.relation || i.phone || i.code)}</b><div class="muted small">${i.phone ? esc(i.phone) + ' · ' : ''}${i.expired
@@ -545,21 +551,27 @@ function wireCodeCard(after: () => void): void {
 // ---------- family ----------
 async function renderFamily(): Promise<void> {
   app.innerHTML = `<p class="center"><span class="spinner"></span></p>`;
-  const [{ bills }, { payers }, sentInvites] = await Promise.all([
-    api<{ bills: Bill[] }>('GET', '/api/bills'), api<{ payers: Payer[] }>('GET', '/api/payers'), sentInvitesHtml(),
+  const [{ bills }, { payers }, { invites }] = await Promise.all([
+    api<{ bills: Bill[] }>('GET', '/api/bills'), api<{ payers: Payer[] }>('GET', '/api/payers'), api<{ invites: SentInvite[] }>('GET', '/api/invites'),
   ]);
+  const sentInvites = await sentInvitesHtml(invites);
+  // A bill can be sent as soon as someone abroad is invited: it goes to them when they accept.
+  const canSend = payers.length > 0 || invites.length > 0;
+  const waitingNames = invites.map((i) => i.relation || i.phone || i.code).join(', ');
   app.innerHTML = `
     <h1>${t('hello', { name: esc(me().name) })}</h1>
-    ${payers.length ? `
+    ${canSend ? `
       <button class="block big" id="newBill">📷 ${t('family.newBill')}</button>
-      <p class="muted small center">${t('family.supportedBy', { names: esc(payers.map((p) => p.name).join(', ')) })}</p>` : `
+      <p class="muted small center">${payers.length
+        ? t('family.supportedBy', { names: esc(payers.map((p) => p.name).join(', ')) })
+        : t('family.waitingFor', { names: esc(waitingNames) })}</p>` : `
       <div class="card start"><h2>🤝 ${t('start.family.title')}</h2><p>${t('start.family.text')}</p>
         <button class="block" data-invite>✉️ ${t('start.family.button')}</button>
         ${guideSteps('family')}</div>`}
-    ${codeCardHtml(payers.length > 0, payers.length ? t('family.linkTitle') : '🔑 ' + t('code.title'), payers.length ? t('family.linkSubtitle') : t('start.family.code'))}
+    ${codeCardHtml(canSend, canSend ? t('family.linkTitle') : '🔑 ' + t('code.title'), canSend ? t('family.linkSubtitle') : t('start.family.code'))}
+    ${canSend ? `<div class="card"><h2>${t('family.myBills')}</h2>${bills.length ? bills.map((b) => billCard(b)).join('') : `<p class="empty">${t('start.family.noBills')}</p>`}</div>` : ''}
     ${sentInvites}
-    ${payers.length ? `<div class="card"><h2>${t('family.myBills')}</h2>${bills.length ? bills.map((b) => billCard(b)).join('') : `<p class="empty">${t('start.family.noBills')}</p>`}</div>
-    <div class="card"><h2>${t('family.addPayer')}</h2>
+    ${canSend ? `<div class="card"><h2>${t('family.addPayer')}</h2>
       <button class="secondary block" data-invite>✉️ ${t('start.family.button')}</button>
       <button class="link" data-have-code>🔑 ${t('code.received')}</button></div>` : ''}
     ${helpLink()}`;
@@ -569,7 +581,7 @@ async function renderFamily(): Promise<void> {
   wireSentInvites(app);
   $$('[data-invite]').forEach((b) => (b.onclick = inviteFlow));
   $$('[data-have-code]').forEach((b) => (b.onclick = () => { $('#linkCard').classList.remove('hidden'); $('#code').focus(); }));
-  if (payers.length) $('#newBill').onclick = () => newBillFlow(payers);
+  if (canSend) $('#newBill').onclick = () => newBillFlow(payers, invites);
 }
 
 async function compressImage(file: File, max = 1600, quality = 0.82): Promise<{ b64: string; url: string }> {
@@ -590,7 +602,11 @@ interface ItemDraft { d: string; q: number | string; p: number | string }
 const flowSteps = (current: number) => `<div class="flow" aria-hidden="true">${[1, 2, 3].map((i) =>
   `<span class="${i < current ? 'done' : i === current ? 'on' : ''}">${i < current ? '✓' : i} ${t('flow.' + i)}</span>`).join('')}</div>`;
 
-async function newBillFlow(payers: Payer[]): Promise<void> {
+async function newBillFlow(payers: Payer[], invites: SentInvite[] = []): Promise<void> {
+  // Who pays: linked relatives abroad; with none yet, the relatives invited (the bill waits for them).
+  const payTo = payers.length
+    ? payers.map((p) => ({ value: 'p:' + p.id, label: `${p.name}${p.relation ? ` (${p.relation})` : ''}` }))
+    : invites.map((i) => ({ value: 'i:' + i.code, label: `${i.relation || i.phone || i.code} · ${t('family.notJoinedYet')}` }));
   const { clinics } = await api<{ clinics: Clinic[] }>('GET', '/api/clinics');
   const f: { draftId: string | null; ai: AiRead | null; aiAvailable?: boolean; items: ItemDraft[]; photoUrl: string | null } =
     { draftId: null, ai: null, items: [{ d: '', q: 1, p: '' }], photoUrl: null };
@@ -636,7 +652,8 @@ async function newBillFlow(payers: Payer[]): Promise<void> {
         <label for="clinic">${t('family.clinic')}</label>
         <select id="clinic"><option value="">${t('family.pickClinic')}</option>${clinics.map((c) => `<option value="${c.id}" ${guessClinic?.id === c.id ? 'selected' : ''}>${esc(c.name)} – ${esc(c.commune)} · ${t('cat.' + c.category)}</option>`).join('')}</select>
         <p class="muted small">${t('family.clinicMissing')}</p>
-        ${payers.length > 1 ? `<label for="payer">${t('family.whoPays')}</label><select id="payer">${payers.map((p) => `<option value="${p.id}">${esc(p.name)} (${esc(p.relation)})</option>`).join('')}</select>` : ''}
+        ${payTo.length > 1 ? `<label for="payer">${t('family.whoPays')}</label><select id="payer">${payTo.map((o) => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('')}</select>` : ''}
+        ${!payers.length ? `<p class="notice info">${t('family.billWaits', { name: esc(payTo[0].label.split(' · ')[0]) })}</p>` : ''}
         <div class="grid2">
           <div><label for="patient">${t('family.patient')}</label><input id="patient" value="${esc(ai.patient_name || '')}"></div>
           <div><label for="billNo">${t('billNo')}</label><input id="billNo" value="${esc(ai.bill_number || '')}"></div>
@@ -669,7 +686,7 @@ async function newBillFlow(payers: Payer[]): Promise<void> {
       if (!val('#patient').trim()) return toast(t('family.enterPatient'));
       if (!items.length) return toast(t('err.items_required'));
       const { bill } = await api<{ bill: Bill }>('POST', '/api/bills', {
-        draftId: f.draftId, payerId: document.querySelector<HTMLSelectElement>('#payer')?.value || payers[0].id, clinicId: val('#clinic'),
+        draftId: f.draftId, ...payToBody(document.querySelector<HTMLSelectElement>('#payer')?.value || payTo[0].value), clinicId: val('#clinic'),
         patientName: val('#patient').trim(), billNumber: val('#billNo').trim(), billDate: val('#date'),
         currency: val('#cur'), items, total: Number(val('#total')) || undefined,
       });
@@ -682,6 +699,9 @@ async function newBillFlow(payers: Payer[]): Promise<void> {
   };
   drawPhoto();
 }
+
+/** 'p:<id>' → linked payer; 'i:<code>' → invited relative who hasn't accepted yet. */
+const payToBody = (v: string) => (v.startsWith('i:') ? { inviteCode: v.slice(2) } : { payerId: v.slice(2) });
 
 // ---------- clinic ----------
 async function renderClinic(): Promise<void> {
