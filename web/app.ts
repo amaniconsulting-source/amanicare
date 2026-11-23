@@ -84,9 +84,10 @@ const btn = (e: Event) => e.currentTarget as HTMLButtonElement;
 // Every phone field has a country-code picker. People can also type the full number with "+"
 // (the picker is then ignored), and a forgotten code is added from the picker, so
 // "0812345678" with 🇨🇩 +243 becomes +243812345678. The server completes Congolese numbers too.
+// Short names rather than flag emojis: Windows shows flags as two letters ("CD").
 const COUNTRIES: [string, string, string][] = [
-  ['CD', '243', '🇨🇩'], ['US', '1', '🇺🇸'], ['CA', '1', '🇨🇦'], ['FR', '33', '🇫🇷'], ['BE', '32', '🇧🇪'],
-  ['GB', '44', '🇬🇧'], ['DE', '49', '🇩🇪'], ['CH', '41', '🇨🇭'], ['ZA', '27', '🇿🇦'], ['AO', '244', '🇦🇴'], ['CG', '242', '🇨🇬'],
+  ['CD', '243', 'RDC'], ['US', '1', 'USA'], ['CA', '1', 'Canada'], ['FR', '33', 'France'], ['BE', '32', 'Belgique'],
+  ['GB', '44', 'UK'], ['DE', '49', 'Deutschland'], ['CH', '41', 'Suisse'], ['ZA', '27', 'South Africa'], ['AO', '244', 'Angola'], ['CG', '242', 'Congo-Brazza'],
 ];
 const dialOf = (cc: string): string => (COUNTRIES.find(([c]) => c === cc) || COUNTRIES[0])[1];
 /** Splits a stored number (+243812345678) into its country and the rest, for editing. */
@@ -100,7 +101,7 @@ function splitPhone(full: string, fallback: string): { cc: string; local: string
 function phoneField(id: string, opts: { value?: string; cc?: string; placeholder?: string; autocomplete?: boolean } = {}): string {
   const { cc, local } = splitPhone(opts.value || '', opts.cc || 'CD');
   return `<div class="phone-field">
-    <select id="${id}Cc" aria-label="${t('phone.country')}">${COUNTRIES.map(([c, d, f]) => `<option value="${c}" ${c === cc ? 'selected' : ''}>${f} +${d}</option>`).join('')}</select>
+    <select id="${id}Cc" aria-label="${t('phone.country')}">${COUNTRIES.map(([c, d, f]) => `<option value="${c}" ${c === cc ? 'selected' : ''}>+${d} ${f}</option>`).join('')}</select>
     <input id="${id}" type="tel" inputmode="tel" ${opts.autocomplete ? 'autocomplete="tel"' : ''} value="${esc(local)}" placeholder="${esc(opts.placeholder || '81 234 5678')}">
   </div>`;
 }

@@ -30,7 +30,7 @@
  "login.title": "Hospital bills in the DRC, paid directly by family abroad",
  "login.subtitle": "In the DRC with a bill to pay? Send it to a relative abroad. Living abroad? Pay it safely: the money goes straight to the hospital.",
  "login.phone": "Your phone number",
- "login.phoneHint": "Pick your country code (🇨🇩 +243, 🇺🇸 +1…), then type your number.",
+ "login.phoneHint": "Pick your country code (+243 DRC, +1 USA…), then type your number.",
  "login.sendCode": "Send me a code",
  "login.code": "Enter the 6-digit code sent to {phone}",
  "login.devCode": "Test mode: your code is {code}",

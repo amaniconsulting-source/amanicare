@@ -31,7 +31,7 @@
  "login.title": "Futa ba facture ya lopitalo ya libota na yo na RDC",
  "login.subtitle": "Lopitalo ezwaka mbongo mbala moko. Tolandelaka facture nyonso liboso ya kofuta.",
  "login.phone": "Nimero ya telefone na yo",
- "login.phoneHint": "Pona indicatif ya mboka na yo (🇨🇩 +243, 🇺🇸 +1…), sima koma nimero na yo.",
+ "login.phoneHint": "Pona indicatif ya mboka na yo (+243 RDC, +1 USA…), sima koma nimero na yo.",
  "login.sendCode": "Tindela ngai code",
  "login.code": "Kotisa code ya mituya 6 oyo totindi na {phone}",
  "login.devCode": "Mode ya komeka: code na yo ezali {code}",
