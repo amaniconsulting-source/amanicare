@@ -503,3 +503,17 @@ test('admin can edit, deactivate, reactivate and delete a hospital', async () =>
   // Only admins can do any of this.
   assert.equal((await fam('DELETE', `/api/admin/clinics/${id}`)).status, 403);
 });
+
+test('pages on another address move to the official domain; the API and webhooks keep answering', async () => {
+  const saved = { baseUrl: config.baseUrl, on: config.canonicalRedirect };
+  config.baseUrl = 'https://myamanicare.com'; config.canonicalRedirect = true;
+  try {
+    const page = await fetch(`${base}/?invite=ABC123&as=payer`, { redirect: 'manual' });
+    assert.equal(page.status, 301);
+    assert.equal(page.headers.get('location'), 'https://myamanicare.com/?invite=ABC123&as=payer');
+    assert.equal((await fetch(`${base}/api/clinics`, { redirect: 'manual' })).status, 401); // API not redirected
+    assert.equal((await fetch(`${base}/healthz`)).status, 200);
+    const onDomain = await fetch(`${base}/`, { redirect: 'manual', headers: { 'x-forwarded-host': 'myamanicare.com' } });
+    assert.equal(onDomain.status, 200);
+  } finally { config.baseUrl = saved.baseUrl; config.canonicalRedirect = saved.on; }
+});

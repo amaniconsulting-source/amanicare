@@ -23,6 +23,22 @@ const TYPES: Record<string, string> = {
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 const originOf = (u: string) => { try { return new URL(u).origin; } catch { return ''; } };
+const hostOf = (u: string) => { try { return new URL(u).host.toLowerCase(); } catch { return ''; } };
+
+/** Pages opened on another address of the service (the old onrender.com address, or www.) move to the
+ *  official one in BASE_URL, so links, logins and cookies all live on one domain. Only GET/HEAD pages:
+ *  the API and webhooks answer on every address, so nothing breaks while Meta and payment partners
+ *  are being pointed at the new domain. */
+function canonicalRedirect(req: IncomingMessage, res: ServerResponse, url: URL): boolean {
+  const canonical = hostOf(config.baseUrl);
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').toLowerCase();
+  if (!config.canonicalRedirect || !canonical || !host || host === canonical) return false;
+  if (req.method !== 'GET' && req.method !== 'HEAD') return false;
+  if (url.pathname.startsWith('/api/') || url.pathname === '/healthz') return false;
+  res.writeHead(301, { location: originOf(config.baseUrl) + url.pathname + url.search, 'cache-control': 'no-cache' });
+  res.end();
+  return true;
+}
 
 /** Browser Sentry is on when a DSN is set (and SENTRY_BROWSER isn't 0). */
 function browserSentry() {
@@ -153,6 +169,7 @@ export function createApp(): Server {
     const url = new URL(req.url || '/', 'http://localhost');
     try {
       if (url.pathname === '/healthz') return sendJson(res, 200, { ok: true });
+      if (canonicalRedirect(req, res, url)) return;
       if (config.sitePassword) {
         if (url.pathname === SITE_LOGIN_PATH && req.method === 'POST') return await handleSiteLogin(req, res);
         if (!isPublic(url.pathname) && !siteAccessOk(req)) {

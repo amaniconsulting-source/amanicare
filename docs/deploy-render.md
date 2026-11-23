@@ -23,3 +23,23 @@ Every push to `develop` redeploys automatically. Migrations run at startup.
   verification and the `amanicare_login_code` template, or an SMS provider).
 - `plan: starter` (no sleeping), a separate Neon branch or project for production, `SENTRY_ENVIRONMENT=production`.
 - A separate `amanicare-prod` Anthropic key and a permanent WhatsApp system-user token.
+
+## Custom domain: myamanicare.com (Cloudflare DNS)
+
+1. Render → the service → **Settings → Custom Domains → Add**: `myamanicare.com` (Render adds
+   `www.myamanicare.com` and redirects it to the root).
+2. Cloudflare → myamanicare.com → **DNS → Records**:
+   - `CNAME` · Name `@` · Target `<service>.onrender.com` · Proxy status **DNS only** (grey cloud)
+   - `CNAME` · Name `www` · Target `<service>.onrender.com` · **DNS only**
+   - delete any `AAAA` records (Render does not use IPv6), and any old `A`/`CNAME` for `@` or `www`
+     (Cloudflare adds parking records when a domain is registered).
+3. Back in Render, click **Verify** on each domain; the certificate is issued in a few minutes.
+4. Render → **Environment**: `BASE_URL=https://myamanicare.com`. From then on every link the app
+   sends uses the domain, and pages opened on the old onrender.com address move to it
+   (`CANONICAL_REDIRECT`, on by default when `BASE_URL` is set). The API and webhooks keep answering
+   on both addresses, so nothing breaks while the partners below are updated.
+5. Meta (WhatsApp → Configuration): webhook URL `https://myamanicare.com/api/webhooks/whatsapp`
+   (same verify token). App settings → Basic: privacy policy URL `https://myamanicare.com/privacy.html`.
+6. Payment partner callbacks: `https://myamanicare.com/api/webhooks/payments/<partner>`.
+
+Everyone logs in again once (cookies belong to a domain).

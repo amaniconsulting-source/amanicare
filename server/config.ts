@@ -26,6 +26,8 @@ export const config = {
   port: Number(env.PORT || 3000),
   // Render sets RENDER_EXTERNAL_URL automatically (e.g. https://amanicare.onrender.com).
   baseUrl: env.BASE_URL || env.RENDER_EXTERNAL_URL || `http://localhost:${env.PORT || 3000}`,
+  // Send visitors on any other address (old onrender.com, www.) to BASE_URL. On when BASE_URL is set.
+  canonicalRedirect: bool(env.CANONICAL_REDIRECT, Boolean(env.BASE_URL)),
   production: env.NODE_ENV === 'production',
   databaseUrl: env.DATABASE_URL || 'postgres://localhost:5432/amanicare',
   // Optional: run in a separate Postgres schema (used by the tests to stay isolated).
