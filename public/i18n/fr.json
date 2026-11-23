@@ -465,5 +465,12 @@
  "admin.colBills": "Factures",
  "admin.colPaid": "Payé",
  "admin.joined": "Inscrit le {date}",
- "admin.lastLogin": "dernière connexion {date}"
+ "admin.lastLogin": "dernière connexion {date}",
+ "admin.editUser": "Modifier la personne",
+ "admin.phoneChangeHint": "Le nouveau numéro sert à se connecter et à recevoir les messages WhatsApp. Choisissez l'indicatif du pays.",
+ "admin.deleteUserConfirm": "Supprimer le compte de {name} ? Ses liens et invitations sont supprimés. Impossible si la personne a déjà des factures : retirez plutôt son accès.",
+ "err.user_has_bills": "Cette personne a des factures : elles doivent garder son nom. Retirez plutôt son accès.",
+ "err.cannot_delete_self": "Vous ne pouvez pas supprimer votre propre compte.",
+ "err.cannot_delete_owner": "Le compte du propriétaire ne peut pas être supprimé.",
+ "err.cannot_change_owner_phone": "Le numéro du propriétaire se change dans les réglages Render (ADMIN_PHONE)."
 }

@@ -861,6 +861,31 @@ async function renderAdmin(): Promise<void> {
   try { await ADMIN[state.adminTab](body); } catch (e) { reportUnexpected(e); body.innerHTML = `<p class="notice">${esc(errText(e))}</p>`; }
 }
 
+// Edit a person's name and phone number, or delete their account (admin).
+function editUserDialog(u: { id: string; name: string; phone: string }, done: () => void): void {
+  openModal(`<div class="row between"><h2>${t('admin.editUser')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
+    <label for="uName">${t('admin.colName')}</label><input id="uName" value="${esc(u.name)}">
+    <label for="uPhone">${t('admin.colPhone')}</label>${phoneField('uPhone', { value: u.phone })}
+    <p class="muted small">${t('admin.phoneChangeHint')}</p>
+    <div class="row"><button class="secondary grow" data-close>${t('cancel')}</button><button class="grow" id="uSave">${t('save')}</button></div>`, (sheet) => {
+    $('#uSave', sheet).onclick = (e) => busy(btn(e), async () => {
+      await api('PATCH', `/api/admin/users/${u.id}`, { name: val('#uName', sheet), phone: readPhone('uPhone', sheet) });
+      closeModal(); toast(t('saved')); done();
+    });
+  });
+}
+async function deleteUser(u: { id: string; name: string }, done: () => void): Promise<void> {
+  if (!(await confirmDialog(t('admin.deleteUserConfirm', { name: esc(u.name) }), t('admin.delete'), true))) return;
+  try { await api('DELETE', `/api/admin/users/${u.id}`); toast(t('admin.deleted')); done(); }
+  catch (err) { toast(errText(err)); }
+}
+const userActions = (u: { id: string; active: number }, opts: { locked?: boolean; kind: string }): string => opts.locked ? '' :
+  `<div class="actions"><button class="link" data-uedit="${u.id}">${t('admin.edit')}</button><button class="link ${u.active ? 'danger' : ''}" data-${opts.kind}="${u.id}" data-active="${u.active}">${u.active ? t('admin.removeAccess') : t('admin.restoreAccess')}</button><button class="link danger" data-udel="${u.id}">${t('admin.delete')}</button></div>`;
+function wireUserActions(root: HTMLElement, list: { id: string; name: string; phone: string }[], done: () => void): void {
+  $$('[data-uedit]', root).forEach((b) => (b.onclick = () => editUserDialog(list.find((x) => x.id === b.dataset.uedit)!, done)));
+  $$('[data-udel]', root).forEach((b) => (b.onclick = () => deleteUser(list.find((x) => x.id === b.dataset.udel)!, done)));
+}
+
 const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
   async overview(el) {
     const [ov, { bills }] = await Promise.all([
@@ -972,8 +997,8 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
     const row = (u: AdminUser): string => {
       const mine = u.id === me().id; const isOwner = !!owner && u.phone === owner;
       const tag = mine ? ` <span class="pill low">${t('admin.you')}</span>` : isOwner ? ` <span class="pill low">${t('admin.owner')}</span>` : '';
-      const action = mine || isOwner ? '' : `<button class="link ${u.active ? 'danger' : ''}" data-access="${u.id}" data-active="${u.active}">${u.active ? t('admin.removeAccess') : t('admin.restoreAccess')}</button>`;
-      return `<tr class="${u.active ? '' : 'inactive'}"><td><b>${esc(u.name)}</b>${tag}${u.active ? '' : ` <span class="pill high">${t('admin.inactive')}</span>`}<div class="actions">${action}</div></td>
+      const action = userActions(u, { locked: mine || isOwner, kind: 'access' });
+      return `<tr class="${u.active ? '' : 'inactive'}"><td><b>${esc(u.name)}</b>${tag}${u.active ? '' : ` <span class="pill high">${t('admin.inactive')}</span>`}${action}</td>
         <td class="small">${esc(u.phone)}</td><td class="small">${u.role === 'admin' ? t('admin.roleAdmin') : esc(u.clinic || t('admin.roleClinic'))}</td></tr>`;
     };
     const table = (list: AdminUser[]) => list.length ? `<div class="scroll"><table><thead><tr><th>${t('admin.colName')}</th><th>${t('admin.colPhone')}</th><th>${t('admin.role')}</th></tr></thead><tbody>${list.map(row).join('')}</tbody></table></div>` : `<p class="empty">${t('admin.noUsers')}</p>`;
@@ -1007,7 +1032,7 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
       $('#custList', el).innerHTML = list.length ? `<div class="scroll"><table><thead><tr><th>${t('admin.colName')}</th><th>${t('admin.colPhone')}</th><th>${t('admin.linkedTo')}</th><th class="num">${t('admin.colBills')}</th><th class="num">${t('admin.colPaid')}</th></tr></thead><tbody>
         ${list.map((c) => `<tr class="${c.active ? '' : 'inactive'}"><td><b>${esc(c.name)}</b> <span class="pill ${c.role === 'payer' ? 'low' : 'med'}">${t(c.role === 'payer' ? 'admin.payer' : 'admin.family')}</span>${c.active ? '' : ` <span class="pill high">${t('admin.inactive')}</span>`}
             <div class="muted small">${t('admin.joined', { date: day(c.created_at) })} · ${t('admin.lastLogin', { date: day(c.last_login) })}</div>
-            <div class="actions"><button class="link ${c.active ? 'danger' : ''}" data-caccess="${c.id}" data-active="${c.active}">${c.active ? t('admin.removeAccess') : t('admin.restoreAccess')}</button></div></td>
+            ${userActions(c, { kind: 'caccess' })}</td>
           <td class="small">${esc(c.phone)}</td><td class="small">${esc(c.linked || '—')}</td><td class="num">${c.bills}</td><td class="num">${usd(c.paid_usd)}</td></tr>`).join('')}
         </tbody></table></div>` : `<p class="empty">${t('admin.noUsers')}</p>`;
       $$('[data-caccess]', el).forEach((b) => (b.onclick = async () => {
@@ -1017,6 +1042,7 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
         try { await api('PATCH', `/api/admin/users/${c.id}`, { active: !removing }); toast(t('saved')); await loadCustomers(); }
         catch (err) { toast(errText(err)); }
       }));
+      wireUserActions($('#custList', el), list, () => { loadCustomers().catch((e) => toast(errText(e))); });
     };
     $('#custQ', el).oninput = () => { clearTimeout(timer); timer = setTimeout(() => { loadCustomers().catch((e) => toast(errText(e))); }, 300); };
     $$<HTMLButtonElement>('[data-ckind]', el).forEach((b) => (b.onclick = () => {
@@ -1037,6 +1063,7 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
       try { await api('PATCH', `/api/admin/users/${u.id}`, { active: !removing }); toast(t('saved')); renderAdmin(); }
       catch (err) { toast(errText(err)); }
     }));
+    wireUserActions(el, users, () => renderAdmin());
   },
   async prices(el) {
     type PriceRow = { id: string; name: string; keywords: string[]; usd: number; category: Category | null; clinic_id: string | null };

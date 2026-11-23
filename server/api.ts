@@ -305,6 +305,32 @@ router.get('/api/admin/users', requireRole('admin'), async () => ({
   owner: config.adminPhone || null,
 }));
 
+// Delete an account. Only one that has no bills: bills are payment records and must keep who sent and
+// paid them. For someone with bills, remove their access instead (history is kept).
+router.delete('/api/admin/users/:id', requireRole('admin'), async ({ user, params }: AuthCtx) => {
+  const u = await one<UserRow>('SELECT * FROM users WHERE id = $1', params.id);
+  if (!u) throw notFound();
+  if (u.id === user.id) throw bad('cannot_delete_self');
+  if (config.adminPhone && u.phone === config.adminPhone) throw bad('cannot_delete_owner');
+  if (u.role === 'admin') {
+    const others = await one<{ n: number }>("SELECT COUNT(*)::int n FROM users WHERE role = 'admin' AND active = 1 AND id <> $1", u.id);
+    if (!others || others.n < 1) throw bad('last_admin');
+  }
+  if (await one('SELECT 1 FROM bills WHERE payer_id = $1 OR family_id = $1 LIMIT 1', u.id)) throw new HttpError(409, 'user_has_bills');
+  await tx(async () => {
+    await run('DELETE FROM sessions WHERE user_id = $1', u.id);
+    await run('DELETE FROM otps WHERE phone = $1', u.phone);
+    await run("DELETE FROM photos WHERE id IN (SELECT substr(photo_path, 4) FROM bill_drafts WHERE family_id = $1 AND photo_path LIKE 'db:%')", u.id);
+    await run('DELETE FROM bill_drafts WHERE family_id = $1', u.id);
+    await run('DELETE FROM links WHERE payer_id = $1 OR family_id = $1', u.id);
+    await run('UPDATE invites SET used_by = NULL WHERE used_by = $1', u.id);
+    await run('DELETE FROM invites WHERE payer_id = $1 OR family_id = $1', u.id);
+    await run('DELETE FROM users WHERE id = $1', u.id);
+  });
+  await audit(user.id, 'user_delete', `${u.role} ${u.name} ${u.phone}`);
+  return { ok: true };
+});
+
 // Payers abroad and families in the DRC, for support and fraud checks: who they are linked to,
 // how many bills they have and how much was paid to hospitals. Searchable by name or phone.
 router.get('/api/admin/customers', requireRole('admin'), async ({ url }: AuthCtx) => {
@@ -329,6 +355,16 @@ router.patch('/api/admin/users/:id', requireRole('admin'), async ({ user, body, 
   const u = await one<UserRow>('SELECT * FROM users WHERE id = $1', params.id);
   if (!u) throw notFound();
   if (body.name !== undefined) await run('UPDATE users SET name = $1 WHERE id = $2', str(body.name, { min: 1, max: 80, name: 'name' }), u.id);
+  if (body.phone !== undefined) {
+    const p = phone(body.phone);
+    if (p !== u.phone) {
+      if (config.adminPhone && u.phone === config.adminPhone) throw bad('cannot_change_owner_phone');
+      if (await one('SELECT 1 FROM users WHERE phone = $1', p)) throw bad('phone_in_use');
+      await run('UPDATE users SET phone = $1 WHERE id = $2', p, u.id);
+      await run('DELETE FROM otps WHERE phone = $1', u.phone); // a code sent to the old number no longer works
+      await audit(user.id, 'user_phone_change', `${u.role} ${u.phone} → ${p}`);
+    }
+  }
   if (body.active !== undefined) {
     const active = body.active ? 1 : 0;
     if (!active) {

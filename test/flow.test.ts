@@ -587,3 +587,20 @@ test('admins see payers and families, can search them, and can remove a fraudste
   const fam = client(); await login(fam, '+243819990002', { name: 'Test', role: 'family' });
   assert.equal((await fam('GET', '/api/admin/customers')).status, 403);
 });
+
+test('admins change a payer\'s or family member\'s number, and delete accounts that have no bills', async () => {
+  const owner = client(); await login(owner, '+15550000001');
+  const fam = client(); await login(fam, '+243819990010', { name: 'Ancien Numéro', role: 'family' });
+  const id = (await fam('GET', '/api/me')).data.user.id;
+  // New number, typed without +243: the person now signs in with it, and the old number is free.
+  assert.equal((await owner('PATCH', `/api/admin/users/${id}`, { name: 'Nouveau Numéro', phone: '0819990011' })).status, 200);
+  const again = client(); const me = await login(again, '+243819990011');
+  assert.equal(me.user.id, id); assert.equal(me.user.name, 'Nouveau Numéro');
+  assert.equal((await owner('PATCH', `/api/admin/users/${id}`, { phone: '+15550000001' })).data.error, 'phone_in_use');
+  // Someone with bills can't be deleted; someone without can.
+  const withBills = (await owner('GET', '/api/admin/customers')).data.customers.find((c: { bills: number }) => c.bills > 0);
+  assert.equal((await owner('DELETE', `/api/admin/users/${withBills.id}`)).data.error, 'user_has_bills');
+  assert.equal((await owner('DELETE', `/api/admin/users/${id}`)).status, 200);
+  assert.equal(await one('SELECT 1 FROM users WHERE id = $1', id), undefined);
+  assert.equal((await again('GET', '/api/me')).data.user, null); // signed out
+});

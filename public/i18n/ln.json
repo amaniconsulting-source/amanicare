@@ -466,5 +466,12 @@
  "admin.colBills": "Bafacture",
  "admin.colPaid": "Efutami",
  "admin.joined": "Akotaki {date}",
- "admin.lastLogin": "mbala ya suka {date}"
+ "admin.lastLogin": "mbala ya suka {date}",
+ "admin.editUser": "Bongisa moto",
+ "admin.phoneChangeHint": "Nimero ya sika ekosalelama mpo na kokota mpe kozwa bansango ya WhatsApp. Pona indicatif ya mboka.",
+ "admin.deleteUserConfirm": "Olongola compte ya {name}? Bakangami na ye mpe babengi ekolongwa. Ekoki te soki azali na bafacture: longola nde nzela na ye.",
+ "err.user_has_bills": "Moto oyo azali na bafacture, esengeli kobatela nkombo na ye. Longola nde nzela na ye.",
+ "err.cannot_delete_self": "Okoki kolongola compte na yo moko te.",
+ "err.cannot_delete_owner": "Bakoki kolongola compte ya nkolo te.",
+ "err.cannot_change_owner_phone": "Nimero ya nkolo ebongolamaka na Render (ADMIN_PHONE)."
 }

@@ -465,5 +465,12 @@
  "admin.colBills": "Bills",
  "admin.colPaid": "Paid",
  "admin.joined": "Joined {date}",
- "admin.lastLogin": "last sign-in {date}"
+ "admin.lastLogin": "last sign-in {date}",
+ "admin.editUser": "Edit person",
+ "admin.phoneChangeHint": "The new number is used to sign in and to receive WhatsApp messages. Pick the country code.",
+ "admin.deleteUserConfirm": "Delete {name}'s account? Their links and invitations are deleted. Not possible if they already have bills: remove their access instead.",
+ "err.user_has_bills": "This person has bills, which must keep their name. Remove their access instead.",
+ "err.cannot_delete_self": "You can't delete your own account.",
+ "err.cannot_delete_owner": "The owner's account can't be deleted.",
+ "err.cannot_change_owner_phone": "The owner's number is changed in the Render settings (ADMIN_PHONE)."
 }
