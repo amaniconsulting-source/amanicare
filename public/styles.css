@@ -197,3 +197,4 @@ tr.inactive td{opacity:.65}
 .update-bar button{flex:0 0 auto}
 @media (max-width:520px){.update-bar{left:12px;right:12px;transform:none;width:auto;border-radius:14px}}
 .update-bar button{min-height:34px;padding:4px 14px;font-size:14px;border-radius:999px}
+button.secondary.on{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}

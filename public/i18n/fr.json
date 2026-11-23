@@ -449,5 +449,21 @@
  "err.cannot_disable_owner": "L'accès du propriétaire ne peut pas être retiré.",
  "err.last_admin": "Il doit rester au moins un administrateur actif.",
  "update.available": "Une nouvelle version d'AmaniCare est disponible.",
- "update.reload": "Mettre à jour"
+ "update.reload": "Mettre à jour",
+ "admin.colName": "Nom",
+ "admin.colPhone": "Téléphone",
+ "admin.customers": "Payeurs et familles",
+ "admin.customersHint": "Les personnes qui utilisent AmaniCare : payeurs à l'étranger et familles en RDC. Cherchez par nom ou numéro.",
+ "admin.searchCustomers": "Rechercher un nom ou un numéro…",
+ "admin.all": "Tous",
+ "admin.payers": "Payeurs",
+ "admin.families": "Familles",
+ "admin.payer": "Payeur",
+ "admin.family": "Famille",
+ "admin.customerCounts": "{payers} payeurs · {families} familles",
+ "admin.linkedTo": "Lié à",
+ "admin.colBills": "Factures",
+ "admin.colPaid": "Payé",
+ "admin.joined": "Inscrit le {date}",
+ "admin.lastLogin": "dernière connexion {date}"
 }

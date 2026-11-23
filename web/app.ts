@@ -976,20 +976,54 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
       return `<tr class="${u.active ? '' : 'inactive'}"><td><b>${esc(u.name)}</b>${tag}${u.active ? '' : ` <span class="pill high">${t('admin.inactive')}</span>`}<div class="actions">${action}</div></td>
         <td class="small">${esc(u.phone)}</td><td class="small">${u.role === 'admin' ? t('admin.roleAdmin') : esc(u.clinic || t('admin.roleClinic'))}</td></tr>`;
     };
-    const table = (list: AdminUser[]) => list.length ? `<div class="scroll"><table><thead><tr><th>${t('login.name')}</th><th>${t('login.phone')}</th><th>${t('admin.role')}</th></tr></thead><tbody>${list.map(row).join('')}</tbody></table></div>` : `<p class="empty">${t('admin.noUsers')}</p>`;
+    const table = (list: AdminUser[]) => list.length ? `<div class="scroll"><table><thead><tr><th>${t('admin.colName')}</th><th>${t('admin.colPhone')}</th><th>${t('admin.role')}</th></tr></thead><tbody>${list.map(row).join('')}</tbody></table></div>` : `<p class="empty">${t('admin.noUsers')}</p>`;
     el.innerHTML = `
+      <div class="card"><div class="row between"><h2>${t('admin.customers')}</h2><span class="muted small" id="custCounts"></span></div>
+        <p class="muted small">${t('admin.customersHint')}</p>
+        <input id="custQ" type="search" placeholder="${t('admin.searchCustomers')}" aria-label="${t('admin.searchCustomers')}">
+        <div class="row" style="gap:6px;margin:8px 0"><button class="secondary small on" data-ckind="">${t('admin.all')}</button><button class="secondary small" data-ckind="payer">${t('admin.payers')}</button><button class="secondary small" data-ckind="family">${t('admin.families')}</button></div>
+        <div id="custList"><p class="center"><span class="spinner"></span></p></div>
+      </div>
       <div class="card"><h2>${t('admin.admins')}</h2>${table(users.filter((u) => u.role === 'admin'))}</div>
       <div class="card"><h2>${t('admin.staff')}</h2>${table(users.filter((u) => u.role === 'clinic'))}</div>
       <div class="card"><h2>${t('admin.addUser')}</h2><p class="muted small">${t('admin.addStaffHint')}</p>
         <div class="grid2">
-          <div><label for="sName">${t('login.name')}</label><input id="sName"></div>
-          <div><label for="sPhone">${t('login.phone')}</label>${phoneField('sPhone')}</div>
+          <div><label for="sName">${t('admin.colName')}</label><input id="sName"></div>
+          <div><label for="sPhone">${t('admin.colPhone')}</label>${phoneField('sPhone')}</div>
           <div><label for="sRole">${t('admin.role')}</label><select id="sRole"><option value="clinic">${t('admin.roleClinic')}</option><option value="admin">${t('admin.roleAdmin')}</option></select></div>
           <div id="sClinicBox"><label for="sClinic">${t('family.clinic')}</label><select id="sClinic">${clinics.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
         </div>
         <p class="muted small">${t('phone.hint')}</p>
         <button class="block" id="addStaff">${t('admin.addUser')}</button>
       </div>`;
+    // Payers and families: searchable list.
+    type Customer = { id: string; name: string; phone: string; role: 'payer' | 'family'; active: number; created_at: string; last_login: string | null; linked: string | null; bills: number; paid_usd: number };
+    let kind = ''; let timer: ReturnType<typeof setTimeout> | undefined;
+    const day = (d: string | null) => d ? new Date(d).toLocaleDateString(state.lang === 'en' ? 'en-US' : 'fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+    const loadCustomers = async (): Promise<void> => {
+      const { customers, counts } = await api<{ customers: Customer[]; counts: { payers: number; families: number } }>('GET', '/api/admin/customers?q=' + encodeURIComponent(val('#custQ', el)));
+      $('#custCounts', el).textContent = t('admin.customerCounts', { payers: counts.payers, families: counts.families });
+      const list = customers.filter((c) => !kind || c.role === kind);
+      $('#custList', el).innerHTML = list.length ? `<div class="scroll"><table><thead><tr><th>${t('admin.colName')}</th><th>${t('admin.colPhone')}</th><th>${t('admin.linkedTo')}</th><th class="num">${t('admin.colBills')}</th><th class="num">${t('admin.colPaid')}</th></tr></thead><tbody>
+        ${list.map((c) => `<tr class="${c.active ? '' : 'inactive'}"><td><b>${esc(c.name)}</b> <span class="pill ${c.role === 'payer' ? 'low' : 'med'}">${t(c.role === 'payer' ? 'admin.payer' : 'admin.family')}</span>${c.active ? '' : ` <span class="pill high">${t('admin.inactive')}</span>`}
+            <div class="muted small">${t('admin.joined', { date: day(c.created_at) })} · ${t('admin.lastLogin', { date: day(c.last_login) })}</div>
+            <div class="actions"><button class="link ${c.active ? 'danger' : ''}" data-caccess="${c.id}" data-active="${c.active}">${c.active ? t('admin.removeAccess') : t('admin.restoreAccess')}</button></div></td>
+          <td class="small">${esc(c.phone)}</td><td class="small">${esc(c.linked || '—')}</td><td class="num">${c.bills}</td><td class="num">${usd(c.paid_usd)}</td></tr>`).join('')}
+        </tbody></table></div>` : `<p class="empty">${t('admin.noUsers')}</p>`;
+      $$('[data-caccess]', el).forEach((b) => (b.onclick = async () => {
+        const c = list.find((x) => x.id === b.dataset.caccess)!;
+        const removing = b.dataset.active === '1';
+        if (removing && !(await confirmDialog(t('admin.removeAccessConfirm', { name: esc(c.name) }), t('admin.removeAccess'), true))) return;
+        try { await api('PATCH', `/api/admin/users/${c.id}`, { active: !removing }); toast(t('saved')); await loadCustomers(); }
+        catch (err) { toast(errText(err)); }
+      }));
+    };
+    $('#custQ', el).oninput = () => { clearTimeout(timer); timer = setTimeout(() => { loadCustomers().catch((e) => toast(errText(e))); }, 300); };
+    $$<HTMLButtonElement>('[data-ckind]', el).forEach((b) => (b.onclick = () => {
+      kind = b.dataset.ckind || ''; $$('[data-ckind]', el).forEach((x) => x.classList.toggle('on', x === b));
+      loadCustomers().catch((e) => toast(errText(e)));
+    }));
+    await loadCustomers();
     $<HTMLSelectElement>('#sRole', el).onchange = () => $('#sClinicBox', el).classList.toggle('hidden', val('#sRole', el) === 'admin');
     $('#addStaff', el).onclick = (e) => busy(btn(e), async () => {
       const role = val('#sRole', el);

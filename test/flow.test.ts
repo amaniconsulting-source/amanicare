@@ -571,3 +571,19 @@ test('every answer says which version is running, so open pages can offer the up
   assert.ok(v && v.length >= 6);
   assert.equal((await fetch(base + '/api/clinics')).headers.get('x-app-version'), v);
 });
+
+test('admins see payers and families, can search them, and can remove a fraudster\'s access', async () => {
+  const owner = client(); await login(owner, '+15550000001');
+  const all = (await owner('GET', '/api/admin/customers')).data;
+  assert.ok(all.counts.payers >= 1 && all.counts.families >= 1);
+  assert.ok(all.customers.every((c: { role: string }) => c.role === 'payer' || c.role === 'family'));
+  const someone = all.customers[0];
+  const found = (await owner('GET', '/api/admin/customers?q=' + encodeURIComponent(someone.phone.slice(-6)))).data.customers;
+  assert.ok(found.some((c: { id: string }) => c.id === someone.id));
+  assert.equal((await owner('PATCH', `/api/admin/users/${someone.id}`, { active: false })).status, 200);
+  assert.equal((await client()('POST', '/api/auth/request-otp', { phone: someone.phone })).data.error, 'account_disabled');
+  assert.equal((await owner('PATCH', `/api/admin/users/${someone.id}`, { active: true })).status, 200);
+  // Families and payers can't see this list.
+  const fam = client(); await login(fam, '+243819990002', { name: 'Test', role: 'family' });
+  assert.equal((await fam('GET', '/api/admin/customers')).status, 403);
+});

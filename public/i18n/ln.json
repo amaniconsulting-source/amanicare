@@ -450,5 +450,21 @@
  "err.cannot_disable_owner": "Bakoki kolongola nzela ya nkolo te.",
  "err.last_admin": "Esengeli mokambi moko azala kaka.",
  "update.available": "Version ya sika ya AmaniCare ezali.",
- "update.reload": "Bongisa"
+ "update.reload": "Bongisa",
+ "admin.colName": "Nkombo",
+ "admin.colPhone": "Telefone",
+ "admin.customers": "Bafuti mpe mabota",
+ "admin.customersHint": "Bato oyo basalelaka AmaniCare: bafuti na mikili mpe mabota na RDC. Luka na nkombo to nimero.",
+ "admin.searchCustomers": "Luka nkombo to nimero…",
+ "admin.all": "Bango nyonso",
+ "admin.payers": "Bafuti",
+ "admin.families": "Mabota",
+ "admin.payer": "Mofuti",
+ "admin.family": "Libota",
+ "admin.customerCounts": "{payers} bafuti · {families} mabota",
+ "admin.linkedTo": "Akangami na",
+ "admin.colBills": "Bafacture",
+ "admin.colPaid": "Efutami",
+ "admin.joined": "Akotaki {date}",
+ "admin.lastLogin": "mbala ya suka {date}"
 }

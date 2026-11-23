@@ -449,5 +449,21 @@
  "err.cannot_disable_owner": "The owner's access can't be removed.",
  "err.last_admin": "At least one active administrator must remain.",
  "update.available": "A new version of AmaniCare is available.",
- "update.reload": "Update"
+ "update.reload": "Update",
+ "admin.colName": "Name",
+ "admin.colPhone": "Phone",
+ "admin.customers": "Payers and families",
+ "admin.customersHint": "The people using AmaniCare: payers abroad and families in the DRC. Search by name or number.",
+ "admin.searchCustomers": "Search a name or number…",
+ "admin.all": "All",
+ "admin.payers": "Payers",
+ "admin.families": "Families",
+ "admin.payer": "Payer",
+ "admin.family": "Family",
+ "admin.customerCounts": "{payers} payers · {families} families",
+ "admin.linkedTo": "Linked to",
+ "admin.colBills": "Bills",
+ "admin.colPaid": "Paid",
+ "admin.joined": "Joined {date}",
+ "admin.lastLogin": "last sign-in {date}"
 }

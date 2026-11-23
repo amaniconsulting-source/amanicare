@@ -305,9 +305,28 @@ router.get('/api/admin/users', requireRole('admin'), async () => ({
   owner: config.adminPhone || null,
 }));
 
-// Remove or restore an admin's or a staff member's access. History stays; open sessions end at once.
+// Payers abroad and families in the DRC, for support and fraud checks: who they are linked to,
+// how many bills they have and how much was paid to hospitals. Searchable by name or phone.
+router.get('/api/admin/customers', requireRole('admin'), async ({ url }: AuthCtx) => {
+  const q = (url.searchParams.get('q') || '').trim().slice(0, 60);
+  const like = '%' + q.replace(/[%_\\]/g, '') + '%';
+  const customers = await all(`SELECT u.id, u.name, u.phone, u.role, u.active, u.lang, u.created_at,
+      (SELECT MAX(a.at) FROM audit a WHERE a.actor_id = u.id AND a.action = 'login') last_login,
+      (SELECT string_agg(o.name || CASE WHEN l.relation <> '' THEN ' (' || l.relation || ')' ELSE '' END, ', ' ORDER BY l.created_at)
+         FROM links l JOIN users o ON o.id = CASE WHEN u.role = 'payer' THEN l.family_id ELSE l.payer_id END
+        WHERE (u.role = 'payer' AND l.payer_id = u.id) OR (u.role = 'family' AND l.family_id = u.id)) linked,
+      (SELECT COUNT(*)::int FROM bills b WHERE b.payer_id = u.id OR b.family_id = u.id) bills,
+      (SELECT COALESCE(SUM(b.total_usd), 0) FROM bills b WHERE (b.payer_id = u.id OR b.family_id = u.id) AND b.status = 'paid') paid_usd
+    FROM users u WHERE u.role IN ('payer', 'family') AND ($1 = '' OR u.name ILIKE $2 OR u.phone LIKE $2)
+    ORDER BY u.created_at DESC LIMIT 300`, q, like);
+  const counts = await one<{ payers: number; families: number }>(`SELECT COUNT(*) FILTER (WHERE role = 'payer')::int payers,
+    COUNT(*) FILTER (WHERE role = 'family')::int families FROM users`);
+  return { customers, counts };
+});
+
+// Remove or restore anyone's access (admin, staff, payer or family). History stays; open sessions end at once.
 router.patch('/api/admin/users/:id', requireRole('admin'), async ({ user, body, params }: AuthCtx) => {
-  const u = await one<UserRow>("SELECT * FROM users WHERE id = $1 AND role IN ('admin', 'clinic')", params.id);
+  const u = await one<UserRow>('SELECT * FROM users WHERE id = $1', params.id);
   if (!u) throw notFound();
   if (body.name !== undefined) await run('UPDATE users SET name = $1 WHERE id = $2', str(body.name, { min: 1, max: 80, name: 'name' }), u.id);
   if (body.active !== undefined) {
