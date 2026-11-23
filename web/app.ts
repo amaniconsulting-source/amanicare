@@ -137,10 +137,13 @@ class ApiError extends Error {
 }
 
 async function api<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+  // Every request that changes something is sent as JSON, even without data (e.g. DELETE):
+  // the server refuses anything else, as a protection against forged requests from other sites.
+  const send = method !== 'GET' ? (body ?? {}) : undefined;
   const res = await fetch(path, {
     method, credentials: 'same-origin',
-    headers: body !== undefined ? { 'content-type': 'application/json' } : {},
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    headers: send !== undefined ? { 'content-type': 'application/json' } : {},
+    body: send !== undefined ? JSON.stringify(send) : undefined,
   });
   checkVersion(res.headers.get('x-app-version'));
   const data = await res.json().catch(() => ({}));
