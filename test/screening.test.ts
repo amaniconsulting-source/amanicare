@@ -88,3 +88,9 @@ test('AI observations add at most 20 points', () => {
   assert.equal(r.score, 20);
   assert.equal(r.level, 'low');
 });
+
+test('tamper notes from the photo are kept in French too, for the French screens', () => {
+  const r = screenBill({ ...base, items: [{ d: 'Consultation', q: 1, p: 10 }], total: 10, ai: { clinic_name: 'Centre Médical Espoir', tamper_flags: ['total written over'], tamper_flags_fr: ['total réécrit'] } }, ctx);
+  const flag = r.reasons.find((x) => x.code === 'ai_tamper_flag');
+  assert.deepEqual(flag?.params, { flag: 'total written over', flag_fr: 'total réécrit' });
+});

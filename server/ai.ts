@@ -13,6 +13,7 @@ Return ONLY a JSON object, no other text:
  "currency": "USD" or "CDF", "items": [{"description": string, "qty": number, "unit_price": number}],
  "total": number,
  "tamper_flags": [short English strings, ONLY for visible signs that the bill was altered or forged, e.g. "total written over in different ink", "digits changed or scratched out", "mismatched fonts in the amounts", "photo of a screen or of a copy", "date after today"],
+ "tamper_flags_fr": [the same flags in simple French, same order, e.g. "total réécrit avec une autre encre"],
  "confidence": number between 0 and 1}
 Rules: copy what is written; do not invent items or prices. If a field is unreadable use "" or 0.
 Normal wear is NOT a tamper flag: torn, folded or crumpled paper, blur, shadows, an unticked checkbox, a missing stamp on a printed receipt, or which field you used as the bill number. Leave tamper_flags empty when nothing looks altered.
@@ -82,6 +83,7 @@ export function sanitize(input: unknown): AiBill | null {
     })).filter((i: { description: string }) => i.description),
     total: num(o.total),
     tamper_flags: (Array.isArray(o.tamper_flags) ? o.tamper_flags : []).slice(0, 6).map((f: unknown) => str(f, 160)),
+    tamper_flags_fr: (Array.isArray(o.tamper_flags_fr) ? o.tamper_flags_fr : []).slice(0, 6).map((f: unknown) => str(f, 160)),
     confidence: Math.min(1, num(o.confidence)),
   };
 }

@@ -1,6 +1,7 @@
 // AmaniCare server: API + static PWA. Build with `npm run build`, run with `npm start`.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { join, normalize, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -166,9 +167,17 @@ async function handleSiteLogin(req: IncomingMessage, res: ServerResponse): Promi
   res.end();
 }
 
+// This deploy's identity: Render's commit id, or else a fingerprint of the app files.
+const BUILD_ID = (process.env.RENDER_GIT_COMMIT || '').slice(0, 12) || (() => {
+  const h = createHash('sha1');
+  for (const f of ['app.js', 'styles.css']) for (const dir of STATIC_DIRS) { try { h.update(readFileSync(join(dir, f))); break; } catch { /* next dir */ } }
+  return h.digest('base64url').slice(0, 12);
+})();
+
 export function createApp(): Server {
   return createServer(async (req, res) => {
     const url = new URL(req.url || '/', 'http://localhost');
+    res.setHeader('x-app-version', BUILD_ID); // lets open pages notice a new deploy
     try {
       if (url.pathname === '/healthz') return sendJson(res, 200, { ok: true });
       if (canonicalRedirect(req, res, url)) return;

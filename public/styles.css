@@ -68,7 +68,14 @@ td input.qty{width:52px;padding:8px 6px} td input.price{width:84px;padding:8px 6
 .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
 .kpi b{display:block;font-size:22px;font-variant-numeric:tabular-nums}
 .kpi span{font-size:12px;color:var(--muted)}
-.tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;margin-bottom:10px}
+.tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;margin-bottom:12px;scrollbar-width:none;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{scroll-snap-align:start}
+/* Phones: one swipeable row, no scrollbar; a fade on the right shows there is more. */
+@media (max-width:699px){.tabs{mask-image:linear-gradient(to right,#000 88%,transparent);-webkit-mask-image:linear-gradient(to right,#000 88%,transparent);padding-right:24px}
+  .tabs.end{mask-image:none;-webkit-mask-image:none}}
+/* Larger screens: every tab visible, wrapping onto a second line if needed. */
+@media (min-width:700px){.tabs{flex-wrap:wrap;overflow:visible}}
 .tabs button{flex:0 0 auto;min-height:36px;padding:6px 12px;font-size:14px;border-radius:999px;background:var(--card);color:var(--ink);border:1px solid var(--line)}
 .tabs button.on{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
 .photo-drop{display:block;border:2px dashed var(--line);border-radius:var(--radius);padding:26px 16px;text-align:center;color:var(--muted);cursor:pointer;background:var(--card)}
@@ -182,3 +189,11 @@ tr.inactive td{opacity:.65}
 .phone-field{display:flex;gap:6px;align-items:stretch}
 .phone-field select{flex:0 0 auto;width:auto;max-width:120px;padding-right:6px}
 .phone-field input{flex:1 1 auto;min-width:0}
+
+/* "New version available" bar after a deploy */
+.update-bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:60;display:flex;gap:12px;align-items:center;
+  background:var(--ink);color:#fff;padding:10px 12px 10px 16px;border-radius:999px;box-shadow:0 6px 24px rgba(0,0,0,.25);font-size:14px;width:max-content;max-width:calc(100% - 24px)}
+.update-bar span{flex:1 1 auto}
+.update-bar button{flex:0 0 auto}
+@media (max-width:520px){.update-bar{left:12px;right:12px;transform:none;width:auto;border-radius:14px}}
+.update-bar button{min-height:34px;padding:4px 14px;font-size:14px;border-radius:999px}

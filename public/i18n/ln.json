@@ -448,5 +448,7 @@
  "err.account_disabled": "Compte oyo ezali lisusu na nzela ya AmaniCare te. Benga mokambi.",
  "err.cannot_disable_self": "Okoki kolongola nzela na yo moko te.",
  "err.cannot_disable_owner": "Bakoki kolongola nzela ya nkolo te.",
- "err.last_admin": "Esengeli mokambi moko azala kaka."
+ "err.last_admin": "Esengeli mokambi moko azala kaka.",
+ "update.available": "Version ya sika ya AmaniCare ezali.",
+ "update.reload": "Bongisa"
 }

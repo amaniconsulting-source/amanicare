@@ -59,5 +59,5 @@ export type PayMethod = (typeof PAY_METHODS)[number];
 export interface AiBill {
   clinic_name: string; bill_number: string; date: string; patient_name: string; currency: Currency;
   items: { description: string; qty: number; unit_price: number }[];
-  total: number; tamper_flags: string[]; confidence: number;
+  total: number; tamper_flags: string[]; tamper_flags_fr?: string[]; confidence: number;
 }

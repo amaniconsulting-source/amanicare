@@ -51,7 +51,7 @@ export interface ScreenInput {
   items: BillItem[];
   total: number;
   edited: boolean;
-  ai: Partial<Pick<AiBill, 'clinic_name' | 'tamper_flags'>> | null;
+  ai: Partial<Pick<AiBill, 'clinic_name' | 'tamper_flags' | 'tamper_flags_fr'>> | null;
 }
 export interface ScreenContext {
   clinic: Pick<ClinicRow, 'name' | 'active'> | null | undefined;
@@ -102,7 +102,7 @@ export function screenBill(bill: ScreenInput, ctx: ScreenContext): ScreenResult 
   }
   if (bill.edited) add('edited_after_ai', 10);
   // The AI's observations add up to 20 points at most: they prompt a check, they don't decide alone.
-  (bill.ai?.tamper_flags || []).forEach((flag, i) => add('ai_tamper_flag', i < 2 ? 10 : 0, { flag }));
+  (bill.ai?.tamper_flags || []).forEach((flag, i) => add('ai_tamper_flag', i < 2 ? 10 : 0, bill.ai?.tamper_flags_fr?.[i] ? { flag, flag_fr: bill.ai.tamper_flags_fr[i] } : { flag }));
   if (ctx.recentForPatient >= 2) add('frequent_patient', 15, { count: ctx.recentForPatient + 1 });
 
   const totalUsd = toUsd(bill.total || sum, bill.currency, s);

@@ -139,10 +139,34 @@ async function api<T = any>(method: string, path: string, body?: unknown): Promi
     headers: body !== undefined ? { 'content-type': 'application/json' } : {},
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+  checkVersion(res.headers.get('x-app-version'));
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(data.error, res.status, data.message);
   return data as T;
 }
+
+// After a deploy, a page that is already open still runs the old code (an open app is not reloaded by itself).
+// Every API answer carries the server's version; when it changes, offer a one-tap update. If the page was in the
+// background, it simply updates the next time the person comes back to it.
+let loadedVersion: string | null = null;
+let updateWaiting = false;
+function checkVersion(v: string | null): void {
+  if (!v) return;
+  if (!loadedVersion) { loadedVersion = v; return; }
+  if (v === loadedVersion || updateWaiting) return;
+  updateWaiting = true;
+  if (document.hidden) { location.reload(); return; }
+  const bar = document.createElement('div');
+  bar.className = 'update-bar'; bar.setAttribute('role', 'status');
+  bar.innerHTML = `<span>${t('update.available')}</span><button>${t('update.reload')}</button>`;
+  bar.querySelector('button')!.onclick = () => location.reload();
+  document.body.append(bar);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  if (updateWaiting && document.getElementById('modal')?.classList.contains('hidden')) location.reload(); // never in the middle of a form
+  else fetch('/healthz', { cache: 'no-store' }).then((r) => checkVersion(r.headers.get('x-app-version'))).catch(() => {});
+});
 const errText = (e: unknown): string => {
   const err = e as ApiError;
   return t('err.' + err.code) !== 'err.' + err.code ? t('err.' + err.code, { name: err.detail || '' }) : (err.detail || t('err.generic'));
@@ -186,7 +210,11 @@ function steps(status: string): string {
     ${s < 0 ? '' : `<div class="step-labels">${[1, 2, 3, 4].map((i) => `<span class="${i <= s ? 'on' : ''}">${t('step.' + i)}</span>`).join('')}</div>`}</div>`;
 }
 const riskPill = (r: Risk | undefined): string => r?.level ? `<span class="pill ${r.level}">${t('risk.' + r.level)}${r.score !== undefined ? ' · ' + r.score : ''}</span>` : '';
-const reasonText = (r: Reason): string => t('reason.' + r.code, Object.fromEntries(Object.entries(r.params || {}).map(([k, v]) => [k, typeof v === 'number' && /usd/i.test(k) ? usd(v) : String(v)])));
+const reasonText = (r: Reason): string => {
+  const params: Record<string, unknown> = { ...(r.params || {}) };
+  if (state.lang !== 'en' && params.flag_fr) params.flag = params.flag_fr; // what the app saw on the photo, in French
+  return t('reason.' + r.code, Object.fromEntries(Object.entries(params).map(([k, v]) => [k, typeof v === 'number' && /usd/i.test(k) ? usd(v) : String(v)])));
+};
 
 function billCard(b: Bill, { actions = '', showReasons = false, showExpected = false, showNext = true } = {}): string {
   return `<div class="bill" data-bill="${b.id}">
@@ -822,6 +850,13 @@ async function renderAdmin(): Promise<void> {
     <nav class="tabs">${ADMIN_TABS.map((k) => `<button data-tab="${k}" class="${state.adminTab === k ? 'on' : ''}">${t('admin.tab.' + k)}</button>`).join('')}</nav>
     <div id="adminBody"><p class="center"><span class="spinner"></span></p></div>`;
   $$('[data-tab]').forEach((b) => (b.onclick = () => { state.adminTab = b.dataset.tab as AdminTab; renderAdmin(); }));
+  // On phones the tabs are one swipeable row: keep the open tab in view, and drop the fade at the end.
+  const nav = $('nav.tabs');
+  const atEnd = () => nav.classList.toggle('end', nav.scrollLeft + nav.clientWidth >= nav.scrollWidth - 4);
+  nav.onscroll = atEnd;
+  const on = nav.querySelector<HTMLElement>('.on');
+  if (on && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = Math.max(0, on.offsetLeft - nav.offsetLeft - 16);
+  atEnd();
   const body = $('#adminBody');
   try { await ADMIN[state.adminTab](body); } catch (e) { reportUnexpected(e); body.innerHTML = `<p class="notice">${esc(errText(e))}</p>`; }
 }

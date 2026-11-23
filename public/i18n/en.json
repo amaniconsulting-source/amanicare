@@ -447,5 +447,7 @@
  "err.account_disabled": "This account no longer has access to AmaniCare. Contact the administrator.",
  "err.cannot_disable_self": "You can't remove your own access.",
  "err.cannot_disable_owner": "The owner's access can't be removed.",
- "err.last_admin": "At least one active administrator must remain."
+ "err.last_admin": "At least one active administrator must remain.",
+ "update.available": "A new version of AmaniCare is available.",
+ "update.reload": "Update"
 }

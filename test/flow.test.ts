@@ -564,3 +564,10 @@ test('admins add other admins and remove or restore access', async () => {
   await login(grace, '+243815550002');
   assert.equal((await grace('GET', '/api/admin/overview')).status, 200);
 });
+
+test('every answer says which version is running, so open pages can offer the update', async () => {
+  const r = await fetch(base + '/healthz');
+  const v = r.headers.get('x-app-version');
+  assert.ok(v && v.length >= 6);
+  assert.equal((await fetch(base + '/api/clinics')).headers.get('x-app-version'), v);
+});
