@@ -263,6 +263,24 @@ router.patch('/api/admin/clinics/:id', requireRole('admin'), async ({ user, para
   return { clinic: await getClinic(c.id) };
 });
 
+// Delete a hospital. Only one that never received a bill: bills must keep their hospital for the
+// history and the accounts. A hospital with bills is deactivated instead (it then gets no new bills).
+// Its staff accounts and its own price list go with it.
+router.delete('/api/admin/clinics/:id', requireRole('admin'), async ({ user, params }: AuthCtx) => {
+  const c = await getClinic(params.id);
+  if (!c) throw notFound();
+  if (await one('SELECT 1 FROM bills WHERE clinic_id = $1 LIMIT 1', c.id)) throw new HttpError(409, 'clinic_has_bills');
+  await tx(async () => {
+    await run("DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE clinic_id = $1 AND role = 'clinic')", c.id);
+    await run("DELETE FROM users WHERE clinic_id = $1 AND role = 'clinic'", c.id);
+    await run('UPDATE users SET clinic_id = NULL WHERE clinic_id = $1', c.id);
+    await run('DELETE FROM reference_prices WHERE clinic_id = $1', c.id);
+    await run('DELETE FROM clinics WHERE id = $1', c.id);
+  });
+  await audit(user.id, 'clinic_delete', c.name);
+  return { ok: true };
+});
+
 // Admin creates clinic staff (or other admins) by phone number.
 router.post('/api/admin/users', requireRole('admin'), async ({ user, body }: AuthCtx) => {
   const role = oneOf(body.role, ['clinic', 'admin'] as const, 'role');

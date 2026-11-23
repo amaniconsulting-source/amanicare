@@ -73,6 +73,7 @@ export class Router {
   post(p: string, ...h: Handler[]) { this.add('POST', p, ...h); }
   put(p: string, ...h: Handler[]) { this.add('PUT', p, ...h); }
   patch(p: string, ...h: Handler[]) { this.add('PATCH', p, ...h); }
+  delete(p: string, ...h: Handler[]) { this.add('DELETE', p, ...h); }
   match(method: string | undefined, path: string): { handlers: Handler[]; params: Record<string, string> } | null {
     for (const r of this.routes) {
       if (r.method !== method) continue;

@@ -424,5 +424,12 @@
  "err.invalid_bill_number": "Tala malamu nimero ya facture.",
  "err.invalid_relation": "Koma boyokani na bino.",
  "err.invalid_code": "Kotisa code ya bilembo 6.",
- "err.cannot_decline": "Facture oyo ekoki koboyama lisusu te."
+ "err.cannot_decline": "Facture oyo ekoki koboyama lisusu te.",
+ "admin.edit": "Bongola",
+ "admin.delete": "Longola",
+ "admin.editClinic": "Bongola lopitalo",
+ "admin.inactive": "Ekangami",
+ "admin.deleteConfirm": "Longola {name}? Ekozonga lisusu te. Ba compte ya basali na yango mpe liste na yango ya ntalo ekolongwa mpe. Lopitalo oyo esi ezwaki ba facture ekoki kaka kokangama.",
+ "admin.deleted": "Lopitalo elongolami.",
+ "err.clinic_has_bills": "Lopitalo oyo esi ezali na ba facture, yango wana ekoki kolongolama te (ba facture ebatelaka lisolo na yango). Kanga yango: ekozwa lisusu ba facture ya sika te."
 }

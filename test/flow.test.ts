@@ -466,3 +466,40 @@ test('QA: a bill with a total of 0, or without a photo, is refused', async () =>
   // QA BUG-001, decided 22 Nov 2026: the photo is required, so a bill typed without one is refused.
   assert.equal((await fam('POST', '/api/bills', { ...base, items: [{ d: 'Consultation', q: 1, p: 10 }], total: 10 })).data.error, 'photo_required');
 });
+
+test('admin can edit, deactivate, reactivate and delete a hospital', async () => {
+  const adm = client(), fam = client(), abroad = client();
+  await login(adm, '+15550000001');
+  const created = await adm('POST', '/api/admin/clinics', { name: 'Clinique Temporaire', commune: 'Gombe', city: 'Kinshasa', payoutMethod: 'bank', payoutAccount: 'Rawbank 0001' });
+  const id = created.data.clinic.id;
+  // Edit every detail, FlexPay included.
+  const edited = await adm('PATCH', `/api/admin/clinics/${id}`, { name: 'Clinique Temporaire II', category: 'hospital', commune: 'Lingwala', city: 'Kinshasa',
+    whatsappPhone: '+243810000777', payoutMethod: 'mpesa', payoutAccount: 'M-Pesa ••0777', flexpayMerchant: 'CT002', payoutPhone: '+243810000777' });
+  assert.equal(edited.status, 200, JSON.stringify(edited.data));
+  const c = (await adm('GET', '/api/admin/clinics')).data.clinics.find((x: { id: string }) => x.id === id);
+  assert.deepEqual([c.name, c.category, c.commune, c.whatsapp_phone, c.payout_method, c.flexpay_merchant, c.payout_phone],
+    ['Clinique Temporaire II', 'hospital', 'Lingwala', '+243810000777', 'mpesa', 'CT002', '+243810000777']);
+  // Deactivated: families can't pick it; reactivated: they can again.
+  await login(fam, '+243810000960', { name: 'Edit Family', role: 'family' });
+  await adm('PATCH', `/api/admin/clinics/${id}`, { active: false });
+  assert.ok(!(await fam('GET', '/api/clinics')).data.clinics.some((x: { id: string }) => x.id === id));
+  await adm('PATCH', `/api/admin/clinics/${id}`, { active: true });
+  assert.ok((await fam('GET', '/api/clinics')).data.clinics.some((x: { id: string }) => x.id === id));
+  // A hospital with bills can't be deleted (only deactivated)...
+  await login(abroad, '+12145550960', { name: 'Edit Payer', role: 'payer' });
+  const inv = await abroad('POST', '/api/invites', { relation: 'Aunt' });
+  await fam('POST', '/api/invites/accept', { code: inv.data.code });
+  const payerId = (await fam('GET', '/api/payers')).data.payers[0].id;
+  await fam('POST', '/api/bills', { draftId: await photo(fam), payerId, clinicId: id, patientName: 'Kept Patient', currency: 'USD', items: [{ d: 'Consultation', q: 1, p: 9 }], total: 9 });
+  const refused = await adm('DELETE', `/api/admin/clinics/${id}`);
+  assert.equal(refused.status, 409);
+  assert.equal(refused.data.error, 'clinic_has_bills');
+  // ...one without bills can, with its staff and its own prices.
+  const empty = (await adm('POST', '/api/admin/clinics', { name: 'Clinique Vide', payoutMethod: 'bank', payoutAccount: 'TMB 0002' })).data.clinic.id;
+  await adm('POST', '/api/admin/users', { name: 'Caissier', phone: '+243810000961', role: 'clinic', clinicId: empty });
+  assert.equal((await adm('DELETE', `/api/admin/clinics/${empty}`)).status, 200);
+  assert.ok(!(await adm('GET', '/api/admin/clinics')).data.clinics.some((x: { id: string }) => x.id === empty));
+  assert.equal(await one("SELECT 1 FROM users WHERE phone = '+243810000961'"), undefined);
+  // Only admins can do any of this.
+  assert.equal((await fam('DELETE', `/api/admin/clinics/${id}`)).status, 403);
+});

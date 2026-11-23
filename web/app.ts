@@ -820,10 +820,12 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
     $$('button[data-detail]', el).forEach((b) => b.addEventListener('click', () => showBill(b.dataset.detail!)));
   },
   async clinics(el) {
+    const payoutLabel = (m: string) => ({ bank: t('pay.bankAccount'), mpesa: 'M-Pesa', orange: 'Orange Money', airtel: 'Airtel Money' } as Record<string, string>)[m] || m;
     const { clinics } = await api<{ clinics: AdminClinic[] }>('GET', '/api/admin/clinics');
     el.innerHTML = `
-      <div class="card scroll"><h2>${t('admin.network')}</h2><table><thead><tr><th>${t('family.clinic')}</th><th>${t('admin.whatsapp')}</th><th>${t('admin.payoutAccount')}</th><th class="num">${t('admin.trust')}</th><th></th></tr></thead><tbody>
-        ${clinics.map((c) => `<tr><td><b>${esc(c.name)}</b><div class="muted small">${t('cat.' + c.category)} · ${esc(c.commune)}, ${esc(c.city)}</div></td><td class="small">${esc(c.whatsapp_phone)}</td><td class="small">${esc(c.payout_method)} · ${esc(c.payout_account)}${c.flexpay_merchant ? `<div><span class="pill low">FlexPay ${esc(c.flexpay_merchant)}</span></div>` : c.payout_phone ? `<div class="muted">${t('admin.payoutPhone')}: ${esc(c.payout_phone)}</div>` : ''}<div><button class="link small" data-flexpay="${c.id}">${t('admin.flexpaySetup')}</button></div></td><td class="num"><span class="pill ${c.trust >= 80 ? 'low' : c.trust >= 65 ? 'med' : 'high'}">${c.trust}</span></td><td><button class="link" data-toggle="${c.id}" data-active="${c.active}">${c.active ? t('admin.deactivate') : t('admin.activate')}</button></td></tr>`).join('')}
+      <div class="card scroll"><h2>${t('admin.network')}</h2><table><thead><tr><th>${t('family.clinic')}</th><th>${t('admin.whatsapp')}</th><th>${t('admin.payoutAccount')}</th><th class="num">${t('admin.trust')}</th></tr></thead><tbody>
+        ${clinics.map((c) => `<tr class="${c.active ? '' : 'inactive'}"><td><b>${esc(c.name)}</b>${c.active ? '' : ` <span class="pill high">${t('admin.inactive')}</span>`}<div class="muted small">${t('cat.' + c.category)} · ${esc(c.commune)}, ${esc(c.city)}</div>
+          <div class="actions"><button class="link" data-edit="${c.id}">${t('admin.edit')}</button><button class="link" data-toggle="${c.id}" data-active="${c.active}">${c.active ? t('admin.deactivate') : t('admin.activate')}</button><button class="link danger" data-delete="${c.id}">${t('admin.delete')}</button></div></td><td class="small">${esc(c.whatsapp_phone)}</td><td class="small">${esc(payoutLabel(c.payout_method))} · ${esc(c.payout_account)}${c.flexpay_merchant ? `<div><span class="pill low">FlexPay ${esc(c.flexpay_merchant)}</span></div>` : c.payout_phone ? `<div class="muted">${t('admin.payoutPhone')}: ${esc(c.payout_phone)}</div>` : ''}</td><td class="num"><span class="pill ${c.trust >= 80 ? 'low' : c.trust >= 65 ? 'med' : 'high'}">${c.trust}</span></td></tr>`).join('')}
       </tbody></table></div>
       <div class="card"><h2>${t('admin.addClinic')}</h2>
         <div class="grid2">
@@ -850,19 +852,43 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
         <button class="block" id="addStaff">${t('admin.addStaff')}</button>
       </div>`;
     $$('[data-toggle]', el).forEach((b) => (b.onclick = (e) => busy(btn(e), async () => { await api('PATCH', `/api/admin/clinics/${b.dataset.toggle}`, { active: b.dataset.active !== '1' }); renderAdmin(); })));
-    // FlexPay setup for an existing hospital: its own merchant code, and/or its mobile-money payout number.
-    $$('[data-flexpay]', el).forEach((b) => (b.onclick = () => {
-      const c = clinics.find((x) => x.id === b.dataset.flexpay)!;
-      openModal(`<div class="row between"><h2>${esc(c.name)}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
+    // Edit a hospital: every detail, including its FlexPay merchant code and mobile-money payout number.
+    const methods = [['bank', t('pay.bankAccount')], ['mpesa', 'M-Pesa'], ['orange', 'Orange Money'], ['airtel', 'Airtel Money']];
+    $$('[data-edit]', el).forEach((b) => (b.onclick = () => {
+      const c = clinics.find((x) => x.id === b.dataset.edit)!;
+      openModal(`<div class="row between"><h2>${t('admin.editClinic')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
+        <label for="eName">${t('admin.clinicName')}</label><input id="eName" value="${esc(c.name)}">
+        <label for="eCat">${t('admin.category')}</label><select id="eCat">${CATEGORIES.map((k) => `<option value="${k}" ${k === c.category ? 'selected' : ''}>${t('cat.' + k)}</option>`).join('')}</select>
+        <div class="grid2">
+          <div><label for="eCommune">${t('admin.commune')}</label><input id="eCommune" value="${esc(c.commune)}"></div>
+          <div><label for="eCity">${t('admin.city')}</label><input id="eCity" value="${esc(c.city)}"></div>
+        </div>
+        <label for="eWa">${t('admin.whatsapp')}</label><input id="eWa" type="tel" value="${esc(c.whatsapp_phone)}" placeholder="+243…">
+        <div class="grid2">
+          <div><label for="eMethod">${t('admin.payoutMethod')}</label><select id="eMethod">${methods.map(([v, l]) => `<option value="${v}" ${v === c.payout_method ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+          <div><label for="eAcct">${t('admin.payoutAccount')}</label><input id="eAcct" value="${esc(c.payout_account)}"></div>
+        </div>
         <p class="muted small">${t('admin.flexpayHint')}</p>
-        <label for="fxCode">${t('admin.flexpayMerchant')}</label><input id="fxCode" value="${esc(c.flexpay_merchant)}">
-        <label for="fxPhone">${t('admin.payoutPhone')}</label><input id="fxPhone" type="tel" value="${esc(c.payout_phone)}" placeholder="+243…">
-        <div class="row"><button class="secondary grow" data-close>${t('cancel')}</button><button class="grow" id="fxSave">${t('save')}</button></div>`, (sheet) => {
-        $('#fxSave', sheet).onclick = (e) => busy(btn(e), async () => {
-          await api('PATCH', `/api/admin/clinics/${c.id}`, { flexpayMerchant: val('#fxCode', sheet), payoutPhone: val('#fxPhone', sheet).replace(/\s/g, '') });
+        <div class="grid2">
+          <div><label for="eFlex">${t('admin.flexpayMerchant')}</label><input id="eFlex" value="${esc(c.flexpay_merchant)}" placeholder="${t('admin.optional')}"></div>
+          <div><label for="ePayPhone">${t('admin.payoutPhone')}</label><input id="ePayPhone" type="tel" value="${esc(c.payout_phone)}" placeholder="+243… (${t('admin.optional')})"></div>
+        </div>
+        <div class="row"><button class="secondary grow" data-close>${t('cancel')}</button><button class="grow" id="eSave">${t('save')}</button></div>`, (sheet) => {
+        $('#eSave', sheet).onclick = (e) => busy(btn(e), async () => {
+          await api('PATCH', `/api/admin/clinics/${c.id}`, {
+            name: val('#eName', sheet), category: val('#eCat', sheet), commune: val('#eCommune', sheet), city: val('#eCity', sheet),
+            whatsappPhone: val('#eWa', sheet).replace(/\s/g, ''), payoutMethod: val('#eMethod', sheet), payoutAccount: val('#eAcct', sheet),
+            flexpayMerchant: val('#eFlex', sheet), payoutPhone: val('#ePayPhone', sheet).replace(/\s/g, ''),
+          });
           closeModal(); toast(t('saved')); renderAdmin();
         });
       });
+    }));
+    $$('[data-delete]', el).forEach((b) => (b.onclick = async () => {
+      const c = clinics.find((x) => x.id === b.dataset.delete)!;
+      if (!(await confirmDialog(t('admin.deleteConfirm', { name: esc(c.name) }), t('admin.delete'), true))) return;
+      try { await api('DELETE', `/api/admin/clinics/${c.id}`); toast(t('admin.deleted')); renderAdmin(); }
+      catch (err) { toast(errText(err)); }
     }));
     $('#addClinic', el).onclick = (e) => busy(btn(e), async () => {
       await api('POST', '/api/admin/clinics', { name: val('#cName'), commune: val('#cCommune'), city: val('#cCity'), whatsappPhone: val('#cWa').replace(/\s/g, ''), payoutMethod: val('#cMethod'), payoutAccount: val('#cAcct'), category: val('#cCat'), flexpayMerchant: val('#cFlex'), payoutPhone: val('#cPayPhone').replace(/\s/g, '') });
