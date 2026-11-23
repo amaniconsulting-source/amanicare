@@ -127,11 +127,14 @@ async function main(): Promise<void> {
     const photoId = randomUUID();
     await run('INSERT INTO photos(id, media_type, data) VALUES($1,$2,$3)', photoId, 'image/jpeg', photo);
     const billDate = new Date(Date.now() + d.date * 864e5).toISOString().slice(0, 10);
+    // The photo goes through a draft, as in the app (photos are required); the AI isn't called for demo bills.
+    const draftId = randomUUID();
+    await run('INSERT INTO bill_drafts(id, family_id, photo_path, ai, photo_sha256) VALUES($1,$2,$3,NULL,$4)',
+      draftId, families[d.family].id, `db:${photoId}`, createHash('sha256').update(photo).digest('hex'));
     const created = await createBill(families[d.family], {
-      payerId: john.id, clinicId: clinicIds[d.clinic], patientName: d.patient, billNumber: d.number, billDate, currency: d.currency,
+      draftId, payerId: john.id, clinicId: clinicIds[d.clinic], patientName: d.patient, billNumber: d.number, billDate, currency: d.currency,
       items: d.items.map(([desc, q, p]) => ({ d: desc, q, p })), total: d.items.reduce((s, [, q, p]) => s + q * p, 0),
     });
-    await run('UPDATE bills SET photo_path = $2, photo_sha256 = $3 WHERE id = $1', created.id, `db:${photoId}`, createHash('sha256').update(photo).digest('hex'));
 
     if (created.status === 'review' && d.outcome !== 'review') await reviewDecision(created.id, true, admin);
     if (d.outcome === 'rejected') {

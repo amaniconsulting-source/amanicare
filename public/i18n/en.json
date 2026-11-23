@@ -412,8 +412,7 @@
  "admin.optional": "optional",
  "admin.flexpaySetup": "FlexPay setup",
  "admin.flexpayHint": "FlexPay pilot: with its own FlexPay merchant code, the hospital is paid directly into its FlexPay account and withdraws when it wants. Without one, AmaniCare pays its mobile-money payout number.",
- "family.noPhoto": "No photo? Type the bill instead",
- "family.noPhotoNotice": "No photo: type the details from the bill. The hospital will check this bill carefully before anyone pays.",
  "err.invalid_total": "Enter the bill's total (more than 0).",
- "reason.no_photo": "Typed without a photo of the bill"
+ "err.photo_required": "Take a photo of the bill first.",
+ "photo.noPaper": "No paper bill yet? Ask the hospital for an interim bill and take a photo of it."
 }

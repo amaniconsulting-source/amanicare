@@ -74,6 +74,10 @@ function client(): Api {
     return { status: res.status, data: res.headers.get('content-type')?.includes('json') ? await res.json() : null };
   };
 }
+/** A photo of the bill (required): a unique fake image per call, read into a draft. */
+let photoN = 0;
+const photo = async (api: Api): Promise<string> => (await api('POST', '/api/bills/extract', { image: Buffer.alloc(2600, 150 + (photoN++ % 100)).toString('base64'), mediaType: 'image/jpeg' })).data.draftId;
+
 async function login(api: Api, phone: string, profile: Record<string, string> = {}) {
   const { data } = await api('POST', '/api/auth/request-otp', { phone });
   return api('POST', '/api/auth/verify', { phone, code: data.devCode, ...profile });
@@ -91,7 +95,7 @@ let payerId = '';
 async function confirmedBill(clinicName: string, clinicPhone: string, n: number) {
   const { data: { clinics } } = await family('GET', '/api/clinics');
   const c = clinics.find((x: { name: string }) => x.name === clinicName);
-  const { data: { bill } } = await family('POST', '/api/bills', { payerId, clinicId: c.id, patientName: `FX Patient ${n}`, billNumber: `FX-${n}`, currency: 'USD', items: [{ d: 'Consultation', q: 1, p: 20 }], total: 20 });
+  const { data: { bill } } = await family('POST', '/api/bills', { draftId: await photo(family), payerId, clinicId: c.id, patientName: `FX Patient ${n}`, billNumber: `FX-${n}`, currency: 'USD', items: [{ d: 'Consultation', q: 1, p: 20 }], total: 20 });
   await login(clinic, clinicPhone);
   assert.equal((await clinic('POST', `/api/bills/${bill.id}/confirm`, {})).data.bill.status, 'awaiting_payer');
   return { bill, clinicId: c.id };

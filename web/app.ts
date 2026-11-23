@@ -654,14 +654,12 @@ async function newBillFlow(payers: Payer[], invites: SentInvite[] = []): Promise
           <input id="file" type="file" accept="image/*" capture="environment"></label>
         <label class="btn secondary block gallery" for="file2">🖼️ ${t('photo.gallery')}
           <input id="file2" type="file" accept="image/*"></label>
-        <button class="link block" id="noPhoto">⌨️ ${t('family.noPhoto')}</button>
         <div id="reading"></div>
         <h2>${t('photo.tips')}</h2>
         <ul class="tips">${[1, 2, 3, 4].map((i) => `<li>${t('photo.tip' + i)}</li>`).join('')}</ul>
+        <p class="muted small">${t('photo.noPaper')}</p>
       </div>`;
     $('#cancel').onclick = renderFamily;
-    // Typing the bill without a photo: allowed (the hospital confirms every bill), but flagged.
-    $('#noPhoto').onclick = () => { f.draftId = null; f.ai = null; f.photoUrl = null; f.aiAvailable = undefined; drawForm(); };
     $<HTMLInputElement>('#file2').onchange = (e) => $<HTMLInputElement>('#file').onchange!(e);
     $<HTMLInputElement>('#file').onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0]; if (!file) return;
@@ -683,11 +681,10 @@ async function newBillFlow(payers: Payer[], invites: SentInvite[] = []): Promise
       <button class="link" id="cancel">← ${t('back')}</button>
       <h1>${t('family.checkDetails')}</h1>
       ${flowSteps(2)}
-      ${!f.photoUrl ? `<p class="notice">${t('family.noPhotoNotice')}</p>`
-        : f.ai && (f.ai.items?.length || f.ai.patient_name || f.ai.total) ? `<p class="notice info">${t('family.aiDone', { pct: Math.round((ai.confidence || 0) * 100) })}</p>`
+      ${f.ai && (f.ai.items?.length || f.ai.patient_name || f.ai.total) ? `<p class="notice info">${t('family.aiDone', { pct: Math.round((ai.confidence || 0) * 100) })}</p>`
         : `<p class="notice">${f.aiAvailable ? t('family.aiFailed') : t('family.aiOff')}</p>`}
       <div class="card">
-        ${f.photoUrl ? `<img class="preview" src="${f.photoUrl}" alt="${t('billPhoto')}">` : ''}
+        <img class="preview" src="${f.photoUrl}" alt="${t('billPhoto')}">
         <label for="clinic">${t('family.clinic')}</label>
         <select id="clinic"><option value="">${t('family.pickClinic')}</option>${clinics.map((c) => `<option value="${c.id}" ${guessClinic?.id === c.id ? 'selected' : ''}>${esc(c.name)} – ${esc(c.commune)} · ${t('cat.' + c.category)}</option>`).join('')}</select>
         <p class="muted small">${t('family.clinicMissing')}</p>

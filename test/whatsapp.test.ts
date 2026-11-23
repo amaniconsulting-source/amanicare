@@ -73,6 +73,10 @@ function client(): Api {
     return { status: res.status, data: res.headers.get('content-type')?.includes('json') ? await res.json() : null };
   };
 }
+/** A photo of the bill (required): a unique fake image per call, read into a draft. */
+let photoN = 0;
+const photo = async (api: Api): Promise<string> => (await api('POST', '/api/bills/extract', { image: Buffer.alloc(2600, 150 + (photoN++ % 100)).toString('base64'), mediaType: 'image/jpeg' })).data.draftId;
+
 async function login(api: Api, phone: string, profile: Record<string, string> = {}) {
   const { data } = await api('POST', '/api/auth/request-otp', { phone, lang: profile.lang });
   return api('POST', '/api/auth/verify', { phone, code: data.devCode, ...profile });
@@ -115,7 +119,7 @@ test('WhatsApp: templates out, button replies and receipts in', async () => {
 
   const payerId = (await family('GET', '/api/payers')).data.payers[0].id;
   const clinicId = (await family('GET', '/api/clinics')).data.clinics.find((c: { name: string }) => c.name === 'Centre Médical Espoir').id;
-  const bill = (await family('POST', '/api/bills', { payerId, clinicId, patientName: 'Maman\nTest', billNumber: 'WA-1', currency: 'USD',
+  const bill = (await family('POST', '/api/bills', { draftId: await photo(family), payerId, clinicId, patientName: 'Maman\nTest', billNumber: 'WA-1', currency: 'USD',
     items: [{ d: 'Consultation', q: 1, p: 10 }], total: 10 })).data.bill;
   assert.equal(bill.status, 'awaiting_clinic');
 
@@ -160,7 +164,7 @@ test('WhatsApp: a hospital that rejects is asked why, and the family sees the an
   await family('POST', '/api/invites/accept', { code: inv.data.code });
   const payerId = (await family('GET', '/api/payers')).data.payers[0].id;
   const clinicId = (await family('GET', '/api/clinics')).data.clinics.find((c: { name: string }) => c.name === 'Centre Médical Espoir').id;
-  const bill = (await family('POST', '/api/bills', { payerId, clinicId, patientName: 'Tantine', billNumber: 'WA-2', currency: 'USD',
+  const bill = (await family('POST', '/api/bills', { draftId: await photo(family), payerId, clinicId, patientName: 'Tantine', billNumber: 'WA-2', currency: 'USD',
     items: [{ d: 'Consultation', q: 1, p: 12 }], total: 12 })).data.bill;
 
   // The family reminds the hospital: the request goes out again; a second reminder right away is refused.

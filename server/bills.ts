@@ -73,6 +73,9 @@ export async function createBill(family: UserRow, input: Body): Promise<BillRow>
   const clinic = await one<ClinicRow>('SELECT * FROM clinics WHERE id = $1', str(input.clinicId, { min: 1, name: 'clinic' }));
   if (!clinic || !clinic.active) throw bad('clinic_not_registered');
 
+  // A photo of the bill is required (decided 22 Nov 2026): it is the proof in a dispute and what the
+  // duplicate-photo and tampering checks work on. No paper bill yet? The hospital issues an interim one.
+  if (!input.draftId) throw bad('photo_required');
   const draft = input.draftId
     ? await one<DraftRow>('SELECT * FROM bill_drafts WHERE id = $1 AND family_id = $2', String(input.draftId), family.id)
     : undefined;
@@ -98,7 +101,6 @@ export async function createBill(family: UserRow, input: Body): Promise<BillRow>
     billDate,
     currency, items, total, ai,
     edited: wasEdited(ai, { items, total }),
-    hasPhoto: !!draft,
   };
 
   // Bills have no common format, so numbers and names are compared through tolerant keys

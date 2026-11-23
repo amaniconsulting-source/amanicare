@@ -59,6 +59,10 @@ function client(): Api {
   };
   return Object.assign(api, { raw: (path: string) => fetch(base + path, { headers: { cookie } }) });
 }
+/** A photo of the bill (required): a unique fake image per call, read into a draft. */
+let photoN = 0;
+const photo = async (api: Api): Promise<string> => (await api('POST', '/api/bills/extract', { image: Buffer.alloc(2600, 150 + (photoN++ % 100)).toString('base64'), mediaType: 'image/jpeg' })).data.draftId;
+
 async function login(api: Api, phone: string, profile: Record<string, string> = {}) {
   const { data } = await api('POST', '/api/auth/request-otp', { phone });
   const r = await api('POST', '/api/auth/verify', { phone, code: data.devCode, ...profile });
@@ -178,7 +182,7 @@ test('failed card payment can be retried', async () => {
   const { data: { clinics } } = await family('GET', '/api/clinics');
   const c = clinics.find((x: { name: string }) => x.name === 'Clinique Bonne Santé');
   const payerId = (await family('GET', '/api/payers')).data.payers[0].id;
-  const { data: { bill } } = await family('POST', '/api/bills', { payerId, clinicId: c.id, patientName: 'Patrick M.', billNumber: 'CBS-77', currency: 'CDF', items: [{ d: 'Consultation', q: 1, p: 28500 }], total: 28500 });
+  const { data: { bill } } = await family('POST', '/api/bills', { draftId: await photo(family), payerId, clinicId: c.id, patientName: 'Patrick M.', billNumber: 'CBS-77', currency: 'CDF', items: [{ d: 'Consultation', q: 1, p: 28500 }], total: 28500 });
   assert.equal(bill.totalUsd, 10);
   await login(clinic, '+243810000002');
   await clinic('POST', `/api/bills/${bill.id}/confirm`, {});
@@ -448,7 +452,7 @@ test('a relative in the DRC can send a bill before the invited relative abroad j
   assert.equal((await abroad('POST', `/api/bills/${created.data.bill.id}/pay`, {})).status, 200);
 });
 
-test('QA BUG-002: a bill with a total of 0 is refused', async () => {
+test('QA: a bill with a total of 0, or without a photo, is refused', async () => {
   const fam = client(), abroad = client();
   await login(fam, '+243810000950', { name: 'Zero Family', role: 'family' });
   await login(abroad, '+12145550950', { name: 'Zero Payer', role: 'payer' });
@@ -457,11 +461,8 @@ test('QA BUG-002: a bill with a total of 0 is refused', async () => {
   const payerId = (await fam('GET', '/api/payers')).data.payers[0].id;
   const clinicId = (await fam('GET', '/api/clinics')).data.clinics[0].id;
   const base = { payerId, clinicId, patientName: 'Zero Patient', currency: 'USD' };
-  assert.equal((await fam('POST', '/api/bills', { ...base, items: [{ d: 'Consultation', q: 1, p: 0 }], total: 0 })).data.error, 'invalid_total');
-  assert.equal((await fam('POST', '/api/bills', { ...base, items: [{ d: 'Consultation', q: 1, p: 0 }] })).data.error, 'invalid_total');
-  // QA BUG-001: a bill typed without a photo is accepted, and flagged so the hospital looks closely.
-  const typed = await fam('POST', '/api/bills', { ...base, items: [{ d: 'Consultation', q: 1, p: 10 }], total: 10 });
-  assert.equal(typed.status, 200, JSON.stringify(typed.data));
-  const row = await one<{ risk_reasons: string }>('SELECT risk_reasons FROM bills WHERE id = $1', typed.data.bill.id);
-  assert.ok(JSON.parse(row!.risk_reasons).some((r: { code: string }) => r.code === 'no_photo'));
+  assert.equal((await fam('POST', '/api/bills', { ...base, draftId: await photo(fam), items: [{ d: 'Consultation', q: 1, p: 0 }], total: 0 })).data.error, 'invalid_total');
+  assert.equal((await fam('POST', '/api/bills', { ...base, draftId: await photo(fam), items: [{ d: 'Consultation', q: 1, p: 0 }] })).data.error, 'invalid_total');
+  // QA BUG-001, decided 22 Nov 2026: the photo is required, so a bill typed without one is refused.
+  assert.equal((await fam('POST', '/api/bills', { ...base, items: [{ d: 'Consultation', q: 1, p: 10 }], total: 10 })).data.error, 'photo_required');
 });
