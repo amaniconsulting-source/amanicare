@@ -84,6 +84,20 @@ function sentryHead(): string {
     + `<script id="sentry-sdk" async src="${esc(config.sentry.browserBundleUrl)}"${sri ? ` integrity="${esc(sri)}"` : ''} crossorigin="anonymous"></script>`;
 }
 
+// Caching: files are downloaded again only when a new version is deployed.
+// - App code, styles and translations asked for with this deploy's ?v=… never change under that address:
+//   the browser keeps them (immutable) and a reload doesn't even ask the server.
+// - The page itself and anything without ?v= is re-checked on each load: a tiny "304 Not Modified" when
+//   nothing was deployed, the new file when something was. The page names the deploy's files, so a new
+//   deploy changes those addresses and the browser fetches the new code once.
+// - Images: kept for a day.
+function cachePolicy(ext: string, req?: IncomingMessage): string {
+  if (['.png', '.svg', '.ico', '.jpg', '.webp'].includes(ext)) return 'public, max-age=86400';
+  const v = new URL(req?.url || '/', 'http://x').searchParams.get('v');
+  if (v && v === BUILD_ID && ['.js', '.css', '.json'].includes(ext)) return 'public, max-age=31536000, immutable';
+  return 'no-cache';
+}
+
 async function serveStatic(path: string, res: ServerResponse, req?: IncomingMessage): Promise<boolean> {
   if (path === '/favicon.ico') path = '/icon-192.png';
   const rel = normalize(path === '/' ? '/index.html' : path).replace(/^(\.\.[/\\])+/, '');
@@ -102,7 +116,7 @@ async function serveStatic(path: string, res: ServerResponse, req?: IncomingMess
     const etag = '"' + createHash('sha1').update(body).digest('base64url') + '"';
     const headers = {
       'content-type': TYPES[ext] || 'application/octet-stream',
-      'cache-control': ext === '.html' ? 'no-store' : ['.png', '.svg', '.ico', '.jpg', '.webp'].includes(ext) ? 'public, max-age=86400' : 'no-cache',
+      'cache-control': cachePolicy(ext, req),
       etag, ...securityHeaders(),
     };
     if (req?.headers['if-none-match'] === etag) { res.writeHead(304, headers); res.end(); return true; }

@@ -605,12 +605,17 @@ test('admins change a payer\'s or family member\'s number, and delete accounts t
   assert.equal((await again('GET', '/api/me')).data.user, null); // signed out
 });
 
-test('a reload always gets this deploy\'s app: the page is never cached and names its version', async () => {
+test('files are downloaded again only after a new deploy; the page names its version', async () => {
   const r = await fetch(base + '/');
   const html = await r.text();
   const v = r.headers.get('x-app-version')!;
-  assert.equal(r.headers.get('cache-control'), 'no-store');
+  assert.equal(r.headers.get('cache-control'), 'no-cache'); // re-checked on each load…
+  const again = await fetch(base + '/', { headers: { 'if-none-match': r.headers.get('etag')! } });
+  assert.equal(again.status, 304); // …but nothing is downloaded when no new version was deployed
   assert.ok(html.includes(`src="/app.js?v=${v}"`) && html.includes(`href="/styles.css?v=${v}"`));
   assert.ok(html.includes(`<meta name="app-version" content="${v}">`));
-  assert.equal((await fetch(base + `/app.js?v=${v}`)).status, 200);
+  const js = await fetch(base + `/app.js?v=${v}`);
+  assert.equal(js.status, 200);
+  assert.match(js.headers.get('cache-control')!, /immutable/); // this deploy's code: kept, never re-downloaded
+  assert.equal((await fetch(base + '/app.js?v=old')).headers.get('cache-control'), 'no-cache'); // an old page still gets checked
 });

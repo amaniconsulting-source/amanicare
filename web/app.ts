@@ -45,7 +45,7 @@ const me = (): Me => state.me!;
 
 // ---------- i18n ----------
 async function loadLang(lang: Lang): Promise<void> {
-  const get = (l: string) => fetch(`/i18n/${l}.json?v=${APP_VERSION}`, { cache: 'no-cache' }).then((r) => r.json() as Promise<Record<string, string>>);
+  const get = (l: string) => fetch(`/i18n/${l}.json?v=${APP_VERSION}`).then((r) => r.json() as Promise<Record<string, string>>);
   state.fallback = Object.keys(state.fallback).length ? state.fallback : await get('fr');
   state.dict = lang === 'fr' ? state.fallback : await get(lang).catch(() => ({}));
   state.lang = lang;
