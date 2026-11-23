@@ -1009,8 +1009,8 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
         <div class="row" style="gap:6px;margin:8px 0"><button class="secondary small on" data-ckind="">${t('admin.all')}</button><button class="secondary small" data-ckind="payer">${t('admin.payers')}</button><button class="secondary small" data-ckind="family">${t('admin.families')}</button></div>
         <div id="custList"><p class="center"><span class="spinner"></span></p></div>
       </div>
-      <div class="card"><h2>${t('admin.admins')}</h2>${table(users.filter((u) => u.role === 'admin'))}</div>
-      <div class="card"><h2>${t('admin.staff')}</h2>${table(users.filter((u) => u.role === 'clinic'))}</div>
+      <div id="teamBox"><div class="card"><h2>${t('admin.admins')}</h2>${table(users.filter((u) => u.role === 'admin'))}</div>
+      <div class="card"><h2>${t('admin.staff')}</h2>${table(users.filter((u) => u.role === 'clinic'))}</div></div>
       <div class="card"><h2>${t('admin.addUser')}</h2><p class="muted small">${t('admin.addStaffHint')}</p>
         <div class="grid2">
           <div><label for="sName">${t('admin.colName')}</label><input id="sName"></div>
@@ -1056,14 +1056,14 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
       await api('POST', '/api/admin/users', { name: val('#sName', el), phone: readPhone('sPhone', el), role, clinicId: role === 'clinic' ? val('#sClinic', el) : undefined });
       toast(t('saved')); renderAdmin();
     });
-    $$('[data-access]', el).forEach((b) => (b.onclick = async () => {
+    $$('[data-access]', $('#teamBox', el)).forEach((b) => (b.onclick = async () => {
       const u = users.find((x) => x.id === b.dataset.access)!;
       const removing = b.dataset.active === '1';
       if (removing && !(await confirmDialog(t('admin.removeAccessConfirm', { name: esc(u.name) }), t('admin.removeAccess'), true))) return;
       try { await api('PATCH', `/api/admin/users/${u.id}`, { active: !removing }); toast(t('saved')); renderAdmin(); }
       catch (err) { toast(errText(err)); }
     }));
-    wireUserActions(el, users, () => renderAdmin());
+    wireUserActions($('#teamBox', el), users, () => renderAdmin());
   },
   async prices(el) {
     type PriceRow = { id: string; name: string; keywords: string[]; usd: number; category: Category | null; clinic_id: string | null };
