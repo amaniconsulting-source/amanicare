@@ -13,7 +13,7 @@
  "history": "Historique",
  "noHistory": "Rien pour le moment.",
  "inProgress": "En cours",
- "aiRead": "Lu par l'IA",
+ "aiRead": "Lue par l'application",
  "billNo": "N° facture",
  "ref": "Réf",
  "item": "Désignation",
@@ -144,7 +144,7 @@
  "admin.prices": "Prix de référence",
  "admin.pricesHint": "Les factures sont comparées à ces prix. Les mots-clés correspondent au début des mots dans la description (français ou anglais), séparés par des virgules.",
  "admin.keywords": "Mots-clés",
- "admin.integrations": "Partenaire de paiement : {partner} · Messagerie : {messaging} · Lecture IA : {ai}",
+ "admin.integrations": "Partenaire de paiement : {partner} · Messagerie : {messaging} · Lecture automatique des factures : {ai}",
  "admin.rate": "Francs congolais pour 1 dollar",
  "admin.ratio": "Signaler les prix au-dessus de (× référence)",
  "admin.feePct": "Frais de service (%)",
@@ -414,5 +414,14 @@
  "admin.flexpayHint": "Pilote FlexPay : avec son propre code marchand FlexPay, l'hôpital est payé directement sur son compte FlexPay et retire quand il veut. Sans code, AmaniCare verse l'argent sur son numéro mobile money.",
  "err.invalid_total": "Entrez le total de la facture (plus de 0).",
  "err.photo_required": "Prenez d'abord la facture en photo.",
- "photo.noPaper": "Pas encore de facture papier ? Demandez une facture provisoire à l'hôpital et prenez-la en photo."
+ "photo.noPaper": "Pas encore de facture papier ? Demandez une facture provisoire à l'hôpital et prenez-la en photo.",
+ "pay.bankAccount": "Compte bancaire",
+ "on": "activée",
+ "off": "désactivée",
+ "err.draft_already_used": "Cette photo a déjà servi pour une facture. Prenez une nouvelle photo.",
+ "err.invalid_draft": "La photo a expiré. Reprenez-la.",
+ "err.invalid_bill_number": "Vérifiez le numéro de la facture.",
+ "err.invalid_relation": "Indiquez le lien de parenté.",
+ "err.invalid_code": "Entrez le code à 6 caractères.",
+ "err.cannot_decline": "Cette facture ne peut plus être refusée."
 }

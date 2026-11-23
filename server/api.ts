@@ -13,7 +13,8 @@ import { notify, send, updateDelivery } from './messaging/index.js';
 import { CATEGORIES, PAY_METHODS, type Category, type ClinicRow, type InviteRow, type Lang, type PaymentRow, type UserRow } from './types.js';
 
 export const router = new Router();
-const LANGS: Lang[] = ['fr', 'en', 'ln', 'sw'];
+// Launch languages: French, English, Lingala (Swahili kept on file, not offered).
+const LANGS: Lang[] = ['fr', 'en', 'ln'];
 const isLang = (v: unknown): v is Lang => LANGS.includes(v as Lang);
 const userView = (u: UserRow | null | undefined) =>
   u && ({ id: u.id, phone: u.phone, name: u.name, role: u.role, lang: u.lang, clinicId: u.clinic_id });

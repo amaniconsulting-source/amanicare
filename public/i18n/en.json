@@ -13,7 +13,7 @@
  "history": "History",
  "noHistory": "Nothing here yet.",
  "inProgress": "In progress",
- "aiRead": "AI-read",
+ "aiRead": "Read by the app",
  "billNo": "Bill no.",
  "ref": "Ref",
  "item": "Item",
@@ -144,7 +144,7 @@
  "admin.prices": "Reference prices",
  "admin.pricesHint": "Bills are compared with these prices. Keywords match the start of words in the item description (French or English), separated by commas.",
  "admin.keywords": "Keywords",
- "admin.integrations": "Payment partner: {partner} · Messaging: {messaging} · AI reading: {ai}",
+ "admin.integrations": "Payment partner: {partner} · Messaging: {messaging} · Automatic bill reading: {ai}",
  "admin.rate": "Congolese francs per US dollar",
  "admin.ratio": "Flag prices above (× reference)",
  "admin.feePct": "Service fee (%)",
@@ -414,5 +414,14 @@
  "admin.flexpayHint": "FlexPay pilot: with its own FlexPay merchant code, the hospital is paid directly into its FlexPay account and withdraws when it wants. Without one, AmaniCare pays its mobile-money payout number.",
  "err.invalid_total": "Enter the bill's total (more than 0).",
  "err.photo_required": "Take a photo of the bill first.",
- "photo.noPaper": "No paper bill yet? Ask the hospital for an interim bill and take a photo of it."
+ "photo.noPaper": "No paper bill yet? Ask the hospital for an interim bill and take a photo of it.",
+ "pay.bankAccount": "Bank account",
+ "on": "on",
+ "off": "off",
+ "err.draft_already_used": "This photo was already used for a bill. Take a new photo.",
+ "err.invalid_draft": "The photo has expired. Take it again.",
+ "err.invalid_bill_number": "Check the bill number.",
+ "err.invalid_relation": "Enter the relationship.",
+ "err.invalid_code": "Enter the 6-character code.",
+ "err.cannot_decline": "This bill can't be declined any more."
 }

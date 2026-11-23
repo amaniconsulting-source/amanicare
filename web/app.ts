@@ -34,7 +34,8 @@ interface AiRead {
   items: { description: string; qty: number; unit_price: number }[]; total: number; tamper_flags: string[]; confidence: number;
 }
 
-const LANGS: Lang[] = ['fr', 'en', 'ln', 'sw'];
+// Launch languages (22 Nov 2026): French, English, Lingala. Swahili is kept on file but not offered.
+const LANGS: Lang[] = ['fr', 'en', 'ln'];
 const app = document.getElementById('app')!;
 const state: { me: Me | null; lang: Lang; dict: Record<string, string>; fallback: Record<string, string>; adminTab: AdminTab; priceScope: string } =
   { me: null, lang: 'fr', dict: {}, fallback: {}, adminTab: 'overview', priceScope: '' };
@@ -65,7 +66,10 @@ const cdf = (n: unknown): string => Math.round(Number(n || 0)).toLocaleString('f
 const fmtDate = (s: string | null | undefined): string => {
   if (!s) return '';
   const d = new Date(s.replace(' ', 'T') + (s.length > 10 && !s.endsWith('Z') ? 'Z' : ''));
-  return isNaN(d.getTime()) ? s : d.toLocaleDateString(state.lang === 'en' ? 'en-US' : 'fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+  return isNaN(d.getTime()) ? s : (state.lang === 'ln'
+    // Lingala: day/month/year in figures (month names in Lingala are long and little used in writing).
+    ? d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    : d.toLocaleDateString(state.lang === 'en' ? 'en-US' : 'fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }));
 };
 function $<T extends Element = HTMLElement>(sel: string, root: ParentNode = document): T {
   const el = root.querySelector<T>(sel);
@@ -308,7 +312,7 @@ function supportHtml(): string {
 
 function faqHtml(): string {
   return `<div class="faq"><h2>${t('faq.title')}</h2>
-    ${FAQ.map((k) => `<details><summary>${t(`faq.${k}.q`)}</summary><p>${t(`faq.${k}.a`)}${k === 'privacy' ? ` <a href="/privacy.html${state.lang === 'fr' ? '' : '#en'}">${t('privacy')}</a>` : ''}</p></details>`).join('')}
+    ${FAQ.map((k) => `<details><summary>${t(`faq.${k}.q`)}</summary><p>${t(`faq.${k}.a`)}${k === 'privacy' ? ` <a href="/privacy.html${state.lang === 'en' ? '#en' : ''}">${t('privacy')}</a>` : ''}</p></details>`).join('')}
     <details><summary>${t('faq.contact.q')}</summary><p>${t('faq.contact.a')}</p>${supportHtml()}</details>
   </div>`;
 }
@@ -392,7 +396,7 @@ function renderLogin(): void {
         ${faqHtml()}
       </section>
       <p class="muted small center">${t('login.footer')}</p>
-      <p class="muted small center"><a href="/privacy.html${state.lang === 'fr' ? '' : '#en'}">${t('privacy')}</a></p>`;
+      <p class="muted small center"><a href="/privacy.html${state.lang === 'en' ? '#en' : ''}">${t('privacy')}</a></p>`;
     wireGuide(app);
 
     if (s.step === 'phone') {
@@ -434,7 +438,7 @@ function renderLogin(): void {
 async function signedIn(user: Me): Promise<void> {
   state.me = user;
   setUser(user.id, user.role);
-  if (user.lang && user.lang !== state.lang) await loadLang(user.lang);
+  if (user.lang && user.lang !== state.lang && LANGS.includes(user.lang)) await loadLang(user.lang);
   document.getElementById('logoutBtn')!.classList.remove('hidden');
   await acceptPendingInvite();
   route();
@@ -828,7 +832,7 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
           <div><label>${t('admin.commune')}</label><input id="cCommune"></div>
           <div><label>${t('admin.city')}</label><input id="cCity" value="Kinshasa"></div>
           <div><label>${t('admin.whatsapp')}</label><input id="cWa" type="tel" placeholder="+243…"></div>
-          <div><label>${t('admin.payoutMethod')}</label><select id="cMethod"><option value="bank">Bank account</option><option value="mpesa">M-Pesa</option><option value="orange">Orange Money</option><option value="airtel">Airtel Money</option></select></div>
+          <div><label>${t('admin.payoutMethod')}</label><select id="cMethod"><option value="bank">${t('pay.bankAccount')}</option><option value="mpesa">M-Pesa</option><option value="orange">Orange Money</option><option value="airtel">Airtel Money</option></select></div>
           <div><label>${t('admin.payoutAccount')}</label><input id="cAcct"></div>
           <div><label>${t('admin.flexpayMerchant')}</label><input id="cFlex" placeholder="${t('admin.optional')}"></div>
           <div><label>${t('admin.payoutPhone')}</label><input id="cPayPhone" type="tel" placeholder="+243… (${t('admin.optional')})"></div>
@@ -921,7 +925,7 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
       partner: string; messaging: string; ai: boolean;
     }>('GET', '/api/admin/settings');
     el.innerHTML = `<div class="card"><h2>${t('admin.tab.settings')}</h2>
-      <p class="muted small">${t('admin.integrations', { partner, messaging, ai: ai ? 'on' : 'off' })}</p>
+      <p class="muted small">${t('admin.integrations', { partner, messaging, ai: ai ? t('on') : t('off') })}</p>
       <div class="grid2">
         <div><label>${t('admin.rate')}</label><input id="sRate" type="number" value="${s.cdfPerUsd}"></div>
         <div><label>${t('admin.ratio')}</label><input id="sRatio" type="number" step="0.1" value="${s.priceFlagRatio}"></div>

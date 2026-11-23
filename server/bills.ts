@@ -155,7 +155,7 @@ export async function notifyClinic(bill: BillRow): Promise<string> {
   });
 }
 const STATUS_WORDS: Record<string, Record<string, string>> = {
-  paid: { fr: "payée à l'hôpital", en: 'paid to the hospital', ln: 'efuti na lopitalo', sw: 'imelipwa kwa hospitali' },
+  paid: { fr: "payée à l'hôpital", en: 'paid to the hospital', ln: 'efutami na lopitalo', sw: 'imelipwa kwa hospitali' },
   rejected: { fr: 'rejetée', en: 'rejected', ln: 'eboyami', sw: 'imekataliwa' },
   declined: { fr: 'refusée par le payeur', en: 'declined by the payer', ln: 'mofuti aboyi', sw: 'imekataliwa na mlipaji' },
 };

@@ -51,6 +51,7 @@ const NOTIFICATIONS = {
     texts: {
       fr: (p) => `🏥 Demande de paiement AmaniCare\nPatient : ${p.patient}\nFacture : ${p.billNumber}\nMontant : ${p.amount}\n${p.note}\nConfirmez-vous ce patient et ce montant ?`,
       en: (p) => `🏥 AmaniCare payment request\nPatient: ${p.patient}\nBill: ${p.billNumber}\nAmount: ${p.amount}\n${p.note}\nDo you confirm this patient and amount?`,
+      ln: (p) => `🏥 Lisengi ya kofuta AmaniCare\nMobeli : ${p.patient}\nFacture : ${p.billNumber}\nMotango : ${p.amount}\n${p.note}\nOndimi mobeli oyo mpe motango oyo?`,
     },
     template: { name: 'amanicare_clinic_request', languages: ['fr'], body: (p) => [p.patient, p.billNumber, p.amount, p.note] },
   },
@@ -58,6 +59,7 @@ const NOTIFICATIONS = {
     texts: {
       fr: (p) => `AmaniCare : ${p.clinic} a confirmé la facture de ${p.patient} (${p.amount}). Ouvrez l'application pour payer.`,
       en: (p) => `AmaniCare: ${p.clinic} confirmed ${p.patient}'s bill (${p.amount}). Open the app to pay.`,
+      ln: (p) => `AmaniCare : ${p.clinic} endimi facture ya ${p.patient} (${p.amount}). Fungola application mpo na kofuta.`,
     },
     template: { name: 'amanicare_bill_confirmed', languages: ['fr', 'en'], body: (p) => [p.clinic, p.patient, p.amount] },
   },
@@ -65,6 +67,7 @@ const NOTIFICATIONS = {
     texts: {
       fr: (p) => `💰 AmaniCare : ${p.amount} envoyé sur ${p.account}. Réf ${p.ref}. Patient : ${p.patient}. Le patient peut sortir.`,
       en: (p) => `💰 AmaniCare: ${p.amount} sent to ${p.account}. Ref ${p.ref}. Patient: ${p.patient}. The patient may be discharged.`,
+      ln: (p) => `💰 AmaniCare : ${p.amount} etindami na ${p.account}. Ref ${p.ref}. Mobeli : ${p.patient}. Mobeli akoki kobima.`,
     },
     template: { name: 'amanicare_clinic_paid', languages: ['fr'], body: (p) => [p.amount, p.account, p.ref, p.patient] },
   },
@@ -73,6 +76,7 @@ const NOTIFICATIONS = {
     texts: {
       fr: (p) => `Bonjour ! ${p.name} vous demande de l'aide sur AmaniCare pour payer des factures d'hôpital en RDC, directement à l'hôpital. Ouvrez ce lien pour accepter l'invitation : ${p.link} Inscrivez-vous comme personne vivant à l'étranger avec ce numéro de téléphone.`,
       en: (p) => `Hello! ${p.name} is asking for your help on AmaniCare to pay hospital bills in the DRC, directly to the hospital. Open this link to accept the invitation: ${p.link} Sign up as someone living abroad with this phone number.`,
+      ln: (p) => `Mbote! ${p.name} azali kosenga lisalisi na yo na AmaniCare mpo na kofuta ba facture ya lopitalo na RDC, mbala moko na lopitalo. Fungola lien oyo mpo na kondima libyangi: ${p.link} Komisa nkombo lokola moto oyo afandi na mboka mopaya, na nimero ya telefone oyo.`,
     },
     template: { name: 'amanicare_invite_abroad', languages: ['fr', 'en'], body: (p) => [p.name, p.link] },
   },
@@ -92,6 +96,7 @@ const NOTIFICATIONS = {
       // Meta classifies any template mentioning a "code" as an authentication message.
       fr: (p) => `Bonjour ! ${p.name} vous invite sur AmaniCare pour payer directement vos factures d'hôpital. Ouvrez ce lien pour accepter l'invitation : ${p.link} Inscrivez-vous comme famille avec ce numéro de téléphone.`,
       en: (p) => `Hello! ${p.name} invites you to AmaniCare to pay your hospital bills directly. Open this link to accept the invitation: ${p.link} Sign up as family with this phone number.`,
+      ln: (p) => `Mbote! ${p.name} abengi yo na AmaniCare mpo na kofuta ba facture na yo ya lopitalo mbala moko. Fungola lien oyo mpo na kondima libyangi: ${p.link} Komisa nkombo lokola libota, na nimero ya telefone oyo.`,
     },
     template: { name: 'amanicare_invite', languages: ['fr', 'en'], body: (p) => [p.name, p.link] },
   },
