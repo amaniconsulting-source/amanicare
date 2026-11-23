@@ -191,7 +191,7 @@ tr.inactive td{opacity:.65}
 .phone-field input{flex:1 1 auto;min-width:0}
 
 /* "New version available" bar after a deploy */
-.update-bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:60;display:flex;gap:12px;align-items:center;
+.update-bar{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom, 0px));transform:translateX(-50%);z-index:60;display:flex;gap:12px;align-items:center;
   background:var(--ink);color:#fff;padding:10px 12px 10px 16px;border-radius:999px;box-shadow:0 6px 24px rgba(0,0,0,.25);font-size:14px;width:max-content;max-width:calc(100% - 24px)}
 .update-bar span{flex:1 1 auto}
 .update-bar button{flex:0 0 auto}
