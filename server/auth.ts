@@ -62,7 +62,8 @@ export async function currentUser(req: IncomingMessage): Promise<UserRow | null>
   if (!token) return null;
   const s = await one<SessionRow>('SELECT * FROM sessions WHERE token_hash = $1', sha(token));
   if (!s || s.expires_at < now()) return null;
-  return (await one<UserRow>('SELECT * FROM users WHERE id = $1', s.user_id)) || null;
+  const user = await one<UserRow>('SELECT * FROM users WHERE id = $1', s.user_id);
+  return user && user.active ? user : null;
 }
 
 export async function findOrCreateUser(phone: string, { name, role, lang }: { name: string; role?: unknown; lang?: string }):

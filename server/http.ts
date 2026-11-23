@@ -99,8 +99,28 @@ export const oneOf = <T extends string>(v: unknown, list: readonly T[], name = '
   if (!list.includes(v as T)) throw bad('invalid_' + name);
   return v as T;
 };
+/**
+ * Phone numbers are stored in international format (+243812345678). People often forget the country code,
+ * so the common Congolese ways of writing a number are completed automatically:
+ *   0812345678 / 812345678 / 243812345678 / 00243… / +243 0812… → +243812345678
+ * Any other number without a country code is refused with phone_country_code.
+ */
+export const normalizePhone = (v: unknown): string => {
+  let p = String(v ?? '').trim().replace(/[\s\-().\/]/g, '');
+  if (p.startsWith('00')) p = '+' + p.slice(2);
+  if (!p.startsWith('+')) {
+    if (/^0[89]\d{8}$/.test(p)) p = '+243' + p.slice(1);
+    else if (/^[89]\d{8}$/.test(p)) p = '+243' + p;
+    else if (/^243[89]\d{8}$/.test(p)) p = '+' + p;
+    else if (p) throw bad('phone_country_code', 'Add the country code, e.g. +243 81 234 5678 or +1 214 555 0100');
+  }
+  p = p.replace(/^\+2430(\d{9})$/, '+243$1'); // "+243 0812…": the trunk 0 is not dialled after +243
+  return p;
+};
+
 export const phone = (v: unknown): string => {
-  const p = String(v ?? '').replace(/[\s\-().]/g, '');
+  const p = normalizePhone(v);
   if (!/^\+[1-9]\d{7,14}$/.test(p)) throw bad('invalid_phone', 'Use international format, e.g. +243 81 234 5678');
+  if (p.startsWith('+243') && p.length !== 13) throw bad('invalid_phone', 'A DRC number has 9 digits after +243');
   return p;
 };

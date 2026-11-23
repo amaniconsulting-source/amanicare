@@ -27,7 +27,9 @@ const inviteLink = (code: string, inviterRole: 'payer' | 'family' | string = 'pa
 // ---------- Auth ----------
 router.post('/api/auth/request-otp', async ({ body }: Ctx) => {
   const lang = isLang(body.lang) ? body.lang : 'fr';
-  return requestOtp(phone(body.phone), lang);
+  const p = phone(body.phone);
+  if (await one('SELECT 1 FROM users WHERE phone = $1 AND active = 0', p)) throw new HttpError(403, 'account_disabled');
+  return requestOtp(p, lang);
 });
 
 router.post('/api/auth/verify', async ({ body, res }: Ctx) => {
@@ -40,6 +42,7 @@ router.post('/api/auth/verify', async ({ body, res }: Ctx) => {
     await verifyOtp(p, code, { consume: false });
     return { needsProfile: true };
   }
+  if (existing && !existing.active) throw new HttpError(403, 'account_disabled');
   await verifyOtp(p, code);
   const { user } = await findOrCreateUser(p, {
     name: str(body.name || existing?.name || 'Admin', { min: 1, max: 80, name: 'name' }),
@@ -295,9 +298,34 @@ router.post('/api/admin/users', requireRole('admin'), async ({ user, body }: Aut
   return { user: userView(await getUser(id)) };
 });
 
+// Admins and hospital staff (families and payers sign themselves up and are not listed here).
 router.get('/api/admin/users', requireRole('admin'), async () => ({
-  users: await all('SELECT u.id, u.phone, u.name, u.role, u.lang, c.name clinic FROM users u LEFT JOIN clinics c ON c.id = u.clinic_id ORDER BY u.created_at DESC LIMIT 500'),
+  users: await all(`SELECT u.id, u.phone, u.name, u.role, u.active, u.clinic_id, c.name clinic, u.created_at FROM users u
+    LEFT JOIN clinics c ON c.id = u.clinic_id WHERE u.role IN ('admin', 'clinic') ORDER BY u.role, u.name`),
+  owner: config.adminPhone || null,
 }));
+
+// Remove or restore an admin's or a staff member's access. History stays; open sessions end at once.
+router.patch('/api/admin/users/:id', requireRole('admin'), async ({ user, body, params }: AuthCtx) => {
+  const u = await one<UserRow>("SELECT * FROM users WHERE id = $1 AND role IN ('admin', 'clinic')", params.id);
+  if (!u) throw notFound();
+  if (body.name !== undefined) await run('UPDATE users SET name = $1 WHERE id = $2', str(body.name, { min: 1, max: 80, name: 'name' }), u.id);
+  if (body.active !== undefined) {
+    const active = body.active ? 1 : 0;
+    if (!active) {
+      if (u.id === user.id) throw bad('cannot_disable_self');
+      if (config.adminPhone && u.phone === config.adminPhone) throw bad('cannot_disable_owner');
+      if (u.role === 'admin') {
+        const others = await one<{ n: number }>("SELECT COUNT(*)::int n FROM users WHERE role = 'admin' AND active = 1 AND id <> $1", u.id);
+        if (!others || others.n < 1) throw bad('last_admin');
+      }
+      await run('DELETE FROM sessions WHERE user_id = $1', u.id);
+    }
+    await run('UPDATE users SET active = $1 WHERE id = $2', active, u.id);
+    await audit(user.id, active ? 'user_enable' : 'user_disable', `${u.role} ${u.phone}`);
+  }
+  return { ok: true };
+});
 
 router.get('/api/admin/prices', requireRole('admin'), async () => ({ prices: await prices() }));
 // Saves the price list of one scope: general (no scope), one facility type ({ category }) or one

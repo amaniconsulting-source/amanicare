@@ -188,7 +188,7 @@ test('failed card payment can be retried', async () => {
   await clinic('POST', `/api/bills/${bill.id}/confirm`, {});
   // The payer chooses how to pay: an unknown method or a bad wallet number is refused.
   assert.equal((await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'paypal' })).data.error, 'invalid_pay_method');
-  assert.equal((await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'mpesa', walletPhone: '0812' })).data.error, 'invalid_phone');
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'mpesa', walletPhone: '0812' })).data.error, 'phone_country_code'); // too short to be a Congolese number
   // First try: M-Pesa from a wallet number, refused on the phone.
   const p1 = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'mpesa', walletPhone: '+243 81 555 0199' });
   assert.equal(p1.data.method, 'mpesa');
@@ -524,4 +524,43 @@ test('pages on the old onrender.com address move to the official domain; nothing
       assert.equal((await get('/privacy.html', host)).status, 200, host);
     }
   } finally { config.baseUrl = saved.baseUrl; config.canonicalRedirect = saved.on; }
+});
+
+test('phone numbers: a forgotten Congolese country code is added; other numbers need one', async () => {
+  const { phone } = await import('../server/http.js');
+  for (const raw of ['0812345678', '812345678', '243812345678', '00243812345678', '+243 0812 345 678', '+243 81 234 56 78', '081-234-5678'])
+    assert.equal(phone(raw), '+243812345678', raw);
+  assert.equal(phone('+1 (214) 555-0100'), '+12145550100');
+  assert.equal(phone('0033612345678'), '+33612345678');
+  assert.throws(() => phone('2145550100'), /phone_country_code|Add the country code/);
+  assert.throws(() => phone('+24381234567'), /invalid_phone|9 digits/); // one digit short
+  // The API applies the same rule: a family member can log in without typing +243.
+  const fam = client();
+  const { data } = await fam('POST', '/api/auth/request-otp', { phone: '0819990001' });
+  assert.ok(data.devCode);
+  assert.equal((await fam('POST', '/api/auth/request-otp', { phone: '2145550100' })).data.error, 'phone_country_code');
+});
+
+test('admins add other admins and remove or restore access', async () => {
+  const owner = client(); await login(owner, '+15550000001');
+  const add = await owner('POST', '/api/admin/users', { name: 'Grace', phone: '0815550002', role: 'admin' });
+  assert.equal(add.status, 200, JSON.stringify(add.data));
+  assert.equal(add.data.user.phone, '+243815550002');
+  const grace = client(); await login(grace, '+243815550002');
+  assert.equal((await grace('GET', '/api/admin/overview')).status, 200); // the new admin is an admin
+  const list = (await grace('GET', '/api/admin/users')).data;
+  assert.ok(list.users.some((u: { name: string; role: string }) => u.name === 'Grace' && u.role === 'admin'));
+  const ownerId = list.users.find((u: { phone: string }) => u.phone === '+15550000001').id;
+  const graceId = add.data.user.id;
+  // Nobody can lock themselves out, and the owner (ADMIN_PHONE) can't be removed.
+  assert.equal((await grace('PATCH', `/api/admin/users/${graceId}`, { active: false })).data.error, 'cannot_disable_self');
+  assert.equal((await grace('PATCH', `/api/admin/users/${ownerId}`, { active: false })).data.error, 'cannot_disable_owner');
+  // The owner removes Grace: her session ends at once and she can't get a new code.
+  assert.equal((await owner('PATCH', `/api/admin/users/${graceId}`, { active: false })).status, 200);
+  assert.equal((await grace('GET', '/api/admin/overview')).status, 401);
+  assert.equal((await grace('POST', '/api/auth/request-otp', { phone: '+243815550002' })).data.error, 'account_disabled');
+  // Restored: she can sign in again.
+  assert.equal((await owner('PATCH', `/api/admin/users/${graceId}`, { active: true })).status, 200);
+  await login(grace, '+243815550002');
+  assert.equal((await grace('GET', '/api/admin/overview')).status, 200);
 });

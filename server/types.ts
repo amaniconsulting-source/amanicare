@@ -15,7 +15,7 @@ export type PaymentKind = 'collection' | 'payout';
 export type PaymentStatus = 'pending' | 'succeeded' | 'failed';
 
 export interface UserRow {
-  id: string; phone: string; name: string; role: Role; lang: Lang; clinic_id: string | null; created_at: string;
+  id: string; phone: string; name: string; role: Role; lang: Lang; clinic_id: string | null; created_at: string; active: number;
 }
 export interface OtpRow {
   phone: string; code_hash: string; expires_at: number; attempts: number; sent_count: number; window_start: number;

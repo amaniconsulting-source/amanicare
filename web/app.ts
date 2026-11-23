@@ -5,7 +5,7 @@ initMonitoring();
 
 type Lang = 'fr' | 'en' | 'ln' | 'sw';
 type Role = 'payer' | 'family' | 'clinic' | 'admin';
-type AdminTab = 'overview' | 'bills' | 'clinics' | 'prices' | 'settings' | 'messages' | 'payments';
+type AdminTab = 'overview' | 'bills' | 'clinics' | 'users' | 'prices' | 'settings' | 'messages' | 'payments';
 type Params = Record<string, string | number>;
 
 interface Me { id: string; phone: string; name: string; role: Role; lang: Lang; clinicId: string | null }
@@ -79,6 +79,44 @@ function $<T extends Element = HTMLElement>(sel: string, root: ParentNode = docu
 const $$ = <T extends Element = HTMLElement>(sel: string, root: ParentNode = document): T[] => [...root.querySelectorAll<T>(sel)];
 const val = (sel: string, root: ParentNode = document): string => $<HTMLInputElement | HTMLSelectElement>(sel, root).value;
 const btn = (e: Event) => e.currentTarget as HTMLButtonElement;
+
+// ---------- phone numbers ----------
+// Every phone field has a country-code picker. People can also type the full number with "+"
+// (the picker is then ignored), and a forgotten code is added from the picker, so
+// "0812345678" with 🇨🇩 +243 becomes +243812345678. The server completes Congolese numbers too.
+const COUNTRIES: [string, string, string][] = [
+  ['CD', '243', '🇨🇩'], ['US', '1', '🇺🇸'], ['CA', '1', '🇨🇦'], ['FR', '33', '🇫🇷'], ['BE', '32', '🇧🇪'],
+  ['GB', '44', '🇬🇧'], ['DE', '49', '🇩🇪'], ['CH', '41', '🇨🇭'], ['ZA', '27', '🇿🇦'], ['AO', '244', '🇦🇴'], ['CG', '242', '🇨🇬'],
+];
+const dialOf = (cc: string): string => (COUNTRIES.find(([c]) => c === cc) || COUNTRIES[0])[1];
+/** Splits a stored number (+243812345678) into its country and the rest, for editing. */
+function splitPhone(full: string, fallback: string): { cc: string; local: string } {
+  if (!full.startsWith('+')) return { cc: fallback, local: full };
+  const digits = full.slice(1);
+  const hit = COUNTRIES.filter(([, d]) => digits.startsWith(d)).sort((a, b) => b[1].length - a[1].length)
+    .find(([c, d]) => d !== '1' || c === fallback || c === 'US');
+  return hit ? { cc: hit[0], local: digits.slice(hit[1].length) } : { cc: fallback, local: full };
+}
+function phoneField(id: string, opts: { value?: string; cc?: string; placeholder?: string; autocomplete?: boolean } = {}): string {
+  const { cc, local } = splitPhone(opts.value || '', opts.cc || 'CD');
+  return `<div class="phone-field">
+    <select id="${id}Cc" aria-label="${t('phone.country')}">${COUNTRIES.map(([c, d, f]) => `<option value="${c}" ${c === cc ? 'selected' : ''}>${f} +${d}</option>`).join('')}</select>
+    <input id="${id}" type="tel" inputmode="tel" ${opts.autocomplete ? 'autocomplete="tel"' : ''} value="${esc(local)}" placeholder="${esc(opts.placeholder || '81 234 5678')}">
+  </div>`;
+}
+/** The number in international format, or '' when the field is empty. */
+function readPhone(id: string, root: ParentNode = document): string {
+  let p = val('#' + id, root).trim().replace(/[\s\-().\/]/g, '');
+  if (!p) return '';
+  if (p.startsWith('00')) p = '+' + p.slice(2);
+  if (p.startsWith('+')) return p;
+  const dial = dialOf(val('#' + id + 'Cc', root));
+  if (p.startsWith(dial) && p.length > dial.length + 8) return '+' + p; // typed the code without "+"
+  return '+' + dial + p.replace(/^0+/, ''); // drop the national trunk "0"
+}
+function setPhoneCountry(id: string, cc: string, root: ParentNode = document): void {
+  const sel = root.querySelector<HTMLSelectElement>('#' + id + 'Cc'); if (sel) sel.value = cc;
+}
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 function toast(msg: string): void {
@@ -230,7 +268,7 @@ function payDialog(amount: string): Promise<{ method: string; walletPhone?: stri
       ${WALLETS.map((w) => `<label class="radio"><input type="radio" name="how" value="${w}"> <span><b>${t('pay.' + w)}</b><br><span class="muted small">${t('pay.mobileHint')}</span></span></label>`).join('')}
       <div id="walletBox" class="hidden">
         <label for="walletPhone">${t('pay.walletPhone')}</label>
-        <input id="walletPhone" type="tel" inputmode="tel" autocomplete="tel" value="${esc(myPhone.startsWith('+243') ? myPhone : '')}" placeholder="+243 81 234 5678">
+        ${phoneField('walletPhone', { value: myPhone.startsWith('+243') ? myPhone : '', cc: 'CD', autocomplete: true })}
         <p class="muted small">${t('pay.walletNote')}</p>
       </div>
       <div class="row"><button class="secondary grow" data-close>${t('cancel')}</button><button class="grow" id="payOk">${t('pay.continue')}</button></div>`, (sheet) => {
@@ -238,7 +276,7 @@ function payDialog(amount: string): Promise<{ method: string; walletPhone?: stri
       $$<HTMLInputElement>('input[name="how"]', sheet).forEach((r) => (r.onchange = () => $('#walletBox', sheet).classList.toggle('hidden', picked() === 'card')));
       $('#payOk', sheet).onclick = () => {
         const method = picked();
-        const walletPhone = val('#walletPhone', sheet);
+        const walletPhone = readPhone('walletPhone', sheet);
         if (method !== 'card' && !walletPhone) { $('#walletPhone', sheet).focus(); return; }
         done = true; closeModal();
         resolve(method === 'card' ? { method } : { method, walletPhone });
@@ -350,14 +388,16 @@ function nextStep(b: Bill): string {
 function renderLogin(): void {
   // side: which side of the family the visitor is on. Picked on the welcome card, or guessed from the
   // phone number (+243 → in the DRC) until they pick. It sets the steps shown and the role at sign-up.
-  const s: { phone: string; code: string; step: 'phone' | 'code' | 'profile'; role: string; name: string; devCode?: string; side: '' | 'payer' | 'family'; picked: boolean } =
+  const s: { phone: string; code: string; step: 'phone' | 'code' | 'profile'; role: string; name: string; devCode?: string; side: '' | 'payer' | 'family'; picked: boolean; ccPicked?: boolean } =
     { phone: '', code: '', step: 'phone', role: pendingInvite() ? pendingInviteAs() : '', name: '', side: pendingInvite() ? pendingInviteAs() : '', picked: !!pendingInvite() };
   const setSide = (side: 'payer' | 'family', picked: boolean): void => {
     s.side = side; s.picked = s.picked || picked;
     if (!s.role || picked) s.role = side;
     $$<HTMLButtonElement>('[data-side]').forEach((b) => { b.classList.toggle('on', b.dataset.side === side); b.setAttribute('aria-pressed', String(b.dataset.side === side)); });
     $<HTMLButtonElement>(`[data-guide-tab="${side}"]`)?.click();
-    const ph = document.querySelector<HTMLInputElement>('#ph'); if (ph) ph.placeholder = side === 'family' ? '+243 81 234 5678' : '+1 214 555 0100';
+    const ph = document.querySelector<HTMLInputElement>('#ph'); if (ph) ph.placeholder = side === 'family' ? '81 234 5678' : '214 555 0100';
+    // The country picker follows the side until the person changes it themselves.
+    if (!s.ccPicked) setPhoneCountry('ph', side === 'family' ? 'CD' : 'US');
   };
   const draw = (): void => {
     app.innerHTML = `
@@ -370,7 +410,7 @@ function renderLogin(): void {
           <div class="sides">${(['family', 'payer'] as const).map((r) => `<button type="button" class="side ${s.side === r ? 'on' : ''}" data-side="${r}" aria-pressed="${s.side === r}">
             <span class="side-icon" aria-hidden="true">${r === 'family' ? '🏠' : '✈️'}</span><b>${t('side.' + r)}</b><span>${t('side.' + r + 'Hint')}</span></button>`).join('')}</div>
           <label for="ph">${t('login.phone')}</label>
-          <input id="ph" type="tel" inputmode="tel" autocomplete="tel" placeholder="${s.side === 'payer' ? '+1 214 555 0100' : '+243 81 234 5678'}" value="${esc(s.phone)}">
+          ${phoneField('ph', { value: s.phone, cc: s.side === 'payer' ? 'US' : 'CD', placeholder: s.side === 'payer' ? '214 555 0100' : '81 234 5678', autocomplete: true })}
           <p class="muted small">${t('login.phoneHint')}</p>
           <button class="block" id="sendCode">${t('login.sendCode')}</button>`
         : s.step === 'code' ? `
@@ -404,12 +444,15 @@ function renderLogin(): void {
       // Until they pick, guess the side from the number: a DRC number means family in the DRC.
       $('#ph').oninput = () => {
         if (s.picked) return;
-        const digits = val('#ph').replace(/\D/g, '');
-        if (digits.length >= 3) setSide(digits.startsWith('243') || /^0[89]/.test(digits) ? 'family' : 'payer', false);
+        const typed = val('#ph').trim();
+        const digits = typed.replace(/\D/g, '');
+        if (digits.length < 3) return;
+        if (typed.startsWith('+') || typed.startsWith('00')) setSide(digits.replace(/^00/, '').startsWith('243') ? 'family' : 'payer', false);
+        else if (/^0?[89]/.test(digits) && val('#phCc') === 'CD') setSide('family', false);
       };
+      $('#phCc').onchange = () => { s.ccPicked = true; if (!s.picked) setSide(val('#phCc') === 'CD' ? 'family' : 'payer', false); };
       $('#sendCode').onclick = (e) => busy(btn(e), async () => {
-        s.phone = val('#ph').replace(/[\s\-().]/g, '');
-        if (s.phone && !s.phone.startsWith('+')) s.phone = '+' + s.phone;
+        s.phone = readPhone('ph');
         const r = await api<{ devCode?: string }>('POST', '/api/auth/request-otp', { phone: s.phone, lang: state.lang });
         s.devCode = r.devCode; s.step = 'code'; draw(); $('#cd').focus();
       });
@@ -530,13 +573,12 @@ function inviteFlow(): void {
     <label for="rel">${t('invite.relation')}</label>
     <input id="rel" placeholder="${t(abroad ? 'invite.abroad.relationPh' : 'invite.relationPh')}">
     <label for="invPhone">${t('invite.phone')}</label>
-    <input id="invPhone" type="tel" inputmode="tel" placeholder="${abroad ? '+1 214 555 0100' : '+243 81 234 5678'}">
+    ${phoneField('invPhone', { cc: abroad ? 'US' : 'CD', placeholder: abroad ? '214 555 0100' : '81 234 5678' })}
     <p class="muted small">${t('invite.phoneHint')}</p>
     <button class="block" id="mk">${t('invite.create')}</button>
     <div id="out"></div>`, (s) => {
     $('#mk', s).onclick = (e) => busy(btn(e), async () => {
-      let phone = val('#invPhone', s).replace(/[\s\-().]/g, '');
-      if (phone && !phone.startsWith('+')) phone = '+' + phone;
+      const phone = readPhone('invPhone', s);
       const inv = await api<SentInvite>('POST', '/api/invites', { relation: val('#rel', s), phone: phone || undefined });
       $('#mk', s).classList.add('hidden');
       showInvite($('#out', s), inv);
@@ -774,7 +816,7 @@ async function renderClinic(): Promise<void> {
 }
 
 // ---------- admin ----------
-const ADMIN_TABS: AdminTab[] = ['overview', 'bills', 'clinics', 'prices', 'settings', 'messages', 'payments'];
+const ADMIN_TABS: AdminTab[] = ['overview', 'bills', 'clinics', 'users', 'prices', 'settings', 'messages', 'payments'];
 async function renderAdmin(): Promise<void> {
   app.innerHTML = `<h1>${t('admin.title')}</h1>
     <nav class="tabs">${ADMIN_TABS.map((k) => `<button data-tab="${k}" class="${state.adminTab === k ? 'on' : ''}">${t('admin.tab.' + k)}</button>`).join('')}</nav>
@@ -833,23 +875,14 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
           <div><label>${t('admin.category')}</label><select id="cCat">${CATEGORIES.map((k) => `<option value="${k}" ${k === 'clinic' ? 'selected' : ''}>${t('cat.' + k)}</option>`).join('')}</select></div>
           <div><label>${t('admin.commune')}</label><input id="cCommune"></div>
           <div><label>${t('admin.city')}</label><input id="cCity" value="Kinshasa"></div>
-          <div><label>${t('admin.whatsapp')}</label><input id="cWa" type="tel" placeholder="+243…"></div>
+          <div><label>${t('admin.whatsapp')}</label>${phoneField('cWa')}</div>
           <div><label>${t('admin.payoutMethod')}</label><select id="cMethod"><option value="bank">${t('pay.bankAccount')}</option><option value="mpesa">M-Pesa</option><option value="orange">Orange Money</option><option value="airtel">Airtel Money</option></select></div>
           <div><label>${t('admin.payoutAccount')}</label><input id="cAcct"></div>
           <div><label>${t('admin.flexpayMerchant')}</label><input id="cFlex" placeholder="${t('admin.optional')}"></div>
-          <div><label>${t('admin.payoutPhone')}</label><input id="cPayPhone" type="tel" placeholder="+243… (${t('admin.optional')})"></div>
+          <div><label>${t('admin.payoutPhone')}</label>${phoneField('cPayPhone', { placeholder: t('admin.optional') })}</div>
         </div>
         <p class="muted small">${t('admin.flexpayHint')}</p>
         <button class="block" id="addClinic">${t('admin.addClinic')}</button>
-      </div>
-      <div class="card"><h2>${t('admin.addStaff')}</h2><p class="muted small">${t('admin.addStaffHint')}</p>
-        <div class="grid2">
-          <div><label>${t('login.name')}</label><input id="sName"></div>
-          <div><label>${t('login.phone')}</label><input id="sPhone" type="tel" placeholder="+243…"></div>
-          <div><label>${t('admin.role')}</label><select id="sRole"><option value="clinic">${t('admin.roleClinic')}</option><option value="admin">${t('admin.roleAdmin')}</option></select></div>
-          <div><label>${t('family.clinic')}</label><select id="sClinic">${clinics.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
-        </div>
-        <button class="block" id="addStaff">${t('admin.addStaff')}</button>
       </div>`;
     $$('[data-toggle]', el).forEach((b) => (b.onclick = (e) => busy(btn(e), async () => { await api('PATCH', `/api/admin/clinics/${b.dataset.toggle}`, { active: b.dataset.active !== '1' }); renderAdmin(); })));
     // Edit a hospital: every detail, including its FlexPay merchant code and mobile-money payout number.
@@ -863,7 +896,7 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
           <div><label for="eCommune">${t('admin.commune')}</label><input id="eCommune" value="${esc(c.commune)}"></div>
           <div><label for="eCity">${t('admin.city')}</label><input id="eCity" value="${esc(c.city)}"></div>
         </div>
-        <label for="eWa">${t('admin.whatsapp')}</label><input id="eWa" type="tel" value="${esc(c.whatsapp_phone)}" placeholder="+243…">
+        <label for="eWa">${t('admin.whatsapp')}</label>${phoneField('eWa', { value: c.whatsapp_phone })}
         <div class="grid2">
           <div><label for="eMethod">${t('admin.payoutMethod')}</label><select id="eMethod">${methods.map(([v, l]) => `<option value="${v}" ${v === c.payout_method ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
           <div><label for="eAcct">${t('admin.payoutAccount')}</label><input id="eAcct" value="${esc(c.payout_account)}"></div>
@@ -871,14 +904,14 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
         <p class="muted small">${t('admin.flexpayHint')}</p>
         <div class="grid2">
           <div><label for="eFlex">${t('admin.flexpayMerchant')}</label><input id="eFlex" value="${esc(c.flexpay_merchant)}" placeholder="${t('admin.optional')}"></div>
-          <div><label for="ePayPhone">${t('admin.payoutPhone')}</label><input id="ePayPhone" type="tel" value="${esc(c.payout_phone)}" placeholder="+243… (${t('admin.optional')})"></div>
+          <div><label for="ePayPhone">${t('admin.payoutPhone')}</label>${phoneField('ePayPhone', { value: c.payout_phone, placeholder: t('admin.optional') })}</div>
         </div>
         <div class="row"><button class="secondary grow" data-close>${t('cancel')}</button><button class="grow" id="eSave">${t('save')}</button></div>`, (sheet) => {
         $('#eSave', sheet).onclick = (e) => busy(btn(e), async () => {
           await api('PATCH', `/api/admin/clinics/${c.id}`, {
             name: val('#eName', sheet), category: val('#eCat', sheet), commune: val('#eCommune', sheet), city: val('#eCity', sheet),
-            whatsappPhone: val('#eWa', sheet).replace(/\s/g, ''), payoutMethod: val('#eMethod', sheet), payoutAccount: val('#eAcct', sheet),
-            flexpayMerchant: val('#eFlex', sheet), payoutPhone: val('#ePayPhone', sheet).replace(/\s/g, ''),
+            whatsappPhone: readPhone('eWa', sheet), payoutMethod: val('#eMethod', sheet), payoutAccount: val('#eAcct', sheet),
+            flexpayMerchant: val('#eFlex', sheet), payoutPhone: readPhone('ePayPhone', sheet),
           });
           closeModal(); toast(t('saved')); renderAdmin();
         });
@@ -891,13 +924,50 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
       catch (err) { toast(errText(err)); }
     }));
     $('#addClinic', el).onclick = (e) => busy(btn(e), async () => {
-      await api('POST', '/api/admin/clinics', { name: val('#cName'), commune: val('#cCommune'), city: val('#cCity'), whatsappPhone: val('#cWa').replace(/\s/g, ''), payoutMethod: val('#cMethod'), payoutAccount: val('#cAcct'), category: val('#cCat'), flexpayMerchant: val('#cFlex'), payoutPhone: val('#cPayPhone').replace(/\s/g, '') });
+      await api('POST', '/api/admin/clinics', { name: val('#cName'), commune: val('#cCommune'), city: val('#cCity'), whatsappPhone: readPhone('cWa'), payoutMethod: val('#cMethod'), payoutAccount: val('#cAcct'), category: val('#cCat'), flexpayMerchant: val('#cFlex'), payoutPhone: readPhone('cPayPhone') });
       toast(t('saved')); renderAdmin();
     });
+  },
+  async users(el) {
+    type AdminUser = { id: string; phone: string; name: string; role: 'admin' | 'clinic'; active: number; clinic: string | null };
+    const [{ users, owner }, { clinics }] = await Promise.all([
+      api<{ users: AdminUser[]; owner: string | null }>('GET', '/api/admin/users'),
+      api<{ clinics: AdminClinic[] }>('GET', '/api/admin/clinics'),
+    ]);
+    const row = (u: AdminUser): string => {
+      const mine = u.id === me().id; const isOwner = !!owner && u.phone === owner;
+      const tag = mine ? ` <span class="pill low">${t('admin.you')}</span>` : isOwner ? ` <span class="pill low">${t('admin.owner')}</span>` : '';
+      const action = mine || isOwner ? '' : `<button class="link ${u.active ? 'danger' : ''}" data-access="${u.id}" data-active="${u.active}">${u.active ? t('admin.removeAccess') : t('admin.restoreAccess')}</button>`;
+      return `<tr class="${u.active ? '' : 'inactive'}"><td><b>${esc(u.name)}</b>${tag}${u.active ? '' : ` <span class="pill high">${t('admin.inactive')}</span>`}<div class="actions">${action}</div></td>
+        <td class="small">${esc(u.phone)}</td><td class="small">${u.role === 'admin' ? t('admin.roleAdmin') : esc(u.clinic || t('admin.roleClinic'))}</td></tr>`;
+    };
+    const table = (list: AdminUser[]) => list.length ? `<div class="scroll"><table><thead><tr><th>${t('login.name')}</th><th>${t('login.phone')}</th><th>${t('admin.role')}</th></tr></thead><tbody>${list.map(row).join('')}</tbody></table></div>` : `<p class="empty">${t('admin.noUsers')}</p>`;
+    el.innerHTML = `
+      <div class="card"><h2>${t('admin.admins')}</h2>${table(users.filter((u) => u.role === 'admin'))}</div>
+      <div class="card"><h2>${t('admin.staff')}</h2>${table(users.filter((u) => u.role === 'clinic'))}</div>
+      <div class="card"><h2>${t('admin.addUser')}</h2><p class="muted small">${t('admin.addStaffHint')}</p>
+        <div class="grid2">
+          <div><label for="sName">${t('login.name')}</label><input id="sName"></div>
+          <div><label for="sPhone">${t('login.phone')}</label>${phoneField('sPhone')}</div>
+          <div><label for="sRole">${t('admin.role')}</label><select id="sRole"><option value="clinic">${t('admin.roleClinic')}</option><option value="admin">${t('admin.roleAdmin')}</option></select></div>
+          <div id="sClinicBox"><label for="sClinic">${t('family.clinic')}</label><select id="sClinic">${clinics.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
+        </div>
+        <p class="muted small">${t('phone.hint')}</p>
+        <button class="block" id="addStaff">${t('admin.addUser')}</button>
+      </div>`;
+    $<HTMLSelectElement>('#sRole', el).onchange = () => $('#sClinicBox', el).classList.toggle('hidden', val('#sRole', el) === 'admin');
     $('#addStaff', el).onclick = (e) => busy(btn(e), async () => {
-      await api('POST', '/api/admin/users', { name: val('#sName'), phone: val('#sPhone').replace(/\s/g, ''), role: val('#sRole'), clinicId: val('#sClinic') });
+      const role = val('#sRole', el);
+      await api('POST', '/api/admin/users', { name: val('#sName', el), phone: readPhone('sPhone', el), role, clinicId: role === 'clinic' ? val('#sClinic', el) : undefined });
       toast(t('saved')); renderAdmin();
     });
+    $$('[data-access]', el).forEach((b) => (b.onclick = async () => {
+      const u = users.find((x) => x.id === b.dataset.access)!;
+      const removing = b.dataset.active === '1';
+      if (removing && !(await confirmDialog(t('admin.removeAccessConfirm', { name: esc(u.name) }), t('admin.removeAccess'), true))) return;
+      try { await api('PATCH', `/api/admin/users/${u.id}`, { active: !removing }); toast(t('saved')); renderAdmin(); }
+      catch (err) { toast(errText(err)); }
+    }));
   },
   async prices(el) {
     type PriceRow = { id: string; name: string; keywords: string[]; usd: number; category: Category | null; clinic_id: string | null };
