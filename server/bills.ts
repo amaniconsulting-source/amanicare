@@ -88,6 +88,8 @@ export async function createBill(family: UserRow, input: Body): Promise<BillRow>
   if (!items.length) throw bad('items_required');
   const currency = oneOf(input.currency, ['USD', 'CDF'] as const, 'currency');
   const total = input.total ? num(input.total, { min: 0.01, max: 1e9, name: 'total' }) : items.reduce((a, i) => a + i.q * i.p, 0);
+  // A bill of 0 (no total and no priced line) can't be paid: refuse it instead of sending it on.
+  if (!(total > 0)) throw bad('invalid_total');
   const billDate = typeof input.billDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.billDate) ? input.billDate : '';
   const bill = {
     clinicId: clinic.id,
@@ -96,6 +98,7 @@ export async function createBill(family: UserRow, input: Body): Promise<BillRow>
     billDate,
     currency, items, total, ai,
     edited: wasEdited(ai, { items, total }),
+    hasPhoto: !!draft,
   };
 
   // Bills have no common format, so numbers and names are compared through tolerant keys

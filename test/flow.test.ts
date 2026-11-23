@@ -447,3 +447,21 @@ test('a relative in the DRC can send a bill before the invited relative abroad j
   assert.equal(famView.waitingFor, undefined);
   assert.equal((await abroad('POST', `/api/bills/${created.data.bill.id}/pay`, {})).status, 200);
 });
+
+test('QA BUG-002: a bill with a total of 0 is refused', async () => {
+  const fam = client(), abroad = client();
+  await login(fam, '+243810000950', { name: 'Zero Family', role: 'family' });
+  await login(abroad, '+12145550950', { name: 'Zero Payer', role: 'payer' });
+  const inv = await abroad('POST', '/api/invites', { relation: 'Cousin' });
+  await fam('POST', '/api/invites/accept', { code: inv.data.code });
+  const payerId = (await fam('GET', '/api/payers')).data.payers[0].id;
+  const clinicId = (await fam('GET', '/api/clinics')).data.clinics[0].id;
+  const base = { payerId, clinicId, patientName: 'Zero Patient', currency: 'USD' };
+  assert.equal((await fam('POST', '/api/bills', { ...base, items: [{ d: 'Consultation', q: 1, p: 0 }], total: 0 })).data.error, 'invalid_total');
+  assert.equal((await fam('POST', '/api/bills', { ...base, items: [{ d: 'Consultation', q: 1, p: 0 }] })).data.error, 'invalid_total');
+  // QA BUG-001: a bill typed without a photo is accepted, and flagged so the hospital looks closely.
+  const typed = await fam('POST', '/api/bills', { ...base, items: [{ d: 'Consultation', q: 1, p: 10 }], total: 10 });
+  assert.equal(typed.status, 200, JSON.stringify(typed.data));
+  const row = await one<{ risk_reasons: string }>('SELECT risk_reasons FROM bills WHERE id = $1', typed.data.bill.id);
+  assert.ok(JSON.parse(row!.risk_reasons).some((r: { code: string }) => r.code === 'no_photo'));
+});

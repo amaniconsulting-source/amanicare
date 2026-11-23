@@ -411,5 +411,9 @@
  "admin.payoutPhone": "Numéro mobile money pour les versements",
  "admin.optional": "facultatif",
  "admin.flexpaySetup": "Configurer FlexPay",
- "admin.flexpayHint": "Pilote FlexPay : avec son propre code marchand FlexPay, l'hôpital est payé directement sur son compte FlexPay et retire quand il veut. Sans code, AmaniCare verse l'argent sur son numéro mobile money."
+ "admin.flexpayHint": "Pilote FlexPay : avec son propre code marchand FlexPay, l'hôpital est payé directement sur son compte FlexPay et retire quand il veut. Sans code, AmaniCare verse l'argent sur son numéro mobile money.",
+ "family.noPhoto": "Pas de photo ? Saisissez la facture",
+ "family.noPhotoNotice": "Sans photo : saisissez les informations de la facture. L'hôpital la vérifiera attentivement avant tout paiement.",
+ "err.invalid_total": "Entrez le total de la facture (plus de 0).",
+ "reason.no_photo": "Saisie sans photo de la facture"
 }

@@ -52,6 +52,8 @@ export interface ScreenInput {
   total: number;
   edited: boolean;
   ai: Partial<Pick<AiBill, 'clinic_name' | 'tamper_flags'>> | null;
+  /** False when the family typed the bill without a photo: the hospital's confirmation is then the only evidence. */
+  hasPhoto?: boolean;
 }
 export interface ScreenContext {
   clinic: Pick<ClinicRow, 'name' | 'active'> | null | undefined;
@@ -73,6 +75,7 @@ export function screenBill(bill: ScreenInput, ctx: ScreenContext): ScreenResult 
   const add = (code: string, points: number, params: Record<string, unknown> = {}) => reasons.push({ code, points, params });
 
   if (!ctx.clinic || !ctx.clinic.active) add('clinic_not_registered', 40);
+  if (bill.hasPhoto === false) add('no_photo', 20);
   if (ctx.duplicates > 0) add('duplicate_bill_number', 50, { billNumber: bill.billNumber });
   if ((ctx.duplicatePhotos || 0) > 0) add('duplicate_photo', 50);
   // Same clinic, patient and amount: likely the same bill with a different (or no) number.
