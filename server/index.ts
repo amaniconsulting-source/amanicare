@@ -25,14 +25,16 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 const originOf = (u: string) => { try { return new URL(u).origin; } catch { return ''; } };
 const hostOf = (u: string) => { try { return new URL(u).host.toLowerCase(); } catch { return ''; } };
 
-/** Pages opened on another address of the service (the old onrender.com address, or www.) move to the
- *  official one in BASE_URL, so links, logins and cookies all live on one domain. Only GET/HEAD pages:
- *  the API and webhooks answer on every address, so nothing breaks while Meta and payment partners
- *  are being pointed at the new domain. */
+/** Pages opened on the old Render address (*.onrender.com) move to the official one in BASE_URL, so
+ *  links, logins and cookies all live on one domain. Only that address: behind Render and Cloudflare
+ *  the Host header of the custom domain can differ, and redirecting anything else can loop (seen on
+ *  22 Nov 2026). www → root is done by Render itself. Only GET/HEAD pages: the API and webhooks answer
+ *  on every address, so nothing breaks while Meta and payment partners are moved to the new domain. */
 function canonicalRedirect(req: IncomingMessage, res: ServerResponse, url: URL): boolean {
   const canonical = hostOf(config.baseUrl);
-  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').toLowerCase();
+  const host = String(req.headers.host || '').toLowerCase().replace(/:\d+$/, '');
   if (!config.canonicalRedirect || !canonical || !host || host === canonical) return false;
+  if (!host.endsWith('.onrender.com') || canonical.endsWith('.onrender.com')) return false;
   if (req.method !== 'GET' && req.method !== 'HEAD') return false;
   if (url.pathname.startsWith('/api/') || url.pathname === '/healthz') return false;
   res.writeHead(301, { location: originOf(config.baseUrl) + url.pathname + url.search, 'cache-control': 'no-cache' });

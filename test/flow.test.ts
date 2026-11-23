@@ -504,16 +504,24 @@ test('admin can edit, deactivate, reactivate and delete a hospital', async () =>
   assert.equal((await fam('DELETE', `/api/admin/clinics/${id}`)).status, 403);
 });
 
-test('pages on another address move to the official domain; the API and webhooks keep answering', async () => {
+test('pages on the old onrender.com address move to the official domain; nothing else is redirected', async () => {
+  // fetch() can't set the Host header, so plain http requests here.
+  const { request } = await import('node:http');
+  const get = (path: string, host: string) => new Promise<{ status: number; location?: string }>((resolve, reject) => {
+    const u = new URL(base + path);
+    request({ hostname: u.hostname, port: u.port, path, headers: { host } }, (r) => { r.resume(); resolve({ status: r.statusCode!, location: r.headers.location }); }).on('error', reject).end();
+  });
   const saved = { baseUrl: config.baseUrl, on: config.canonicalRedirect };
   config.baseUrl = 'https://myamanicare.com'; config.canonicalRedirect = true;
   try {
-    const page = await fetch(`${base}/?invite=ABC123&as=payer`, { redirect: 'manual' });
-    assert.equal(page.status, 301);
-    assert.equal(page.headers.get('location'), 'https://myamanicare.com/?invite=ABC123&as=payer');
-    assert.equal((await fetch(`${base}/api/clinics`, { redirect: 'manual' })).status, 401); // API not redirected
-    assert.equal((await fetch(`${base}/healthz`)).status, 200);
-    const onDomain = await fetch(`${base}/`, { redirect: 'manual', headers: { 'x-forwarded-host': 'myamanicare.com' } });
-    assert.equal(onDomain.status, 200);
+    const old = await get('/?invite=ABC123&as=payer', 'amanicare-t6sm.onrender.com');
+    assert.equal(old.status, 301);
+    assert.equal(old.location, 'https://myamanicare.com/?invite=ABC123&as=payer');
+    assert.equal((await get('/api/clinics', 'amanicare-t6sm.onrender.com')).status, 401); // API and webhooks: never redirected
+    assert.equal((await get('/healthz', 'amanicare-t6sm.onrender.com')).status, 200);
+    // Any other address is served as is: no loop, whatever Host the proxies pass on.
+    for (const host of ['myamanicare.com', 'www.myamanicare.com', 'myamanicare.com:443', 'internal-host:10000']) {
+      assert.equal((await get('/privacy.html', host)).status, 200, host);
+    }
   } finally { config.baseUrl = saved.baseUrl; config.canonicalRedirect = saved.on; }
 });
