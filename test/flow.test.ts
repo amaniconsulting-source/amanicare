@@ -604,3 +604,13 @@ test('admins change a payer\'s or family member\'s number, and delete accounts t
   assert.equal(await one('SELECT 1 FROM users WHERE id = $1', id), undefined);
   assert.equal((await again('GET', '/api/me')).data.user, null); // signed out
 });
+
+test('a reload always gets this deploy\'s app: the page is never cached and names its version', async () => {
+  const r = await fetch(base + '/');
+  const html = await r.text();
+  const v = r.headers.get('x-app-version')!;
+  assert.equal(r.headers.get('cache-control'), 'no-store');
+  assert.ok(html.includes(`src="/app.js?v=${v}"`) && html.includes(`href="/styles.css?v=${v}"`));
+  assert.ok(html.includes(`<meta name="app-version" content="${v}">`));
+  assert.equal((await fetch(base + `/app.js?v=${v}`)).status, 200);
+});

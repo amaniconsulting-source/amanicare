@@ -74,7 +74,7 @@ const meta = (name: string, value: string) => (value ? `<meta name="${name}" con
 // HTML pages carry a <!--sentry--> marker; it becomes the support contact (for Help) and,
 // when Sentry is on, the Sentry config and SDK tag.
 function headExtras(): string {
-  return meta('support-email', config.supportEmail) + meta('support-whatsapp', config.supportWhatsApp) + sentryHead();
+  return meta('app-version', BUILD_ID) + meta('support-email', config.supportEmail) + meta('support-whatsapp', config.supportWhatsApp) + sentryHead();
 }
 function sentryHead(): string {
   const s = browserSentry();
@@ -93,14 +93,16 @@ async function serveStatic(path: string, res: ServerResponse, req?: IncomingMess
     let data: Buffer;
     try { data = await readFile(file); } catch { continue; }
     const ext = extname(file);
-    const body = ext === '.html' ? Buffer.from(data.toString('utf8').replace('<!--sentry-->', headExtras())) : data;
+    // Pages ask for the app code and styles of this exact deploy (?v=…), so a reload can never mix in an old copy.
+    const body = ext === '.html' ? Buffer.from(data.toString('utf8').replace('<!--sentry-->', headExtras())
+      .replace('href="/styles.css"', `href="/styles.css?v=${BUILD_ID}"`).replace('src="/app.js"', `src="/app.js?v=${BUILD_ID}"`)) : data;
     // App code, styles and translations must always match each other after a deploy, so the browser
     // checks for a newer copy on every load (a quick "304 Not Modified" when nothing changed).
     // Only images are kept for a day without checking.
     const etag = '"' + createHash('sha1').update(body).digest('base64url') + '"';
     const headers = {
       'content-type': TYPES[ext] || 'application/octet-stream',
-      'cache-control': ['.png', '.svg', '.ico', '.jpg', '.webp'].includes(ext) ? 'public, max-age=86400' : 'no-cache',
+      'cache-control': ext === '.html' ? 'no-store' : ['.png', '.svg', '.ico', '.jpg', '.webp'].includes(ext) ? 'public, max-age=86400' : 'no-cache',
       etag, ...securityHeaders(),
     };
     if (req?.headers['if-none-match'] === etag) { res.writeHead(304, headers); res.end(); return true; }

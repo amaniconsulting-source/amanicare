@@ -1,5 +1,7 @@
 // AmaniCare PWA. TypeScript compiled by tsc to a plain ES module (no bundler).
 import { initMonitoring, report, setUser } from './monitoring.js';
+/** The deploy this page belongs to (set by the server in index.html). */
+const APP_VERSION = document.querySelector<HTMLMetaElement>('meta[name="app-version"]')?.content || '';
 
 initMonitoring();
 
@@ -43,7 +45,7 @@ const me = (): Me => state.me!;
 
 // ---------- i18n ----------
 async function loadLang(lang: Lang): Promise<void> {
-  const get = (l: string) => fetch(`/i18n/${l}.json`).then((r) => r.json() as Promise<Record<string, string>>);
+  const get = (l: string) => fetch(`/i18n/${l}.json?v=${APP_VERSION}`, { cache: 'no-cache' }).then((r) => r.json() as Promise<Record<string, string>>);
   state.fallback = Object.keys(state.fallback).length ? state.fallback : await get('fr');
   state.dict = lang === 'fr' ? state.fallback : await get(lang).catch(() => ({}));
   state.lang = lang;
@@ -149,7 +151,7 @@ async function api<T = any>(method: string, path: string, body?: unknown): Promi
 // After a deploy, a page that is already open still runs the old code (an open app is not reloaded by itself).
 // Every API answer carries the server's version; when it changes, offer a one-tap update. If the page was in the
 // background, it simply updates the next time the person comes back to it.
-let loadedVersion: string | null = null;
+let loadedVersion: string | null = APP_VERSION || null; // the version this page was served with
 let updateWaiting = false;
 function checkVersion(v: string | null): void {
   if (!v) return;
