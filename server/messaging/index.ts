@@ -100,6 +100,23 @@ const NOTIFICATIONS = {
     },
     template: { name: 'amanicare_invite', languages: ['fr', 'en'], body: (p) => [p.name, p.link] },
   },
+  supportReply: {
+    // A person on the team answered a customer-service conversation.
+    texts: {
+      fr: (p) => `AmaniCare – réponse du service client : « ${p.text} » Ouvrez myamanicare.com (bouton ?) pour continuer la conversation.`,
+      en: (p) => `AmaniCare – customer service replied: "${p.text}" Open myamanicare.com (? button) to continue the conversation.`,
+      ln: (p) => `AmaniCare – eyano ya service client : « ${p.text} » Fungola myamanicare.com (bouton ?) mpo na kokoba lisolo.`,
+    },
+    template: { name: 'amanicare_support_reply', languages: ['fr', 'en'], body: (p) => [p.text] },
+  },
+  supportAlert: {
+    // To the team: a conversation needs a person.
+    texts: {
+      fr: (p) => `AmaniCare – service client : ${p.who} attend une réponse. « ${p.text} » Ouvrez l'onglet Support pour répondre.`,
+      en: (p) => `AmaniCare – customer service: ${p.who} is waiting for an answer. "${p.text}" Open the Support tab to reply.`,
+    },
+    template: { name: 'amanicare_support_alert', languages: ['fr', 'en'], body: (p) => [p.who, p.text] },
+  },
 } satisfies Record<string, Notification>;
 
 export type TextKey = keyof typeof NOTIFICATIONS;

@@ -642,3 +642,86 @@ test('admin lists load page by page, with totals, filters and search', async () 
   assert.ok(all.bills.length <= 2 && typeof all.total === 'number');
   assert.ok((await owner('GET', '/api/admin/messages?limit=5')).data.messages.length <= 5);
 });
+
+test('customer service: a visitor gives a number with its country code; the team answers; nobody else sees it', async () => {
+  const { resetLimitsForTests } = await import('../server/support.js');
+  resetLimitsForTests();
+  const guest = client();
+  // A US number without +1 is refused: we would not know where to answer.
+  assert.equal((await guest('POST', '/api/support/tickets', { text: 'Bonjour', phone: '2145550100' })).data.error, 'phone_country_code');
+  const r = await guest('POST', '/api/support/tickets', { text: 'Combien coûte le service ?', phone: '+12145550100', name: 'Marie', lang: 'fr' });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  const { ticket, token } = r.data;
+  assert.ok(token);
+  // No assistant configured in tests: it goes straight to a person, and the person is told so.
+  assert.equal(ticket.status, 'open');
+  assert.deepEqual(ticket.messages.map((m: { from: string }) => m.from), ['user', 'system']);
+  // Without the token (or with another one) the conversation can't be read.
+  assert.equal((await guest('GET', `/api/support/tickets/${ticket.id}`)).status, 404);
+  const withToken = (tok: string) => fetch(`${base}/api/support/tickets/${ticket.id}`, { headers: { 'x-support-token': tok } });
+  assert.equal((await withToken('nope')).status, 404);
+  assert.equal((await withToken(token)).status, 200);
+  // The team was alerted, and sees it in "to handle".
+  assert.ok(await one("SELECT 1 FROM messages WHERE payload LIKE '%support_alert%'"));
+  const owner = client(); await login(owner, '+15550000001');
+  const list = (await owner('GET', '/api/admin/support?status=open')).data;
+  const row = list.tickets.find((x: { id: string }) => x.id === ticket.id);
+  assert.equal(row.phone, '+12145550100'); assert.equal(row.signedIn, false); assert.ok(list.counts.open >= 1);
+  // The agent answers: shown in the chat, sent on WhatsApp, waiting for the person.
+  assert.equal((await owner('POST', `/api/admin/support/${ticket.id}/messages`, { text: 'Rien pour la famille; le payeur paie de petits frais.' })).status, 200);
+  assert.ok(await one("SELECT 1 FROM messages WHERE to_phone = '+12145550100' AND payload LIKE '%support_reply%'"));
+  const seen = (await (await withToken(token)).json()) as any;
+  assert.equal(seen.ticket.status, 'waiting'); assert.equal(seen.ticket.messages.at(-1).from, 'agent');
+  // The person writes again: back to the team (the assistant stays out once a person is on it).
+  const again = await fetch(`${base}/api/support/tickets/${ticket.id}/messages`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-support-token': token }, body: JSON.stringify({ text: 'Merci !' }) });
+  const after = ((await again.json()) as any).ticket;
+  assert.equal(after.status, 'open'); assert.equal(after.messages.at(-1).from, 'user');
+  assert.equal((await owner('PATCH', `/api/admin/support/${ticket.id}`, { status: 'resolved' })).status, 200);
+  // Families and payers can't see the team's inbox.
+  const fam = client(); await login(fam, '+243819990020', { name: 'Fam Support', role: 'family' });
+  assert.equal((await fam('GET', '/api/admin/support')).status, 403);
+  assert.equal((await fam('GET', `/api/support/tickets/${ticket.id}`)).status, 404);
+});
+
+test('customer service: the assistant sees only the signed-in person\'s own bills, and hands over on money problems', async () => {
+  const { accountContext, setAnswererForTests, resetLimitsForTests, mustEscalate } = await import('../server/support.js');
+  resetLimitsForTests();
+  const bills = await import('../server/bills.js');
+  const somePayer = await one<{ id: string }>("SELECT payer_id id FROM bills WHERE payer_id IS NOT NULL LIMIT 1");
+  assert.ok(somePayer, 'demo data has bills');
+  const payer = (await one<any>('SELECT * FROM users WHERE id = $1', somePayer!.id))!;
+  const mine = await bills.listBillsFor(payer);
+  const others = await one<{ ref: string }>('SELECT ref FROM bills WHERE payer_id IS DISTINCT FROM $1 LIMIT 1', payer.id);
+  const ctx = await accountContext(payer);
+  // The assistant's instructions carry the help centre in the person's language, and the guest rule.
+  const { systemPrompt } = await import('../server/support.js');
+  const guestPrompt = await systemPrompt({ lang: 'fr', bill_id: null } as any, null);
+  assert.match(guestPrompt, /Combien ça coûte/); assert.match(guestPrompt, /NOT signed in/); assert.ok(!guestPrompt.includes(mine[0].ref));
+  assert.ok((await systemPrompt({ lang: 'en', bill_id: null } as any, payer)).includes(mine[0].ref));
+  assert.ok(mine.every((b) => ctx.includes(b.ref)));
+  if (others) assert.ok(!ctx.includes(others.ref));
+
+  // With an assistant: it answers; asking about a refund goes to a person without asking it.
+  let calls = 0;
+  setAnswererForTests(async () => { calls++; return { reply: 'Votre facture est payée.', handoff: false, reason: '' }; });
+  try {
+    const api = client(); await login(api, payer.phone);
+    const own = mine[0];
+    const r = (await api('POST', '/api/support/tickets', { text: 'Où en est ma facture ?', billId: own.id })).data.ticket;
+    assert.equal(r.status, 'bot'); assert.equal(r.messages.at(-1).body, 'Votre facture est payée.'); assert.equal(r.billId, own.id);
+    const r2 = (await api('POST', `/api/support/tickets/${r.id}/messages`, { text: 'Je veux un remboursement' })).data.ticket;
+    assert.equal(r2.status, 'open'); assert.equal(calls, 1);
+    assert.equal(mustEscalate('je veux parler à un agent'), 'asked_for_person');
+    assert.equal(mustEscalate('Combien de temps ça prend ?'), '');
+    assert.equal(mustEscalate("J'ai payé mais l'hôpital n'a rien reçu"), 'sensitive');
+    // Someone else's bill can't be attached to a conversation.
+    if (others) {
+      const otherId = (await one<{ id: string }>('SELECT id FROM bills WHERE ref = $1', others.ref))!.id;
+      assert.equal((await api('POST', '/api/support/tickets', { text: 'Et celle-ci ?', billId: otherId })).status, 404);
+    }
+    // "Talk to a person" from the assistant.
+    const r3 = (await api('POST', '/api/support/tickets', { text: 'Comment inviter ma sœur ?' })).data.ticket;
+    assert.equal((await api('POST', `/api/support/tickets/${r3.id}/escalate`)).data.ticket.status, 'open');
+    assert.equal((await api('GET', '/api/support/tickets')).data.tickets.length >= 2, true);
+  } finally { setAnswererForTests(null); }
+});

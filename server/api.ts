@@ -525,6 +525,13 @@ router.post('/api/webhooks/whatsapp', async ({ raw, req }: Ctx) => {
       }
     }
     for (const m of ch.value?.messages || []) {
+    // A written message (not a button tap) goes to customer service: the assistant or a person answers.
+    if (m.type === 'text' && m.text?.body) {
+      const { onWhatsAppText } = await import('./support.js');
+      try { await onWhatsAppText(String(m.from), String(m.text.body)); console.log(`[whatsapp] message from ${tail(m.from)} sent to customer service`); }
+      catch (e) { console.warn(`[whatsapp] customer service message from ${tail(m.from)}: ${(e as Error).message}`); }
+      continue;
+    }
     // Buttons on a template arrive as type "button" (payload); on a free-form message as "interactive".
     const id: string = m.button?.payload || m.interactive?.button_reply?.id || m.interactive?.list_reply?.id || '';
     const [decision, billId, reason] = id.split(':');

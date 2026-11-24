@@ -207,3 +207,22 @@ test('WhatsApp webhook verification handshake', async () => {
   assert.equal(await ok.text(), '12345');
   assert.equal((await realFetch(`${base}/api/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=nope&hub.challenge=1`)).status, 403);
 });
+
+test('WhatsApp: a written message to our number reaches customer service, and the team answers on WhatsApp', async () => {
+  const msg = (from: string, body: string) => webhook({ entry: [{ changes: [{ value: { messages: [{ from, type: 'text', text: { body } }] } }] }] });
+  // A stranger asks for a person: a conversation opens, the hand-over note is sent back as a free reply.
+  assert.equal((await msg('33612345678', 'Bonjour, je veux parler à un agent')).status, 200);
+  const t = await one<{ id: string; status: string; channel: string; guest_phone: string }>("SELECT * FROM support_tickets WHERE guest_phone = '+33612345678'");
+  assert.equal(t?.channel, 'whatsapp'); assert.equal(t?.status, 'open');
+  const reply = lastTo('+33612345678');
+  assert.equal(reply?.type, 'text');
+  // A second message joins the same conversation.
+  await msg('33612345678', 'Vous êtes là ?');
+  assert.equal((await one<{ n: number }>("SELECT COUNT(*)::int n FROM support_tickets WHERE guest_phone = '+33612345678'"))!.n, 1);
+  // The agent's answer goes back as a WhatsApp text (inside the 24 h window).
+  const owner = client(); await login(owner, '+15550000001');
+  const before = sent.length;
+  assert.equal((await owner('POST', `/api/admin/support/${t!.id}/messages`, { text: 'Oui, bonjour ! Comment puis-je aider ?' })).data.delivery, 'sent');
+  const out = sent.slice(before).find((m) => m.to === '33612345678') as any;
+  assert.equal(out?.type, 'text'); assert.match(out.text.body, /Comment puis-je aider/);
+});

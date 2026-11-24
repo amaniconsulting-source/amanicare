@@ -115,6 +115,26 @@ Samples: `Maman Jeanne` · `https://amanicare.example/?invite=A1B2C3&as=payer`
 Invitation links now end in `&as=family` or `&as=payer` (which side is signing up). The template
 variable is the whole link, so the already-submitted `amanicare_invite` template doesn't change.
 
+### `amanicare_support_reply`: Utility, French and English
+Sent when someone on the team answers a customer-service conversation (in the app, or on WhatsApp
+more than 24 h after the person's last message).
+- fr: `AmaniCare – réponse du service client : « {{1}} » Ouvrez myamanicare.com (bouton ?) pour continuer la conversation.`
+- en: `AmaniCare – customer service replied: "{{1}}" Open myamanicare.com (? button) to continue the conversation.`
+
+Samples: `Bonjour Marie, votre paiement est bien arrivé à l'hôpital.` (en: `Hello Marie, your payment reached the hospital.`)
+
+### `amanicare_support_alert`: Utility, French and English
+Sent to every active admin when a conversation needs a person.
+- fr: `AmaniCare – service client : {{1}} attend une réponse. « {{2}} » Ouvrez l'onglet Support pour répondre.`
+- en: `AmaniCare – customer service: {{1}} is waiting for an answer. "{{2}}" Open the Support tab to reply.`
+
+Samples: `Marie` · `J'ai payé hier mais l'hôpital n'a rien reçu`
+
+### Customer service on WhatsApp
+A written message to the business number (anything that is not a button tap) goes to customer
+service: the assistant answers on WhatsApp, or hands over to the team (Support tab). Replies within
+24 h of the person's last message are free text; later ones use `amanicare_support_reply`.
+
 Lingala and Swahili users receive the French templates until Lingala/Swahili versions are added
 (add the language in Meta, then add it to `languages` in `server/messaging/index.ts`).
 

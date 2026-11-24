@@ -7,7 +7,7 @@ initMonitoring();
 
 type Lang = 'fr' | 'en' | 'ln' | 'sw';
 type Role = 'payer' | 'family' | 'clinic' | 'admin';
-type AdminTab = 'overview' | 'bills' | 'clinics' | 'users' | 'prices' | 'settings' | 'messages' | 'payments';
+type AdminTab = 'overview' | 'support' | 'bills' | 'clinics' | 'users' | 'prices' | 'settings' | 'messages' | 'payments';
 type Params = Record<string, string | number>;
 
 interface Me { id: string; phone: string; name: string; role: Role; lang: Lang; clinicId: string | null }
@@ -72,6 +72,14 @@ const fmtDate = (s: string | null | undefined): string => {
     // Lingala: day/month/year in figures (month names in Lingala are long and little used in writing).
     ? d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
     : d.toLocaleDateString(state.lang === 'en' ? 'en-US' : 'fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }));
+};
+/** Chat times: the hour today, else the day and hour. */
+const chatTime = (s: string): string => {
+  const d = new Date(s.replace(' ', 'T') + (s.length > 10 && !s.endsWith('Z') ? 'Z' : ''));
+  if (isNaN(d.getTime())) return s;
+  const loc = state.lang === 'en' ? 'en-US' : 'fr-FR';
+  const hm = d.toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString() ? hm : `${d.toLocaleDateString(loc, { day: 'numeric', month: 'short' })} ${hm}`;
 };
 function $<T extends Element = HTMLElement>(sel: string, root: ParentNode = document): T {
   const el = root.querySelector<T>(sel);
@@ -338,7 +346,8 @@ async function showBill(id: string): Promise<void> {
     ${b.payout ? `<p class="notice info">${t('payoutSent', { ref: esc(b.payout.ref), account: esc(b.payout.account || '') })}</p>` : ''}
     <ul class="timeline">${b.events.map((e) => `<li>${fmtDate(e.at)} · ${esc(eventText(e.type, b))}</li>`).join('')}</ul>
     ${b.hasPhoto ? `<img class="photo-full" src="/api/bills/${b.id}/photo" alt="${t('billPhoto')}">` : ''}
-  `, wireResend);
+    ${state.me?.role !== 'admin' ? `<button class="secondary block" data-bill-help>💬 ${t('chat.billHelp')}</button>` : ''}
+  `, (sheet) => { wireResend(sheet); sheet.querySelector<HTMLButtonElement>('[data-bill-help]')?.addEventListener('click', () => openSupport({ billId: b.id, billRef: b.ref })); });
 }
 
 // ---------- how it works, help, next steps ----------
@@ -393,12 +402,170 @@ function openHelp(): void {
   const role = state.me?.role;
   const selected: GuideRole = role === 'family' ? 'family' : role === 'clinic' ? 'clinic' : 'payer';
   openModal(`<div class="row between"><h2>${t('guide.title')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
+    ${role === 'admin' ? '' : `<button class="block chat-cta" data-chat>💬 ${t('chat.cta')}</button>`}
     <p class="muted">${t('guide.intro')}</p>
     ${guideHtml(selected)}
     ${trustHtml()}
     ${installed() ? '' : `<div class="install-help"><h2>${t('install.title')}</h2><p class="muted">${t('install.why')}</p>${installSteps()}${installPrompt ? `<button class="block" data-install-now>${t('install.button')}</button>` : ''}</div>`}
-    ${faqHtml()}`, (sheet) => { wireGuide(sheet); sheet.querySelector<HTMLButtonElement>('[data-install-now]')?.addEventListener('click', () => { closeModal(); installApp().catch(() => {}); }); });
+    ${faqHtml()}`, (sheet) => { wireGuide(sheet); wireChatLinks(sheet); sheet.querySelector<HTMLButtonElement>('[data-install-now]')?.addEventListener('click', () => { closeModal(); installApp().catch(() => {}); }); });
 }
+// ---------- customer service chat ----------
+// The assistant answers first; a person on the team takes over when needed (or when asked).
+// Signed in: conversations belong to the account. Not signed in: name + phone number with its country
+// code, and the conversation is kept on this device with a token (localStorage).
+type ChatMsg = { id: number; at: string; from: 'user' | 'bot' | 'agent' | 'system'; body: string };
+type Ticket = { id: string; status: 'bot' | 'open' | 'waiting' | 'resolved'; billId: string | null; unread: number; messages: ChatMsg[] };
+const GUEST_TICKET_KEY = 'supportTicket';
+function guestTicket(): { id: string; token: string } | null {
+  try { return JSON.parse(localStorage.getItem(GUEST_TICKET_KEY) || 'null'); } catch { return null; }
+}
+function setGuestTicket(v: { id: string; token: string } | null): void {
+  try { if (v) localStorage.setItem(GUEST_TICKET_KEY, JSON.stringify(v)); else localStorage.removeItem(GUEST_TICKET_KEY); } catch { /* private mode */ }
+}
+/** Support calls carry the guest token when there is no session. */
+async function supportApi<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+  const g = !state.me ? guestTicket() : null;
+  const send = method !== 'GET' ? (body ?? {}) : undefined;
+  const res = await fetch(path, {
+    method, credentials: 'same-origin',
+    headers: { ...(send !== undefined ? { 'content-type': 'application/json' } : {}), ...(g ? { 'x-support-token': g.token } : {}) },
+    body: send !== undefined ? JSON.stringify(send) : undefined,
+  });
+  checkVersion(res.headers.get('x-app-version'));
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(data.error, res.status, data.message);
+  return data as T;
+}
+
+let chatPoll: ReturnType<typeof setInterval> | undefined;
+let chatTick: (() => void) | undefined;
+const stopChatPoll = () => {
+  clearInterval(chatPoll); chatPoll = undefined;
+  if (chatTick) document.removeEventListener('visibilitychange', chatTick);
+  chatTick = undefined;
+};
+
+function chatBubbles(msgs: ChatMsg[]): string {
+  return msgs.map((m) => m.from === 'system'
+    ? `<p class="chat-note">${esc(m.body)}</p>`
+    : `<div class="msg ${m.from === 'user' ? 'me' : m.from}"><span class="who">${m.from === 'user' ? t('chat.you') : m.from === 'agent' ? t('chat.agent') : t('chat.bot')}</span>${esc(m.body).replace(/\n/g, '<br>')}<time>${chatTime(m.at)}</time></div>`).join('');
+}
+
+/** Opens the customer-service chat: the current conversation, or a new one (about a bill, if given). */
+async function openSupport(opts: { billId?: string; billRef?: string } = {}): Promise<void> {
+  stopChatPoll();
+  try {
+    if (state.me) {
+      const { tickets } = await api<{ tickets: { id: string; status: string; billId: string | null }[] }>('GET', '/api/support/tickets');
+      const current = tickets.find((x) => x.status !== 'resolved' && (!opts.billId || x.billId === opts.billId));
+      if (current) return showChat(current.id);
+    } else {
+      const g = guestTicket();
+      if (g) {
+        const r = await supportApi<{ ticket: Ticket }>('GET', `/api/support/tickets/${g.id}`).catch(() => null);
+        if (r && r.ticket.status !== 'resolved') return showChat(g.id, r.ticket);
+        if (!r) setGuestTicket(null);
+      }
+    }
+  } catch (e) { reportUnexpected(e); }
+  newChat(opts);
+}
+
+function newChat(opts: { billId?: string; billRef?: string } = {}): void {
+  stopChatPoll();
+  const guest = !state.me;
+  openModal(`<div class="row between"><h2>💬 ${t('chat.title')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
+    <p class="muted">${t('chat.intro')}</p>
+    ${opts.billRef ? `<p class="notice info">${t('chat.aboutBill', { ref: esc(opts.billRef) })}</p>` : ''}
+    ${guest ? `<label for="chName">${t('chat.name')}</label><input id="chName" autocomplete="name">
+      <label for="chPhone">${t('chat.phone')}</label>${phoneField('chPhone', { autocomplete: true, cc: state.lang === 'en' ? 'US' : 'CD' })}
+      <p class="muted small">${t('chat.phoneHint')}</p>` : ''}
+    <label for="chText">${t('chat.question')}</label>
+    <textarea id="chText" rows="3" maxlength="1000" placeholder="${esc(t('chat.placeholder'))}"></textarea>
+    <button class="block" id="chStart">${t('chat.send')}</button>
+    ${guest ? `<p class="muted small">${t('chat.guestNote')}</p>` : ''}`, (sheet) => {
+    $('#chStart', sheet).onclick = (e) => busy(btn(e), async () => {
+      const text = val('#chText', sheet).trim();
+      if (!text) { toast(t('chat.empty')); return; }
+      const body: Record<string, unknown> = { text, lang: state.lang, billId: opts.billId };
+      if (guest) {
+        body.name = val('#chName', sheet).trim();
+        body.phone = readPhone('chPhone', sheet);
+        if (!body.phone) { toast(t('chat.phoneNeeded')); return; }
+      }
+      const r = await supportApi<{ ticket: Ticket; token?: string }>('POST', '/api/support/tickets', body);
+      if (r.token) setGuestTicket({ id: r.ticket.id, token: r.token });
+      showChat(r.ticket.id, r.ticket);
+    });
+  });
+}
+
+async function showChat(id: string, ticket?: Ticket): Promise<void> {
+  const tk = ticket || (await supportApi<{ ticket: Ticket }>('GET', `/api/support/tickets/${id}`)).ticket;
+  const statusText = (s: Ticket['status']) => t('chat.status.' + s);
+  openModal(`<div class="row between"><h2>💬 ${t('chat.title')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
+    <p class="muted small" id="chStatus">${statusText(tk.status)}</p>
+    <div class="chat" id="chList" aria-live="polite">${chatBubbles(tk.messages)}</div>
+    <div class="chat-input"><textarea id="chText" rows="2" maxlength="1000" placeholder="${esc(t('chat.placeholder'))}"></textarea><button id="chSend" aria-label="${t('chat.send')}">➤</button></div>
+    <div class="row between chat-actions"><button class="link ${tk.status === 'bot' ? '' : 'hidden'}" id="chHuman">🙋 ${t('chat.human')}</button><button class="link" id="chNew">${t('chat.new')}</button></div>`, (sheet) => {
+    let last = tk;
+    const list = $('#chList', sheet);
+    const paint = (x: Ticket) => {
+      const scrolledDown = list.scrollTop + list.clientHeight >= list.scrollHeight - 30;
+      if (x.messages.length !== last.messages.length || x === last) list.innerHTML = chatBubbles(x.messages);
+      $('#chStatus', sheet).textContent = statusText(x.status);
+      $('#chHuman', sheet).classList.toggle('hidden', x.status !== 'bot');
+      if (scrolledDown || x !== last) list.scrollTop = list.scrollHeight;
+      last = x;
+      markSupportUnread(false);
+    };
+    paint(tk); list.scrollTop = list.scrollHeight;
+    const sendMsg = (b: HTMLButtonElement) => busy(b, async () => {
+      const text = val('#chText', sheet).trim();
+      if (!text) return;
+      // Show the message at once; the answer follows.
+      list.insertAdjacentHTML('beforeend', chatBubbles([{ id: -1, at: new Date().toISOString(), from: 'user', body: text }]) + `<p class="chat-note" data-typing><span class="spinner"></span></p>`);
+      list.scrollTop = list.scrollHeight;
+      $<HTMLTextAreaElement>('#chText', sheet).value = '';
+      try { paint((await supportApi<{ ticket: Ticket }>('POST', `/api/support/tickets/${id}/messages`, { text })).ticket); }
+      catch (e) { list.querySelector('[data-typing]')?.remove(); $<HTMLTextAreaElement>('#chText', sheet).value = text; throw e; }
+    });
+    $('#chSend', sheet).onclick = (e) => sendMsg(btn(e));
+    $<HTMLTextAreaElement>('#chText', sheet).onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && matchMedia('(pointer:fine)').matches) { e.preventDefault(); $<HTMLButtonElement>('#chSend', sheet).click(); } };
+    $('#chHuman', sheet).onclick = (e) => busy(btn(e), async () => paint((await supportApi<{ ticket: Ticket }>('POST', `/api/support/tickets/${id}/escalate`)).ticket));
+    $('#chNew', sheet).onclick = () => { if (!state.me) setGuestTicket(null); newChat(); };
+    // While a person is on it, look for their answer every few seconds (only while the chat is open).
+    // Also checked as soon as the person comes back to the app.
+    chatTick = async () => {
+      if (!document.body.contains(list)) return stopChatPoll();
+      if (document.hidden || (last.status !== 'open' && last.status !== 'waiting')) return;
+      try { paint((await supportApi<{ ticket: Ticket }>('GET', `/api/support/tickets/${id}`)).ticket); } catch { /* try again later */ }
+    };
+    chatPoll = setInterval(chatTick, 8000);
+    document.addEventListener('visibilitychange', chatTick);
+  });
+}
+
+/** A dot on the help button when the team has answered. */
+function markSupportUnread(on: boolean): void { document.getElementById('helpBtn')?.classList.toggle('unread', on); }
+async function checkSupportUnread(): Promise<void> {
+  try {
+    if (state.me) {
+      if (state.me.role === 'admin') return;
+      const { tickets } = await api<{ tickets: { unread: number }[] }>('GET', '/api/support/tickets');
+      markSupportUnread(tickets.some((x) => x.unread));
+    } else {
+      const g = guestTicket();
+      if (!g) return;
+      const r = await supportApi<{ ticket: Ticket }>('GET', `/api/support/tickets/${g.id}`).catch(() => null);
+      // Reading the ticket clears the server's flag, so judge by the last message instead.
+      markSupportUnread(!!r && r.ticket.messages.at(-1)?.from === 'agent');
+    }
+  } catch { /* not important */ }
+}
+const chatLink = () => `<p class="center"><button class="link" data-chat>💬 ${t('chat.cta')}</button></p>`;
+const wireChatLinks = (root: ParentNode) => $$('[data-chat]', root).forEach((b) => (b.onclick = () => openSupport()));
+
 // ---------- "install the app" ----------
 // AmaniCare is an installable web app: once added to the home screen it opens full screen, like an app.
 // Android (Chrome, Edge, Samsung Internet) offers a real install prompt; iPhone only allows Share › Add to
@@ -518,6 +685,7 @@ function renderLogin(): void {
           <button class="block" id="finish">${t('login.start')}</button>`}
       </div>
       <p class="center"><a class="link" href="#guide">❓ ${t('login.haveQuestions')}</a></p>
+      ${chatLink()}
       <section class="card" id="guide">
         <h2>${t('guide.title')}</h2>
         <p class="muted">${t('guide.intro')}</p>
@@ -527,7 +695,7 @@ function renderLogin(): void {
       </section>
       <p class="muted small center">${t('login.footer')}</p>
       <p class="muted small center"><a href="/privacy.html${state.lang === 'en' ? '#en' : ''}">${t('privacy')}</a></p>`;
-    wireGuide(app);
+    wireGuide(app); wireChatLinks(app);
 
     if (s.step === 'phone') {
       $$<HTMLButtonElement>('[data-side]').forEach((b) => (b.onclick = () => { setSide(b.dataset.side as 'payer' | 'family', true); $('#ph').focus(); }));
@@ -575,6 +743,7 @@ async function signedIn(user: Me): Promise<void> {
   document.getElementById('logoutBtn')!.classList.remove('hidden');
   await acceptPendingInvite();
   route();
+  checkSupportUnread();
 }
 
 // ---------- payer ----------
@@ -906,7 +1075,7 @@ async function renderClinic(): Promise<void> {
 }
 
 // ---------- admin ----------
-const ADMIN_TABS: AdminTab[] = ['overview', 'bills', 'clinics', 'users', 'prices', 'settings', 'messages', 'payments'];
+const ADMIN_TABS: AdminTab[] = ['overview', 'support', 'bills', 'clinics', 'users', 'prices', 'settings', 'messages', 'payments'];
 async function renderAdmin(): Promise<void> {
   app.innerHTML = `<h1>${t('admin.title')}</h1>
     <nav class="tabs">${ADMIN_TABS.map((k) => `<button data-tab="${k}" class="${state.adminTab === k ? 'on' : ''}">${t('admin.tab.' + k)}</button>`).join('')}</nav>
@@ -919,6 +1088,11 @@ async function renderAdmin(): Promise<void> {
   const on = nav.querySelector<HTMLElement>('.on');
   if (on && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = Math.max(0, on.offsetLeft - nav.offsetLeft - 16);
   atEnd();
+  // Conversations waiting for a person: a count on the Support tab, whatever tab is open.
+  api<{ counts: Record<string, number> }>('GET', '/api/admin/support?status=open&limit=1').then(({ counts }) => {
+    const tab = nav.querySelector('[data-tab="support"]');
+    if (tab && counts.open) tab.innerHTML = `${t('admin.tab.support')} <span class="badge">${counts.open}</span>`;
+  }).catch(() => {});
   const body = $('#adminBody');
   try { await ADMIN[state.adminTab](body); } catch (e) { reportUnexpected(e); body.innerHTML = `<p class="notice">${esc(errText(e))}</p>`; }
 }
@@ -1240,6 +1414,29 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
       toast(t('saved'));
     });
   },
+  async support(el) {
+    type Row = { id: string; status: string; channel: string; subject: string; reason: string; name: string; phone: string | null; role: string | null;
+      signedIn: boolean; billRef: string | null; last: string | null; lastFrom: string | null; messages: number; updatedAt: string };
+    const filters = ['open', 'waiting', 'bot', 'resolved', 'all'];
+    const filter = sessionStorage.getItem('supportFilter') || 'open';
+    el.innerHTML = `<div class="card"><h2>${t('admin.tab.support')}</h2><p class="muted small">${t('support.hint')}</p>
+      <div class="row filters" id="sFilters">${filters.map((f) => `<button class="secondary small ${f === filter ? 'on' : ''}" data-sf="${f}">${t('support.filter.' + f)} <span data-sc="${f}"></span></button>`).join('')}</div>
+      <div id="sList"></div></div>`;
+    $$('[data-sf]', el).forEach((b) => (b.onclick = () => { sessionStorage.setItem('supportFilter', b.dataset.sf!); renderAdmin(); }));
+    await pagedList<Row>($('#sList', el), {
+      fetchPage: async (offset) => {
+        const r = await api<{ tickets: Row[]; hasMore: boolean; counts: Record<string, number> }>('GET', `/api/admin/support?status=${filter}&offset=${offset}`);
+        filters.forEach((f) => { const n = f === 'all' ? Object.values(r.counts).reduce((a, b) => a + b, 0) : r.counts[f] || 0; const c = el.querySelector(`[data-sc="${f}"]`); if (c) c.textContent = n ? `(${n})` : ''; });
+        return { rows: r.tickets, hasMore: r.hasMore };
+      },
+      wrap: (inner) => `<div data-rows>${inner}</div>`, body: '[data-rows]', empty: t('support.empty'),
+      renderRows: (rows) => rows.map((x) => `<button class="ticket" data-ticket="${x.id}">
+        <span class="row between"><b>${esc(x.name || x.phone || '—')}</b><span class="pill ${x.status === 'open' ? 'high' : x.status === 'waiting' ? 'med' : x.status === 'resolved' ? 'low' : 'st'}">${t('support.filter.' + x.status)}</span></span>
+        <span class="muted small">${esc(x.phone || '')} · ${x.signedIn ? t('support.role.' + x.role) : t('support.guest')}${x.channel === 'whatsapp' ? ' · WhatsApp' : ''}${x.billRef ? ' · ' + t('ref') + ' ' + esc(x.billRef) : ''} · ${fmtDate(x.updatedAt)}</span>
+        <span class="small">“${esc((x.last || x.subject).slice(0, 140))}”${x.lastFrom === 'agent' ? ` <span class="muted">· ${t('support.youAnswered')}</span>` : ''}</span></button>`).join(''),
+      wire: () => $$('[data-ticket]', el).forEach((b) => (b.onclick = () => supportThread(b.dataset.ticket!))),
+    });
+  },
   async messages(el) {
     type Msg = { to_phone: string; channel: string; status: string; created_at: string; body: string; payload: string | null; error?: string | null };
     el.innerHTML = `<div class="card"><h2>${t('admin.tab.messages')}</h2><p class="muted small">${t('admin.messagesHint')}</p><div id="mList"></div></div>`;
@@ -1261,6 +1458,42 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
   },
 };
 
+
+// One conversation, for the team: the person, the bill, the messages, and a reply box.
+async function supportThread(id: string): Promise<void> {
+  type Thread = { ticket: { id: string; status: string; channel: string; reason: string; assignedTo: string | null };
+    contact: { name: string; phone: string | null; signedIn: boolean; account: { id: string; name: string; role: string } | null };
+    bill: { id: string; ref: string; status: string; patientName: string } | null;
+    messages: (ChatMsg & { agent?: string })[] };
+  const d = await api<Thread>('GET', `/api/admin/support/${id}`);
+  const c = d.contact;
+  const wa = (c.phone || '').replace(/\D/g, '');
+  openModal(`<div class="row between"><h2>${esc(c.name || c.phone || '—')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
+    <p class="muted small">${esc(c.phone || '')}${wa ? ` · <a href="https://wa.me/${wa}" target="_blank" rel="noopener">WhatsApp</a> · <a href="tel:${esc(c.phone)}">${t('support.call')}</a>` : ''}</p>
+    <p class="small">${c.signedIn ? t('support.signedIn', { role: t('support.role.' + c.account?.role) }) : c.account ? t('support.guestKnown', { name: esc(c.account.name), role: t('support.role.' + c.account.role) }) : t('support.guestUnknown')}</p>
+    ${d.bill ? `<p class="small">${t('ref')} <button class="link" data-sbill="${d.bill.id}">${esc(d.bill.ref)}</button> · ${esc(d.bill.patientName)} · <span class="pill st">${t('status.' + d.bill.status)}</span></p>` : ''}
+    ${d.ticket.reason ? `<p class="muted small">${t('support.reason')} : ${esc(t('support.why.' + d.ticket.reason) !== 'support.why.' + d.ticket.reason ? t('support.why.' + d.ticket.reason) : d.ticket.reason)}</p>` : ''}
+    <div class="chat agent-view">${d.messages.map((m) => m.from === 'system' ? `<p class="chat-note">${esc(m.body)}</p>` :
+      `<div class="msg ${m.from === 'user' ? 'them' : m.from === 'agent' ? 'me' : 'bot'}"><span class="who">${m.from === 'user' ? esc(c.name || t('support.guest')) : m.from === 'agent' ? esc(m.agent || t('chat.agent')) : t('chat.bot')}</span>${esc(m.body).replace(/\n/g, '<br>')}<time>${chatTime(m.at)}</time></div>`).join('')}</div>
+    <label for="sReply">${t('support.reply')}</label>
+    <textarea id="sReply" rows="3" maxlength="2000"></textarea>
+    <p class="muted small">${t('support.replyHint')}</p>
+    <div class="row"><button class="grow" id="sSend">${t('chat.send')}</button>
+    ${d.ticket.status === 'resolved' ? `<button class="secondary grow" id="sReopen">${t('support.reopen')}</button>` : `<button class="secondary grow" id="sResolve">✓ ${t('support.resolve')}</button>`}</div>`, (sheet) => {
+    const box = $('.chat', sheet); box.scrollTop = box.scrollHeight;
+    sheet.querySelector<HTMLButtonElement>('[data-sbill]')?.addEventListener('click', () => showBill(d.bill!.id));
+    $('#sSend', sheet).onclick = (e) => busy(btn(e), async () => {
+      const text = val('#sReply', sheet).trim();
+      if (!text) return;
+      await api('POST', `/api/admin/support/${id}/messages`, { text });
+      toast(t('support.sent')); supportThread(id); renderAdmin();
+    });
+    const setStatus = (status: string) => (e: Event) => busy(btn(e), async () => { await api('PATCH', `/api/admin/support/${id}`, { status }); closeModal(); renderAdmin(); });
+    sheet.querySelector<HTMLButtonElement>('#sResolve')?.addEventListener('click', setStatus('resolved'));
+    sheet.querySelector<HTMLButtonElement>('#sReopen')?.addEventListener('click', setStatus('open'));
+  });
+}
+
 // ---------- routing ----------
 function route(): void {
   if (!state.me) return renderLogin();
@@ -1280,7 +1513,7 @@ document.getElementById('langSel')!.addEventListener('change', async (e) => {
 });
 document.getElementById('logoutBtn')!.addEventListener('click', async () => {
   await api('POST', '/api/auth/logout', {}).catch(() => {});
-  state.me = null; setUser(null); document.getElementById('logoutBtn')!.classList.add('hidden'); route();
+  state.me = null; setUser(null); markSupportUnread(false); document.getElementById('logoutBtn')!.classList.add('hidden'); route();
 });
 
 // An invitation link (/?invite=CODE) is kept until the relative has logged in, then accepted.
@@ -1322,5 +1555,6 @@ async function acceptPendingInvite(): Promise<void> {
   } catch {}
   route();
   appReady = true;
+  checkSupportUnread();
   setTimeout(showInstallBar, 1500); // iPhone and in-app browsers never send beforeinstallprompt
 })();

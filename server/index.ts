@@ -10,6 +10,7 @@ import { config } from './config.js';
 import { openDb } from './db.js';
 import { migrate } from './migrate.js';
 import { router } from './api.js';
+import './support.js'; // adds the customer-service routes
 import { readBody, sendJson, parseCookies, HttpError, type Body, type Ctx } from './http.js';
 import { currentUser } from './auth.js';
 import { seedIfEmpty } from './seed.js';
