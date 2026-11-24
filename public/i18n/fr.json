@@ -514,8 +514,9 @@
  "install.android.2": "Touchez le menu ⋮ en haut à droite, puis « Installer l'application » ou « Ajouter à l'écran d'accueil ».",
  "install.android.3": "Confirmez : l'icône AmaniCare apparaît sur votre écran d'accueil.",
  "install.ios.1": "Ouvrez myamanicare.com dans Safari.",
- "install.ios.2": "Touchez les 3 points « ••• » en bas à droite, puis « Partager ». Faites défiler et touchez « Sur l'écran d'accueil ». (Sur un ancien iPhone : touchez directement le bouton Partager, le carré avec une flèche.)",
- "install.ios.3": "Touchez « Ajouter » : l'icône AmaniCare apparaît sur votre écran d'accueil.",
+ "install.ios.2": "Touchez les 3 points « ••• » à droite de la barre d'adresse (en bas de l'écran), puis « Partager ». Sur un ancien iPhone, touchez directement le bouton Partager (le carré avec une flèche).",
+ "install.ios.3": "Touchez « Voir plus » (la flèche ˅) pour afficher toutes les options, puis « Sur l'écran d'accueil ».",
+ "install.ios.4": "Touchez « Ajouter » : l'icône AmaniCare apparaît sur votre écran d'accueil.",
  "install.inapp": "Vous êtes dans le navigateur de WhatsApp ou de Facebook, qui ne peut pas installer d'application. Ouvrez d'abord le lien dans Chrome (Android) ou Safari (iPhone) : menu ⋮ ou bouton « Ouvrir dans le navigateur », puis revenez ici.",
  "install.done": "AmaniCare est installé. Retrouvez-le sur votre écran d'accueil."
 }

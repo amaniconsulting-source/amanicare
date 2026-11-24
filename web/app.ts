@@ -413,7 +413,7 @@ const installed = (): boolean => matchMedia('(display-mode: standalone)').matche
 const INSTALL_KEY = 'installDismissedAt';
 function installSteps(): string {
   if (inAppBrowser) return `<p>${t('install.inapp')}</p>`;
-  if (isIOS) return `<ol class="steps"><li>${t('install.ios.1')}</li><li>${t('install.ios.2')}</li><li>${t('install.ios.3')}</li></ol>`;
+  if (isIOS) return `<ol class="steps"><li>${t('install.ios.1')}</li><li>${t('install.ios.2')}</li><li>${t('install.ios.3')}</li><li>${t('install.ios.4')}</li></ol>`;
   return `<ol class="steps"><li>${t('install.android.1')}</li><li>${t('install.android.2')}</li><li>${t('install.android.3')}</li></ol>`;
 }
 function openInstallGuide(): void {
