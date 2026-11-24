@@ -198,3 +198,13 @@ tr.inactive td{opacity:.65}
 @media (max-width:520px){.update-bar{left:12px;right:12px;transform:none;width:auto;border-radius:14px}}
 .update-bar button{min-height:34px;padding:4px 14px;font-size:14px;border-radius:999px}
 button.secondary.on{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
+.filters{gap:6px;margin:8px 0}
+/* Phones: tables marked .cards show each row as a small card (label: value) instead of squeezed columns. */
+@media (max-width:699px){
+  table.cards thead{display:none}
+  table.cards,table.cards tbody,table.cards tr,table.cards td{display:block;width:100%}
+  table.cards tr{border-bottom:1px solid var(--line);padding:10px 0}
+  table.cards td{border:0;padding:2px 0;text-align:left}
+  table.cards td[data-label]{display:flex;justify-content:space-between;gap:12px}
+  table.cards td[data-label]::before{content:attr(data-label);color:var(--muted);font-size:13px}
+}

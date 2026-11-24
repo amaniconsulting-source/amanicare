@@ -867,6 +867,35 @@ async function renderAdmin(): Promise<void> {
   try { await ADMIN[state.adminTab](body); } catch (e) { reportUnexpected(e); body.innerHTML = `<p class="notice">${esc(errText(e))}</p>`; }
 }
 
+const BILL_STATUSES = ['review', 'awaiting_clinic', 'awaiting_payer', 'payment_pending', 'paying_out', 'paid', 'payment_failed', 'payout_failed', 'rejected', 'declined'];
+
+/**
+ * A list that loads 50 at a time with a "Load more" button. fetchPage(offset) returns the rows and whether
+ * there are more; renderRows(rows) returns their HTML (appended into `body`); wire(rows) attaches handlers.
+ */
+async function pagedList<T>(box: HTMLElement, opts: { fetchPage: (offset: number) => Promise<{ rows: T[]; hasMore: boolean; total?: number }>;
+  renderRows: (rows: T[]) => string; wrap: (inner: string) => string; body: string; empty: string; wire?: (all: T[]) => void }): Promise<void> {
+  const rows: T[] = [];
+  const page = await opts.fetchPage(0);
+  rows.push(...page.rows);
+  if (!rows.length) { box.innerHTML = `<p class="empty">${opts.empty}</p>`; return; }
+  box.innerHTML = opts.wrap(opts.renderRows(rows)) + `<p class="muted small center" data-count></p><button class="secondary block hidden" data-more>${t('list.more')}</button>`;
+  const more = $<HTMLButtonElement>('[data-more]', box);
+  const count = $('[data-count]', box);
+  const update = (p: { hasMore: boolean; total?: number }) => {
+    more.classList.toggle('hidden', !p.hasMore);
+    count.textContent = p.total !== undefined ? t('list.count', { shown: rows.length, total: p.total }) : '';
+  };
+  update(page);
+  opts.wire?.(rows);
+  more.onclick = (e) => busy(btn(e), async () => {
+    const next = await opts.fetchPage(rows.length);
+    rows.push(...next.rows);
+    $(opts.body, box).insertAdjacentHTML('beforeend', opts.renderRows(next.rows));
+    update(next); opts.wire?.(rows);
+  });
+}
+
 // Edit a person's name and phone number, or delete their account (admin).
 function editUserDialog(u: { id: string; name: string; phone: string }, done: () => void): void {
   openModal(`<div class="row between"><h2>${t('admin.editUser')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
@@ -894,12 +923,12 @@ function wireUserActions(root: HTMLElement, list: { id: string; name: string; ph
 
 const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
   async overview(el) {
-    const [ov, { bills }] = await Promise.all([
+    // Only the bills that need a decision, however many bills there are in total.
+    const [ov, { bills: review }, { bills: stuck }] = await Promise.all([
       api<{ paidUsd: number; feesUsd: number; stoppedUsd: number; avgRisk: number }>('GET', '/api/admin/overview'),
-      api<{ bills: Bill[] }>('GET', '/api/bills'),
+      api<{ bills: Bill[] }>('GET', '/api/bills?status=review&limit=100'),
+      api<{ bills: Bill[] }>('GET', '/api/bills?status=payout_failed&limit=100'),
     ]);
-    const review = bills.filter((b) => b.status === 'review');
-    const stuck = bills.filter((b) => b.status === 'payout_failed');
     el.innerHTML = `
       <div class="kpis">
         <div class="kpi"><b>${usd(ov.paidUsd)}</b><span>${t('admin.kpi.paid')}</span></div>
@@ -921,11 +950,24 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
     $$('[data-retry]', el).forEach((b) => (b.onclick = (e) => busy(btn(e), async () => { await api('POST', `/api/bills/${b.dataset.retry}/retry-payout`, {}); renderAdmin(); })));
   },
   async bills(el) {
-    const { bills } = await api<{ bills: Bill[] }>('GET', '/api/bills');
-    el.innerHTML = `<div class="card scroll"><table><thead><tr><th>${t('ref')}</th><th>${t('family.patient')}</th><th>${t('family.clinic')}</th><th class="num">${t('total')}</th><th>${t('risk')}</th><th>${t('status')}</th></tr></thead><tbody>
-      ${bills.map((b) => `<tr data-detail="${b.id}"><td><button class="link" data-detail="${b.id}">${esc(b.ref)}</button></td><td>${esc(b.patientName)}</td><td>${esc(b.clinic?.name || '')}</td><td class="num">${usd(b.totalUsd)}</td><td>${riskPill(b.risk)}</td><td class="small">${t('status.' + b.status)}</td></tr>`).join('')}
-    </tbody></table></div>`;
-    $$('button[data-detail]', el).forEach((b) => b.addEventListener('click', () => showBill(b.dataset.detail!)));
+    el.innerHTML = `<div class="card"><div class="grid2">
+        <input id="bQ" type="search" placeholder="${t('admin.searchBills')}" aria-label="${t('admin.searchBills')}">
+        <select id="bStatus" aria-label="${t('status')}"><option value="">${t('admin.allStatuses')}</option>${BILL_STATUSES.map((st) => `<option value="${st}">${t('status.' + st)}</option>`).join('')}</select>
+      </div><div id="bList" class="scroll"><p class="center"><span class="spinner"></span></p></div></div>`;
+    const row = (b: Bill) => `<tr><td><button class="link" data-detail="${b.id}">${esc(b.ref)}</button></td><td>${esc(b.patientName)}</td><td>${esc(b.clinic?.name || '')}</td><td class="num">${usd(b.totalUsd)}</td><td>${riskPill(b.risk)}</td><td class="small">${t('status.' + b.status)}</td></tr>`;
+    const load = () => pagedList<Bill>($('#bList', el), {
+      fetchPage: async (offset) => {
+        const r = await api<{ bills: Bill[]; hasMore: boolean; total: number }>('GET', `/api/bills?offset=${offset}&q=${encodeURIComponent(val('#bQ', el))}&status=${val('#bStatus', el)}`);
+        return { rows: r.bills, hasMore: r.hasMore, total: r.total };
+      },
+      wrap: (inner) => `<table><thead><tr><th>${t('ref')}</th><th>${t('family.patient')}</th><th>${t('family.clinic')}</th><th class="num">${t('total')}</th><th>${t('risk')}</th><th>${t('status')}</th></tr></thead><tbody>${inner}</tbody></table>`,
+      body: 'tbody', renderRows: (rows) => rows.map(row).join(''), empty: t('admin.noBills'),
+      wire: () => $$<HTMLButtonElement>('button[data-detail]', el).forEach((b) => (b.onclick = () => showBill(b.dataset.detail!))),
+    }).catch((e) => toast(errText(e)));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    $('#bQ', el).oninput = () => { clearTimeout(timer); timer = setTimeout(load, 300); };
+    $('#bStatus', el).onchange = load;
+    await load();
   },
   async clinics(el) {
     const payoutLabel = (m: string) => ({ bank: t('pay.bankAccount'), mpesa: 'M-Pesa', orange: 'Orange Money', airtel: 'Airtel Money' } as Record<string, string>)[m] || m;
@@ -1005,14 +1047,14 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
       const tag = mine ? ` <span class="pill low">${t('admin.you')}</span>` : isOwner ? ` <span class="pill low">${t('admin.owner')}</span>` : '';
       const action = userActions(u, { locked: mine || isOwner, kind: 'access' });
       return `<tr class="${u.active ? '' : 'inactive'}"><td><b>${esc(u.name)}</b>${tag}${u.active ? '' : ` <span class="pill high">${t('admin.inactive')}</span>`}${action}</td>
-        <td class="small">${esc(u.phone)}</td><td class="small">${u.role === 'admin' ? t('admin.roleAdmin') : esc(u.clinic || t('admin.roleClinic'))}</td></tr>`;
+        <td class="small" data-label="${t('admin.colPhone')}">${esc(u.phone)}</td><td class="small" data-label="${t('admin.role')}">${u.role === 'admin' ? t('admin.roleAdmin') : esc(u.clinic || t('admin.roleClinic'))}</td></tr>`;
     };
-    const table = (list: AdminUser[]) => list.length ? `<div class="scroll"><table><thead><tr><th>${t('admin.colName')}</th><th>${t('admin.colPhone')}</th><th>${t('admin.role')}</th></tr></thead><tbody>${list.map(row).join('')}</tbody></table></div>` : `<p class="empty">${t('admin.noUsers')}</p>`;
+    const table = (list: AdminUser[]) => list.length ? `<div class="scroll"><table class="cards"><thead><tr><th>${t('admin.colName')}</th><th>${t('admin.colPhone')}</th><th>${t('admin.role')}</th></tr></thead><tbody>${list.map(row).join('')}</tbody></table></div>` : `<p class="empty">${t('admin.noUsers')}</p>`;
     el.innerHTML = `
       <div class="card"><div class="row between"><h2>${t('admin.customers')}</h2><span class="muted small" id="custCounts"></span></div>
         <p class="muted small">${t('admin.customersHint')}</p>
         <input id="custQ" type="search" placeholder="${t('admin.searchCustomers')}" aria-label="${t('admin.searchCustomers')}">
-        <div class="row" style="gap:6px;margin:8px 0"><button class="secondary small on" data-ckind="">${t('admin.all')}</button><button class="secondary small" data-ckind="payer">${t('admin.payers')}</button><button class="secondary small" data-ckind="family">${t('admin.families')}</button></div>
+        <div class="row filters"><button class="secondary small on" data-ckind="">${t('admin.all')}</button><button class="secondary small" data-ckind="payer">${t('admin.payers')}</button><button class="secondary small" data-ckind="family">${t('admin.families')}</button></div>
         <div id="custList"><p class="center"><span class="spinner"></span></p></div>
       </div>
       <div id="teamBox"><div class="card"><h2>${t('admin.admins')}</h2>${table(users.filter((u) => u.role === 'admin'))}</div>
@@ -1031,25 +1073,30 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
     type Customer = { id: string; name: string; phone: string; role: 'payer' | 'family'; active: number; created_at: string; last_login: string | null; linked: string | null; bills: number; paid_usd: number };
     let kind = ''; let timer: ReturnType<typeof setTimeout> | undefined;
     const day = (d: string | null) => d ? new Date(d).toLocaleDateString(state.lang === 'en' ? 'en-US' : 'fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
-    const loadCustomers = async (): Promise<void> => {
-      const { customers, counts } = await api<{ customers: Customer[]; counts: { payers: number; families: number } }>('GET', '/api/admin/customers?q=' + encodeURIComponent(val('#custQ', el)));
-      $('#custCounts', el).textContent = t('admin.customerCounts', { payers: counts.payers, families: counts.families });
-      const list = customers.filter((c) => !kind || c.role === kind);
-      $('#custList', el).innerHTML = list.length ? `<div class="scroll"><table><thead><tr><th>${t('admin.colName')}</th><th>${t('admin.colPhone')}</th><th>${t('admin.linkedTo')}</th><th class="num">${t('admin.colBills')}</th><th class="num">${t('admin.colPaid')}</th></tr></thead><tbody>
-        ${list.map((c) => `<tr class="${c.active ? '' : 'inactive'}"><td><b>${esc(c.name)}</b> <span class="pill ${c.role === 'payer' ? 'low' : 'med'}">${t(c.role === 'payer' ? 'admin.payer' : 'admin.family')}</span>${c.active ? '' : ` <span class="pill high">${t('admin.inactive')}</span>`}
+    const custRow = (c: Customer) => `<tr class="${c.active ? '' : 'inactive'}"><td><b>${esc(c.name)}</b> <span class="pill ${c.role === 'payer' ? 'low' : 'med'}">${t(c.role === 'payer' ? 'admin.payer' : 'admin.family')}</span>${c.active ? '' : ` <span class="pill high">${t('admin.inactive')}</span>`}
             <div class="muted small">${t('admin.joined', { date: day(c.created_at) })} · ${t('admin.lastLogin', { date: day(c.last_login) })}</div>
             ${userActions(c, { kind: 'caccess' })}</td>
-          <td class="small">${esc(c.phone)}</td><td class="small">${esc(c.linked || '—')}</td><td class="num">${c.bills}</td><td class="num">${usd(c.paid_usd)}</td></tr>`).join('')}
-        </tbody></table></div>` : `<p class="empty">${t('admin.noUsers')}</p>`;
-      $$('[data-caccess]', el).forEach((b) => (b.onclick = async () => {
-        const c = list.find((x) => x.id === b.dataset.caccess)!;
-        const removing = b.dataset.active === '1';
-        if (removing && !(await confirmDialog(t('admin.removeAccessConfirm', { name: esc(c.name) }), t('admin.removeAccess'), true))) return;
-        try { await api('PATCH', `/api/admin/users/${c.id}`, { active: !removing }); toast(t('saved')); await loadCustomers(); }
-        catch (err) { toast(errText(err)); }
-      }));
-      wireUserActions($('#custList', el), list, () => { loadCustomers().catch((e) => toast(errText(e))); });
-    };
+          <td class="small" data-label="${t('admin.colPhone')}">${esc(c.phone)}</td><td class="small" data-label="${t('admin.linkedTo')}">${esc(c.linked || '—')}</td><td class="num" data-label="${t('admin.colBills')}">${c.bills}</td><td class="num" data-label="${t('admin.colPaid')}">${usd(c.paid_usd)}</td></tr>`;
+    const loadCustomers = (): Promise<void> => pagedList<Customer>($('#custList', el), {
+      fetchPage: async (offset) => {
+        const r = await api<{ customers: Customer[]; counts: { payers: number; families: number }; total: number; hasMore: boolean }>('GET',
+          `/api/admin/customers?offset=${offset}&kind=${kind}&q=${encodeURIComponent(val('#custQ', el))}`);
+        $('#custCounts', el).textContent = t('admin.customerCounts', { payers: r.counts.payers, families: r.counts.families });
+        return { rows: r.customers, hasMore: r.hasMore, total: r.total };
+      },
+      wrap: (inner) => `<div class="scroll"><table class="cards"><thead><tr><th>${t('admin.colName')}</th><th>${t('admin.colPhone')}</th><th>${t('admin.linkedTo')}</th><th class="num">${t('admin.colBills')}</th><th class="num">${t('admin.colPaid')}</th></tr></thead><tbody>${inner}</tbody></table></div>`,
+      body: 'tbody', renderRows: (rows) => rows.map(custRow).join(''), empty: t('admin.noUsers'),
+      wire: (list) => {
+        $$('[data-caccess]', $('#custList', el)).forEach((b) => (b.onclick = async () => {
+          const c = list.find((x) => x.id === b.dataset.caccess)!;
+          const removing = b.dataset.active === '1';
+          if (removing && !(await confirmDialog(t('admin.removeAccessConfirm', { name: esc(c.name) }), t('admin.removeAccess'), true))) return;
+          try { await api('PATCH', `/api/admin/users/${c.id}`, { active: !removing }); toast(t('saved')); await loadCustomers(); }
+          catch (err) { toast(errText(err)); }
+        }));
+        wireUserActions($('#custList', el), list, () => { loadCustomers().catch((e) => toast(errText(e))); });
+      },
+    });
     $('#custQ', el).oninput = () => { clearTimeout(timer); timer = setTimeout(() => { loadCustomers().catch((e) => toast(errText(e))); }, 300); };
     $$<HTMLButtonElement>('[data-ckind]', el).forEach((b) => (b.onclick = () => {
       kind = b.dataset.ckind || ''; $$('[data-ckind]', el).forEach((x) => x.classList.toggle('on', x === b));
@@ -1138,15 +1185,23 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
     });
   },
   async messages(el) {
-    const { messages } = await api<{ messages: { to_phone: string; channel: string; status: string; created_at: string; body: string; payload: string | null; error?: string | null }[] }>('GET', '/api/admin/messages');
-    el.innerHTML = `<div class="card"><h2>${t('admin.tab.messages')}</h2><p class="muted small">${t('admin.messagesHint')}</p>
-      ${messages.length ? messages.map((m) => `<div class="bill"><div class="row between"><b class="small">→ ${esc(m.to_phone)}</b><span class="muted small">${esc(m.channel)} · ${esc(m.status)} · ${fmtDate(m.created_at)}</span></div><p class="small">${esc(m.body).replace(/\n/g, '<br>')}</p>${m.error ? `<p class="notice">${esc(m.error)}</p>` : ''}${((JSON.parse(m.payload || '{}').buttons || []) as { title: string }[]).map((b) => `<span class="pill st">${esc(b.title)}</span> `).join('')}</div>`).join('') : `<p class="empty">—</p>`}</div>`;
+    type Msg = { to_phone: string; channel: string; status: string; created_at: string; body: string; payload: string | null; error?: string | null };
+    el.innerHTML = `<div class="card"><h2>${t('admin.tab.messages')}</h2><p class="muted small">${t('admin.messagesHint')}</p><div id="mList"></div></div>`;
+    await pagedList<Msg>($('#mList', el), {
+      fetchPage: async (offset) => { const r = await api<{ messages: Msg[]; hasMore: boolean }>('GET', `/api/admin/messages?offset=${offset}`); return { rows: r.messages, hasMore: r.hasMore }; },
+      wrap: (inner) => `<div data-rows>${inner}</div>`, body: '[data-rows]', empty: '—',
+      renderRows: (rows) => rows.map((m) => `<div class="bill"><div class="row between"><b class="small">→ ${esc(m.to_phone)}</b><span class="muted small">${esc(m.channel)} · ${esc(m.status)} · ${fmtDate(m.created_at)}</span></div><p class="small">${esc(m.body).replace(/\n/g, '<br>')}</p>${m.error ? `<p class="notice">${esc(m.error)}</p>` : ''}${((JSON.parse(m.payload || '{}').buttons || []) as { title: string }[]).map((b) => `<span class="pill st">${esc(b.title)}</span> `).join('')}</div>`).join(''),
+    });
   },
   async payments(el) {
-    const { payments } = await api<{ payments: { bill_ref: string; kind: string; amount_usd: number; partner: string; partner_ref: string | null; status: string; failure_reason: string | null }[] }>('GET', '/api/admin/payments');
-    el.innerHTML = `<div class="card scroll"><h2>${t('admin.tab.payments')}</h2><table><thead><tr><th>${t('ref')}</th><th>${t('admin.kind')}</th><th class="num">USD</th><th>${t('admin.partnerRef')}</th><th>${t('status')}</th></tr></thead><tbody>
-      ${payments.map((p) => `<tr><td>${esc(p.bill_ref)}</td><td>${esc(p.kind)}</td><td class="num">${usd(p.amount_usd)}</td><td class="small">${esc(p.partner)} · ${esc(p.partner_ref || '')}</td><td><span class="pill ${p.status === 'succeeded' ? 'low' : p.status === 'failed' ? 'high' : 'med'}">${esc(p.status)}</span>${p.failure_reason ? `<div class="muted small">${esc(p.failure_reason)}</div>` : ''}</td></tr>`).join('')}
-    </tbody></table></div>`;
+    type Pay = { bill_ref: string; kind: string; amount_usd: number; partner: string; partner_ref: string | null; status: string; failure_reason: string | null };
+    el.innerHTML = `<div class="card scroll"><h2>${t('admin.tab.payments')}</h2><div id="pList"></div></div>`;
+    await pagedList<Pay>($('#pList', el), {
+      fetchPage: async (offset) => { const r = await api<{ payments: Pay[]; hasMore: boolean }>('GET', `/api/admin/payments?offset=${offset}`); return { rows: r.payments, hasMore: r.hasMore }; },
+      wrap: (inner) => `<table><thead><tr><th>${t('ref')}</th><th>${t('admin.kind')}</th><th class="num">USD</th><th>${t('admin.partnerRef')}</th><th>${t('status')}</th></tr></thead><tbody>${inner}</tbody></table>`,
+      body: 'tbody', empty: '—',
+      renderRows: (rows) => rows.map((p) => `<tr><td>${esc(p.bill_ref)}</td><td>${esc(p.kind)}</td><td class="num">${usd(p.amount_usd)}</td><td class="small">${esc(p.partner)} · ${esc(p.partner_ref || '')}</td><td><span class="pill ${p.status === 'succeeded' ? 'low' : p.status === 'failed' ? 'high' : 'med'}">${esc(p.status)}</span>${p.failure_reason ? `<div class="muted small">${esc(p.failure_reason)}</div>` : ''}</td></tr>`).join(''),
+    });
   },
 };
 

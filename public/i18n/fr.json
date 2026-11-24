@@ -473,5 +473,10 @@
  "err.cannot_delete_self": "Vous ne pouvez pas supprimer votre propre compte.",
  "err.cannot_delete_owner": "Le compte du propriétaire ne peut pas être supprimé.",
  "err.cannot_change_owner_phone": "Le numéro du propriétaire se change dans les réglages Render (ADMIN_PHONE).",
- "admin.userDeleted": "Compte de {name} supprimé."
+ "admin.userDeleted": "Compte de {name} supprimé.",
+ "list.more": "Charger plus",
+ "list.count": "{shown} affichés sur {total}",
+ "admin.searchBills": "Rechercher : référence, patient, n° de facture…",
+ "admin.allStatuses": "Tous les statuts",
+ "admin.noBills": "Aucune facture."
 }

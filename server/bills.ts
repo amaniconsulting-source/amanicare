@@ -315,7 +315,7 @@ export function canView(user: UserRow | null, bill: BillRow | undefined): bill i
 
 export async function listBillsFor(user: UserRow) {
   const q: Record<UserRow['role'], [string, ...unknown[]]> = {
-    admin: ['SELECT * FROM bills ORDER BY created_at DESC LIMIT 500'],
+    admin: ['SELECT * FROM bills ORDER BY created_at DESC LIMIT 50'],
     payer: ['SELECT * FROM bills WHERE payer_id = $1 ORDER BY created_at DESC', user.id],
     family: ['SELECT * FROM bills WHERE family_id = $1 ORDER BY created_at DESC', user.id],
     clinic: ["SELECT * FROM bills WHERE clinic_id = $1 AND status != 'review' ORDER BY created_at DESC", user.clinic_id],
@@ -323,6 +323,15 @@ export async function listBillsFor(user: UserRow) {
   const [sql, ...params] = q[user.role];
   const bills = await all<BillRow>(sql, ...params);
   return Promise.all(bills.map((b) => view(b, user)));
+}
+
+/** Admin list of every bill, one page at a time. */
+export async function listAllBills(user: UserRow, { q, status, limit, offset }: { q: string; status: string; limit: number; offset: number }) {
+  const like = '%' + q.replace(/[%_\\]/g, '') + '%';
+  const where = `($1 = '' OR ref ILIKE $2 OR patient_name ILIKE $2 OR bill_number ILIKE $2) AND ($3 = '' OR status = $3)`;
+  const rows = await all<BillRow>(`SELECT * FROM bills WHERE ${where} ORDER BY created_at DESC, id LIMIT $4 OFFSET $5`, q, like, status, limit, offset);
+  const total = (await one<{ n: number }>(`SELECT COUNT(*)::int n FROM bills WHERE ${where}`, q, like, status))?.n ?? 0;
+  return { bills: await Promise.all(rows.map((b) => view(b, user))), total, hasMore: offset + rows.length < total };
 }
 
 export interface BillView {

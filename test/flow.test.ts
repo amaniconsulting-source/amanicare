@@ -619,3 +619,26 @@ test('files are downloaded again only after a new deploy; the page names its ver
   assert.match(js.headers.get('cache-control')!, /immutable/); // this deploy's code: kept, never re-downloaded
   assert.equal((await fetch(base + '/app.js?v=old')).headers.get('cache-control'), 'no-cache'); // an old page still gets checked
 });
+
+test('admin lists load page by page, with totals, filters and search', async () => {
+  const owner = client(); await login(owner, '+15550000001');
+  const { run } = await import('../server/db.js');
+  for (let i = 0; i < 120; i++) {
+    await run("INSERT INTO users(id, phone, name, role, lang) VALUES($1,$2,$3,'family','fr')", `bulk-${i}`, `+24382${String(i).padStart(7, '0')}`, `Bulk ${i}`);
+  }
+  const p1 = (await owner('GET', '/api/admin/customers?kind=family')).data;
+  assert.equal(p1.customers.length, 50);
+  assert.ok(p1.total >= 120 && p1.hasMore);
+  const p2 = (await owner('GET', '/api/admin/customers?kind=family&offset=50')).data;
+  assert.equal(p2.customers.length, 50);
+  assert.equal(new Set([...p1.customers, ...p2.customers].map((c: { id: string }) => c.id)).size, 100); // no repeats between pages
+  assert.ok(p1.customers.every((c: { role: string }) => c.role === 'family'));
+  const one = (await owner('GET', '/api/admin/customers?q=Bulk%20117')).data;
+  assert.equal(one.total, 1); assert.equal(one.hasMore, false);
+  // Bills: the review queue is fetched on its own, whatever the number of other bills.
+  const r = (await owner('GET', '/api/bills?status=review&limit=100')).data;
+  assert.ok(r.bills.every((b: { status: string }) => b.status === 'review'));
+  const all = (await owner('GET', '/api/bills?limit=2')).data;
+  assert.ok(all.bills.length <= 2 && typeof all.total === 'number');
+  assert.ok((await owner('GET', '/api/admin/messages?limit=5')).data.messages.length <= 5);
+});

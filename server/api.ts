@@ -3,9 +3,9 @@ import { randomUUID, randomBytes, createHmac, timingSafeEqual } from 'node:crypt
 import { readFile } from 'node:fs/promises';
 import { config } from './config.js';
 import { one, all, run, tx, audit, setSetting } from './db.js';
-import { Router, HttpError, bad, notFound, forbidden, str, num, oneOf, phone, type AuthCtx, type Body, type Ctx } from './http.js';
+import { Router, HttpError, bad, notFound, forbidden, str, num, oneOf, phone, pageOf, type AuthCtx, type Body, type Ctx } from './http.js';
 import { requestOtp, verifyOtp, createSession, sessionCookie, destroySession, findOrCreateUser, requireRole } from './auth.js';
-import { createDraft, createBill, clinicDecision, reviewDecision, payerDecline, resendToClinic, hospitalReason, listBillsFor, view, canView, getBill, settings, prices, STATUSES, attachWaitingBills, notifyPayerOf } from './bills.js';
+import { createDraft, createBill, clinicDecision, reviewDecision, payerDecline, resendToClinic, hospitalReason, listBillsFor, listAllBills, view, canView, getBill, settings, prices, STATUSES, attachWaitingBills, notifyPayerOf } from './bills.js';
 import { startPayment, applyPaymentUpdate, retryPayout } from './payments/flow.js';
 import { getPartner, hasPartner } from './payments/partners.js';
 import { DEFAULT_SETTINGS } from './screening.js';
@@ -164,7 +164,12 @@ router.post('/api/bills/extract', requireRole('family'), async ({ user, body }: 
 
 router.post('/api/bills', requireRole('family'), async ({ user, body }: AuthCtx) => ({ bill: await view(await createBill(user, body), user) }));
 
-router.get('/api/bills', requireRole(), async ({ user }: AuthCtx) => ({ bills: await listBillsFor(user) }));
+router.get('/api/bills', requireRole(), async ({ user, url }: AuthCtx) => {
+  if (user.role !== 'admin') return { bills: await listBillsFor(user) };
+  // Admins: page by page, newest first, with a search (reference, patient, bill number) and a status filter.
+  const { limit, offset } = pageOf(url);
+  return listAllBills(user, { q: (url.searchParams.get('q') || '').trim().slice(0, 60), status: url.searchParams.get('status') || '', limit, offset });
+});
 
 router.get('/api/bills/:id', requireRole(), async ({ user, params }: AuthCtx) => {
   const b = await getBill(params.id);
@@ -335,7 +340,11 @@ router.delete('/api/admin/users/:id', requireRole('admin'), async ({ user, param
 // how many bills they have and how much was paid to hospitals. Searchable by name or phone.
 router.get('/api/admin/customers', requireRole('admin'), async ({ url }: AuthCtx) => {
   const q = (url.searchParams.get('q') || '').trim().slice(0, 60);
+  const kind = url.searchParams.get('kind');
+  const roles = kind === 'payer' || kind === 'family' ? [kind] : ['payer', 'family'];
   const like = '%' + q.replace(/[%_\\]/g, '') + '%';
+  const { limit, offset } = pageOf(url);
+  const where = `u.role = ANY($1) AND ($2 = '' OR u.name ILIKE $3 OR u.phone LIKE $3)`;
   const customers = await all(`SELECT u.id, u.name, u.phone, u.role, u.active, u.lang, u.created_at,
       (SELECT MAX(a.at) FROM audit a WHERE a.actor_id = u.id AND a.action = 'login') last_login,
       (SELECT string_agg(o.name || CASE WHEN l.relation <> '' THEN ' (' || l.relation || ')' ELSE '' END, ', ' ORDER BY l.created_at)
@@ -343,11 +352,12 @@ router.get('/api/admin/customers', requireRole('admin'), async ({ url }: AuthCtx
         WHERE (u.role = 'payer' AND l.payer_id = u.id) OR (u.role = 'family' AND l.family_id = u.id)) linked,
       (SELECT COUNT(*)::int FROM bills b WHERE b.payer_id = u.id OR b.family_id = u.id) bills,
       (SELECT COALESCE(SUM(b.total_usd), 0) FROM bills b WHERE (b.payer_id = u.id OR b.family_id = u.id) AND b.status = 'paid') paid_usd
-    FROM users u WHERE u.role IN ('payer', 'family') AND ($1 = '' OR u.name ILIKE $2 OR u.phone LIKE $2)
-    ORDER BY u.created_at DESC LIMIT 300`, q, like);
+    FROM users u WHERE ${where} ORDER BY u.created_at DESC, u.id LIMIT $4 OFFSET $5`, roles, q, like, limit, offset);
+  const found = await one<{ n: number }>(`SELECT COUNT(*)::int n FROM users u WHERE ${where}`, roles, q, like);
   const counts = await one<{ payers: number; families: number }>(`SELECT COUNT(*) FILTER (WHERE role = 'payer')::int payers,
     COUNT(*) FILTER (WHERE role = 'family')::int families FROM users`);
-  return { customers, counts };
+  const total = found?.n ?? 0;
+  return { customers, counts, total, hasMore: offset + customers.length < total };
 });
 
 // Remove or restore anyone's access (admin, staff, payer or family). History stays; open sessions end at once.
@@ -428,11 +438,22 @@ router.put('/api/admin/settings', requireRole('admin'), async ({ user, body }: A
   return { settings: await settings() };
 });
 
-router.get('/api/admin/messages', requireRole('admin'), async () => ({ messages: await all('SELECT * FROM messages ORDER BY id DESC LIMIT 200') }));
-router.get('/api/admin/payments', requireRole('admin'), async () => ({
-  payments: await all('SELECT p.*, b.ref bill_ref FROM payments p JOIN bills b ON b.id = p.bill_id ORDER BY p.created_at DESC LIMIT 300'),
-}));
-router.get('/api/admin/audit', requireRole('admin'), async () => ({ audit: await all('SELECT * FROM audit ORDER BY id DESC LIMIT 300') }));
+router.get('/api/admin/messages', requireRole('admin'), async ({ url }: AuthCtx) => {
+  const { limit, offset } = pageOf(url);
+  const messages = await all('SELECT * FROM messages ORDER BY id DESC LIMIT $1 OFFSET $2', limit + 1, offset);
+  return { messages: messages.slice(0, limit), hasMore: messages.length > limit };
+});
+router.get('/api/admin/payments', requireRole('admin'), async ({ url }: AuthCtx) => {
+  const { limit, offset } = pageOf(url);
+  const payments = await all('SELECT p.*, b.ref bill_ref FROM payments p JOIN bills b ON b.id = p.bill_id ORDER BY p.created_at DESC, p.id LIMIT $1 OFFSET $2', limit + 1, offset);
+  return { payments: payments.slice(0, limit), hasMore: payments.length > limit };
+});
+
+router.get('/api/admin/audit', requireRole('admin'), async ({ url }: AuthCtx) => {
+  const { limit, offset } = pageOf(url, 100);
+  const audit = await all('SELECT * FROM audit ORDER BY id DESC LIMIT $1 OFFSET $2', limit + 1, offset);
+  return { audit: audit.slice(0, limit), hasMore: audit.length > limit };
+});
 
 // ---------- Payment partner webhooks ----------
 router.post('/api/webhooks/payments/:partner', async ({ params, raw, req }: Ctx) => {

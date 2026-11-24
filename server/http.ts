@@ -124,3 +124,10 @@ export const phone = (v: unknown): string => {
   if (p.startsWith('+243') && p.length !== 13) throw bad('invalid_phone', 'A DRC number has 9 digits after +243');
   return p;
 };
+
+/** Page of a list: ?offset=…&limit=… (limit 50 by default, at most 100). */
+export function pageOf(url: URL, def = 50): { limit: number; offset: number } {
+  const limit = Math.min(100, Math.max(1, Math.floor(Number(url.searchParams.get('limit')) || def)));
+  const offset = Math.max(0, Math.floor(Number(url.searchParams.get('offset')) || 0));
+  return { limit, offset };
+}

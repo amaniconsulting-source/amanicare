@@ -473,5 +473,10 @@
  "err.cannot_delete_self": "You can't delete your own account.",
  "err.cannot_delete_owner": "The owner's account can't be deleted.",
  "err.cannot_change_owner_phone": "The owner's number is changed in the Render settings (ADMIN_PHONE).",
- "admin.userDeleted": "{name}'s account deleted."
+ "admin.userDeleted": "{name}'s account deleted.",
+ "list.more": "Load more",
+ "list.count": "{shown} shown of {total}",
+ "admin.searchBills": "Search: reference, patient, bill number…",
+ "admin.allStatuses": "All statuses",
+ "admin.noBills": "No bills."
 }
