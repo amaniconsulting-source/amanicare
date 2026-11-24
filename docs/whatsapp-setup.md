@@ -84,7 +84,7 @@ Samples: `Josephine K.` · `CME-0457` · `$23.00` · `Payé par un membre de la 
 Samples: `Centre Médical Espoir` · `Josephine K.` · `$23.00`
 
 ### `amanicare_clinic_paid`: Utility, French
-`💰 AmaniCare : {{1}} envoyé sur {{2}}. Réf {{3}}. Patient : {{4}}. Le patient peut sortir.`
+`💰 AmaniCare : {{1}} envoyé sur {{2}}. Réf {{3}}. Patient : {{4}}. La facture est réglée.`
 
 Samples: `$23.00` · `Bank ••4821` · `SBX-P-1A2B3C4D` · `Josephine K.`
 

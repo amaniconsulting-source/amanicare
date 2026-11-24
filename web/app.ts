@@ -336,7 +336,7 @@ async function showBill(id: string): Promise<void> {
     ${b.expectedUsd !== undefined ? `<p class="muted small">${t('expectedCost', { amount: usd(b.expectedUsd) })}</p>` : ''}
     ${b.risk?.reasons?.length ? `<ul class="reasons">${b.risk.reasons.map((r) => `<li>${esc(reasonText(r))}</li>`).join('')}</ul>` : ''}
     ${b.payout ? `<p class="notice info">${t('payoutSent', { ref: esc(b.payout.ref), account: esc(b.payout.account || '') })}</p>` : ''}
-    <ul class="timeline">${b.events.map((e) => `<li>${fmtDate(e.at)} · ${esc(t('event.' + e.type))}</li>`).join('')}</ul>
+    <ul class="timeline">${b.events.map((e) => `<li>${fmtDate(e.at)} · ${esc(eventText(e.type, b))}</li>`).join('')}</ul>
     ${b.hasPhoto ? `<img class="photo-full" src="/api/bills/${b.id}/photo" alt="${t('billPhoto')}">` : ''}
   `, wireResend);
 }
@@ -403,6 +403,15 @@ const helpLink = () => `<p class="center"><button class="link" data-help>❓ ${t
 const wireHelpLinks = (root: ParentNode) => $$('[data-help]', root).forEach((b) => (b.onclick = openHelp));
 
 /** One sentence telling payer or family what happens next with this bill. */
+/** A history line as the reader sees it: the payer and the family each read it from their own side
+ *  ("You started the payment" / "Marie started the payment"); others get the neutral wording. */
+function eventText(type: string, b: Bill): string {
+  const role = state.me?.role;
+  const own = `event.${type}.${role}`;
+  const key = (role === 'payer' || role === 'family') && (state.dict[own] ?? state.fallback[own]) ? own : `event.${type}`;
+  return t(key, { payer: b.payer?.name || t('event.someoneAbroad'), family: b.family?.name || t('event.theFamily') });
+}
+
 function nextStep(b: Bill): string {
   const role = state.me?.role;
   if (role !== 'payer' && role !== 'family') return '';
@@ -413,9 +422,9 @@ function nextStep(b: Bill): string {
     const name = esc(b.waitingFor.relation || b.waitingFor.phone || '');
     return `<p class="next"><b>${t('next.label')}</b>${t(`next.${b.status}.waiting`, { name })}</p>`;
   }
-  const key = ['awaiting_clinic', 'awaiting_payer', 'payment_failed', 'declined'].includes(b.status) ? `next.${b.status}.${role}` : `next.${b.status}`;
+  const key = ['awaiting_clinic', 'awaiting_payer', 'payment_failed', 'declined', 'paid'].includes(b.status) ? `next.${b.status}.${role}` : `next.${b.status}`;
   const tone = b.status === 'paid' ? 'done' : ['rejected', 'payout_failed', 'payment_failed'].includes(b.status) ? 'bad' : '';
-  return `<p class="next ${tone}"><b>${t('next.label')}</b>${t(key, { payer })}</p>`;
+  return `<p class="next ${tone}"><b>${t('next.label')}</b>${t(key, { payer, family: esc(b.family?.name || '') })}</p>`;
 }
 
 // ---------- login ----------

@@ -65,9 +65,9 @@ const NOTIFICATIONS = {
   },
   clinicPaid: {
     texts: {
-      fr: (p) => `💰 AmaniCare : ${p.amount} envoyé sur ${p.account}. Réf ${p.ref}. Patient : ${p.patient}. Le patient peut sortir.`,
-      en: (p) => `💰 AmaniCare: ${p.amount} sent to ${p.account}. Ref ${p.ref}. Patient: ${p.patient}. The patient may be discharged.`,
-      ln: (p) => `💰 AmaniCare : ${p.amount} etindami na ${p.account}. Ref ${p.ref}. Mobeli : ${p.patient}. Mobeli akoki kobima.`,
+      fr: (p) => `💰 AmaniCare : ${p.amount} envoyé sur ${p.account}. Réf ${p.ref}. Patient : ${p.patient}. La facture est réglée.`,
+      en: (p) => `💰 AmaniCare: ${p.amount} sent to ${p.account}. Ref ${p.ref}. Patient: ${p.patient}. The bill is settled.`,
+      ln: (p) => `💰 AmaniCare : ${p.amount} etindami na ${p.account}. Ref ${p.ref}. Mobeli : ${p.patient}. Facture efutami.`,
     },
     template: { name: 'amanicare_clinic_paid', languages: ['fr'], body: (p) => [p.amount, p.account, p.ref, p.patient] },
   },
