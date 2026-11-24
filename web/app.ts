@@ -396,8 +396,55 @@ function openHelp(): void {
     <p class="muted">${t('guide.intro')}</p>
     ${guideHtml(selected)}
     ${trustHtml()}
-    ${faqHtml()}`, wireGuide);
+    ${installed() ? '' : `<div class="install-help"><h2>${t('install.title')}</h2><p class="muted">${t('install.why')}</p>${installSteps()}${installPrompt ? `<button class="block" data-install-now>${t('install.button')}</button>` : ''}</div>`}
+    ${faqHtml()}`, (sheet) => { wireGuide(sheet); sheet.querySelector<HTMLButtonElement>('[data-install-now]')?.addEventListener('click', () => { closeModal(); installApp().catch(() => {}); }); });
 }
+// ---------- "install the app" ----------
+// AmaniCare is an installable web app: once added to the home screen it opens full screen, like an app.
+// Android (Chrome, Edge, Samsung Internet) offers a real install prompt; iPhone only allows Share › Add to
+// Home Screen, so we show the steps; WhatsApp's or Facebook's built-in browser can't install at all.
+type InstallPrompt = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
+let installPrompt: InstallPrompt | null = null;
+const ua = navigator.userAgent;
+const isIOS = /iphone|ipad|ipod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+const isAndroid = /android/i.test(ua);
+const inAppBrowser = /FBAN|FBAV|Instagram|WhatsApp|Line\/|; wv\)/i.test(ua);
+const installed = (): boolean => matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+const INSTALL_KEY = 'installDismissedAt';
+function installSteps(): string {
+  if (inAppBrowser) return `<p>${t('install.inapp')}</p>`;
+  if (isIOS) return `<ol class="steps"><li>${t('install.ios.1')}</li><li>${t('install.ios.2')}</li><li>${t('install.ios.3')}</li></ol>`;
+  return `<ol class="steps"><li>${t('install.android.1')}</li><li>${t('install.android.2')}</li><li>${t('install.android.3')}</li></ol>`;
+}
+function openInstallGuide(): void {
+  openModal(`<div class="row between"><h2>${t('install.title')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
+    <p class="muted">${t('install.why')}</p>${installSteps()}
+    <button class="block" data-close>${t('close')}</button>`);
+}
+async function installApp(): Promise<void> {
+  if (!installPrompt || isIOS || inAppBrowser) return openInstallGuide();
+  await installPrompt.prompt();
+  const { outcome } = await installPrompt.userChoice;
+  installPrompt = null;
+  if (outcome === 'accepted') { hideInstallBar(); toast(t('install.done')); }
+}
+function hideInstallBar(): void { document.getElementById('installBar')?.remove(); }
+let appReady = false; // the bar waits for the person's language to be loaded
+function showInstallBar(): void {
+  if (!appReady || installed() || document.getElementById('installBar')) return;
+  if (!isIOS && !isAndroid && !installPrompt) return; // computers: only when the browser offers to install
+  try { const at = Number(localStorage.getItem(INSTALL_KEY) || 0); if (Date.now() - at < 14 * 864e5) return; } catch { /* storage blocked */ }
+  const bar = document.createElement('div');
+  bar.id = 'installBar'; bar.className = 'install-bar'; bar.setAttribute('role', 'region'); bar.setAttribute('aria-label', t('install.title'));
+  bar.innerHTML = `<img src="/icon-192.png" alt="" width="36" height="36"><span>${t('install.bar')}</span>
+    <button type="button" data-install>${t('install.button')}</button><button type="button" class="link" data-later aria-label="${t('install.later')}">✕</button>`;
+  bar.querySelector<HTMLButtonElement>('[data-install]')!.onclick = () => { installApp().catch(() => openInstallGuide()); };
+  bar.querySelector<HTMLButtonElement>('[data-later]')!.onclick = () => { try { localStorage.setItem(INSTALL_KEY, String(Date.now())); } catch { /* ignore */ } hideInstallBar(); };
+  document.querySelector('header.bar')!.after(bar);
+}
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e as InstallPrompt; showInstallBar(); });
+window.addEventListener('appinstalled', () => { hideInstallBar(); installPrompt = null; });
+
 document.getElementById('helpBtn')!.addEventListener('click', openHelp);
 const helpLink = () => `<p class="center"><button class="link" data-help>❓ ${t('howItWorks')}</button></p>`;
 const wireHelpLinks = (root: ParentNode) => $$('[data-help]', root).forEach((b) => (b.onclick = openHelp));
@@ -1227,6 +1274,7 @@ function route(): void {
 
 document.getElementById('langSel')!.addEventListener('change', async (e) => {
   await loadLang((e.target as HTMLSelectElement).value as Lang);
+  if (document.getElementById('installBar')) { hideInstallBar(); showInstallBar(); } // in the new language
   if (state.me) api('PATCH', '/api/me', { lang: state.lang }).catch(() => {});
   route();
 });
@@ -1273,4 +1321,6 @@ async function acceptPendingInvite(): Promise<void> {
     if (user) { await signedIn(user); return; }
   } catch {}
   route();
+  appReady = true;
+  setTimeout(showInstallBar, 1500); // iPhone and in-app browsers never send beforeinstallprompt
 })();

@@ -504,5 +504,18 @@
  "event.paid_to_clinic.family": "L'hôpital a reçu l'argent : facture réglée",
  "event.paid_to_clinic.payer": "L'hôpital a reçu votre paiement : facture réglée",
  "event.payout_failed.family": "Envoi à l'hôpital retardé : notre équipe s'en occupe",
- "event.payout_failed.payer": "Envoi à l'hôpital retardé : notre équipe s'en occupe. Ne payez pas deux fois."
+ "event.payout_failed.payer": "Envoi à l'hôpital retardé : notre équipe s'en occupe. Ne payez pas deux fois.",
+ "install.bar": "Installez AmaniCare sur votre téléphone : il s'ouvre comme une application.",
+ "install.button": "Installer",
+ "install.later": "Plus tard",
+ "install.title": "Installer AmaniCare sur votre téléphone",
+ "install.why": "Une icône sur l'écran d'accueil, et AmaniCare s'ouvre en plein écran, comme une application. Rien à télécharger.",
+ "install.android.1": "Ouvrez myamanicare.com dans Chrome.",
+ "install.android.2": "Touchez le menu ⋮ en haut à droite, puis « Installer l'application » ou « Ajouter à l'écran d'accueil ».",
+ "install.android.3": "Confirmez : l'icône AmaniCare apparaît sur votre écran d'accueil.",
+ "install.ios.1": "Ouvrez myamanicare.com dans Safari.",
+ "install.ios.2": "Touchez le bouton Partager (le carré avec une flèche), puis « Sur l'écran d'accueil ».",
+ "install.ios.3": "Touchez « Ajouter » : l'icône AmaniCare apparaît sur votre écran d'accueil.",
+ "install.inapp": "Vous êtes dans le navigateur de WhatsApp ou de Facebook, qui ne peut pas installer d'application. Ouvrez d'abord le lien dans Chrome (Android) ou Safari (iPhone) : menu ⋮ ou bouton « Ouvrir dans le navigateur », puis revenez ici.",
+ "install.done": "AmaniCare est installé. Retrouvez-le sur votre écran d'accueil."
 }

@@ -505,5 +505,18 @@
  "event.paid_to_clinic.family": "Lopitalo ezwi mbongo: facture efutami",
  "event.paid_to_clinic.payer": "Lopitalo ezwi mbongo na yo: facture efutami",
  "event.payout_failed.family": "Kotinda na lopitalo eumeli: équipe na biso ezali kosala",
- "event.payout_failed.payer": "Kotinda na lopitalo eumeli: équipe na biso ezali kosala. Kofuta mbala mibale te."
+ "event.payout_failed.payer": "Kotinda na lopitalo eumeli: équipe na biso ezali kosala. Kofuta mbala mibale te.",
+ "install.bar": "Tia AmaniCare na telefone na yo: ekofungwama lokola application.",
+ "install.button": "Kotia",
+ "install.later": "Na sima",
+ "install.title": "Kotia AmaniCare na telefone na yo",
+ "install.why": "Elilingi moko na ecran ya liboso, mpe AmaniCare ekofungwama mobimba lokola application. Eloko te ya kokita.",
+ "install.android.1": "Fungola myamanicare.com na Chrome.",
+ "install.android.2": "Finá menu ⋮ na likolo na loboko ya mobali, sima « Installer l'application » to « Ajouter à l'écran d'accueil ».",
+ "install.android.3": "Ndima: elilingi ya AmaniCare ekobima na ecran ya liboso.",
+ "install.ios.1": "Fungola myamanicare.com na Safari.",
+ "install.ios.2": "Finá bouton ya kokabola (carré na flèche), sima « Sur l'écran d'accueil ».",
+ "install.ios.3": "Finá « Ajouter »: elilingi ya AmaniCare ekobima na ecran ya liboso.",
+ "install.inapp": "Ozali na navigateur ya WhatsApp to Facebook, oyo ekoki kotia application te. Fungola liboso lien na Chrome (Android) to Safari (iPhone): menu ⋮ to « Ouvrir dans le navigateur », sima zonga awa.",
+ "install.done": "AmaniCare etiami. Okokuta yango na ecran ya liboso."
 }

@@ -504,5 +504,18 @@
  "event.paid_to_clinic.family": "The hospital received the money: bill settled",
  "event.paid_to_clinic.payer": "The hospital received your payment: bill settled",
  "event.payout_failed.family": "Transfer to the hospital delayed: our team is on it",
- "event.payout_failed.payer": "Transfer to the hospital delayed: our team is on it. Don't pay twice."
+ "event.payout_failed.payer": "Transfer to the hospital delayed: our team is on it. Don't pay twice.",
+ "install.bar": "Install AmaniCare on your phone: it opens like an app.",
+ "install.button": "Install",
+ "install.later": "Later",
+ "install.title": "Install AmaniCare on your phone",
+ "install.why": "An icon on your home screen, and AmaniCare opens full screen, like an app. Nothing to download.",
+ "install.android.1": "Open myamanicare.com in Chrome.",
+ "install.android.2": "Tap the ⋮ menu at the top right, then “Install app” or “Add to Home screen”.",
+ "install.android.3": "Confirm: the AmaniCare icon appears on your home screen.",
+ "install.ios.1": "Open myamanicare.com in Safari.",
+ "install.ios.2": "Tap the Share button (the square with an arrow), then “Add to Home Screen”.",
+ "install.ios.3": "Tap “Add”: the AmaniCare icon appears on your home screen.",
+ "install.inapp": "You're in WhatsApp's or Facebook's built-in browser, which can't install apps. First open the link in Chrome (Android) or Safari (iPhone): the ⋮ menu or “Open in browser”, then come back here.",
+ "install.done": "AmaniCare is installed. Find it on your home screen."
 }

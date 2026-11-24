@@ -208,3 +208,10 @@ button.secondary.on{background:var(--brand);color:var(--brand-ink);border-color:
   table.cards td[data-label]{display:flex;justify-content:space-between;gap:12px}
   table.cards td[data-label]::before{content:attr(data-label);color:var(--muted);font-size:13px}
 }
+.install-bar{display:flex;align-items:center;gap:10px;padding:10px 12px 10px 16px;background:var(--soft, #EEF6F8);border-bottom:1px solid var(--line);font-size:14px}
+.install-bar img{border-radius:9px;flex:none}
+.install-bar span{flex:1;line-height:1.35}
+.install-bar button[data-install]{flex:none;min-height:36px;padding:6px 14px;font-size:14px}
+.install-bar .link{flex:none;font-size:18px;padding:4px 6px}
+ol.steps{padding-left:22px;display:grid;gap:8px}
+.install-help{margin-top:18px}
