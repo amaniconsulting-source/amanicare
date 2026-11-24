@@ -514,7 +514,7 @@
  "install.android.2": "Tap the ⋮ menu at the top right, then “Install app” or “Add to Home screen”.",
  "install.android.3": "Confirm: the AmaniCare icon appears on your home screen.",
  "install.ios.1": "Open myamanicare.com in Safari.",
- "install.ios.2": "Tap the Share button (the square with an arrow), then “Add to Home Screen”.",
+ "install.ios.2": "Tap the three dots “•••” at the bottom right, then “Share”. Scroll down and tap “Add to Home Screen”. (On older iPhones, tap the Share button directly: the square with an arrow.)",
  "install.ios.3": "Tap “Add”: the AmaniCare icon appears on your home screen.",
  "install.inapp": "You're in WhatsApp's or Facebook's built-in browser, which can't install apps. First open the link in Chrome (Android) or Safari (iPhone): the ⋮ menu or “Open in browser”, then come back here.",
  "install.done": "AmaniCare is installed. Find it on your home screen."
