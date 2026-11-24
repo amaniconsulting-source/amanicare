@@ -472,5 +472,6 @@
  "err.user_has_bills": "This person has bills, which must keep their name. Remove their access instead.",
  "err.cannot_delete_self": "You can't delete your own account.",
  "err.cannot_delete_owner": "The owner's account can't be deleted.",
- "err.cannot_change_owner_phone": "The owner's number is changed in the Render settings (ADMIN_PHONE)."
+ "err.cannot_change_owner_phone": "The owner's number is changed in the Render settings (ADMIN_PHONE).",
+ "admin.userDeleted": "{name}'s account deleted."
 }

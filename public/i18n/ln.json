@@ -473,5 +473,6 @@
  "err.user_has_bills": "Moto oyo azali na bafacture, esengeli kobatela nkombo na ye. Longola nde nzela na ye.",
  "err.cannot_delete_self": "Okoki kolongola compte na yo moko te.",
  "err.cannot_delete_owner": "Bakoki kolongola compte ya nkolo te.",
- "err.cannot_change_owner_phone": "Nimero ya nkolo ebongolamaka na Render (ADMIN_PHONE)."
+ "err.cannot_change_owner_phone": "Nimero ya nkolo ebongolamaka na Render (ADMIN_PHONE).",
+ "admin.userDeleted": "Compte ya {name} elongwe."
 }

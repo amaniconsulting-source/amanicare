@@ -882,7 +882,7 @@ function editUserDialog(u: { id: string; name: string; phone: string }, done: ()
 }
 async function deleteUser(u: { id: string; name: string }, done: () => void): Promise<void> {
   if (!(await confirmDialog(t('admin.deleteUserConfirm', { name: esc(u.name) }), t('admin.delete'), true))) return;
-  try { await api('DELETE', `/api/admin/users/${u.id}`); toast(t('admin.deleted')); done(); }
+  try { await api('DELETE', `/api/admin/users/${u.id}`); toast(t('admin.userDeleted', { name: u.name })); done(); }
   catch (err) { toast(errText(err)); }
 }
 const userActions = (u: { id: string; active: number }, opts: { locked?: boolean; kind: string }): string => opts.locked ? '' :

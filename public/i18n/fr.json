@@ -472,5 +472,6 @@
  "err.user_has_bills": "Cette personne a des factures : elles doivent garder son nom. Retirez plutôt son accès.",
  "err.cannot_delete_self": "Vous ne pouvez pas supprimer votre propre compte.",
  "err.cannot_delete_owner": "Le compte du propriétaire ne peut pas être supprimé.",
- "err.cannot_change_owner_phone": "Le numéro du propriétaire se change dans les réglages Render (ADMIN_PHONE)."
+ "err.cannot_change_owner_phone": "Le numéro du propriétaire se change dans les réglages Render (ADMIN_PHONE).",
+ "admin.userDeleted": "Compte de {name} supprimé."
 }
