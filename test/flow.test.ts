@@ -791,3 +791,16 @@ test('customer service: a conversation ends when the person ends it, or after a 
   // Writing again reopens it.
   assert.notEqual((await api('POST', `/api/support/tickets/${b.id}/messages`, { text: 'Re-bonjour' })).data.ticket.status, 'resolved');
 });
+
+test('customer service: what the assistant is sent always ends with the person\'s question', async () => {
+  const { buildTurns } = await import('../server/support.js');
+  const turns = buildTurns([
+    { sender: 'user', body: 'Où en est ma transaction ?' },
+    { sender: 'bot', body: 'Vérifiez votre numéro.' },
+    { sender: 'system', body: 'Numéro vérifié.' },
+  ]);
+  assert.deepEqual(turns, [{ role: 'user', content: 'Où en est ma transaction ?' }]);
+  const t2 = buildTurns([{ sender: 'system', body: 'x' }, { sender: 'user', body: 'a' }, { sender: 'agent', body: 'b' }, { sender: 'user', body: 'c' }]);
+  assert.deepEqual(t2.map((x) => x.role), ['user', 'assistant', 'user']);
+  assert.match(t2[1].content, /team member/);
+});

@@ -1456,6 +1456,12 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
       <div class="row filters" id="sFilters">${filters.map((f) => `<button class="secondary small ${f === filter ? 'on' : ''}" data-sf="${f}">${t('support.filter.' + f)} <span data-sc="${f}"></span></button>`).join('')}</div>
       <div id="sList"></div></div>`;
     $$('[data-sf]', el).forEach((b) => (b.onclick = () => { sessionStorage.setItem('supportFilter', b.dataset.sf!); renderAdmin(); }));
+    // The list keeps itself up to date while it's on screen (not while a conversation is open).
+    clearInterval(supportListPoll);
+    supportListPoll = setInterval(() => {
+      if (!document.body.contains(el) || state.adminTab !== 'support') { clearInterval(supportListPoll); return; }
+      if (!document.hidden && document.getElementById('modal')!.classList.contains('hidden')) renderAdmin();
+    }, 30000);
     await pagedList<Row>($('#sList', el), {
       fetchPage: async (offset) => {
         const r = await api<{ tickets: Row[]; hasMore: boolean; counts: Record<string, number> }>('GET', `/api/admin/support?status=${filter}&offset=${offset}`);
@@ -1492,6 +1498,8 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
 };
 
 
+let agentPoll: ReturnType<typeof setInterval> | undefined;
+let supportListPoll: ReturnType<typeof setInterval> | undefined;
 // One conversation, for the team: the person, the bill, the messages, and a reply box.
 async function supportThread(id: string): Promise<void> {
   type Thread = { ticket: { id: string; ref: string; status: string; channel: string; reason: string; assignedTo: string | null };
@@ -1500,27 +1508,47 @@ async function supportThread(id: string): Promise<void> {
     messages: (ChatMsg & { agent?: string })[] };
   const d = await api<Thread>('GET', `/api/admin/support/${id}`);
   const c = d.contact;
+  const threadHtml = (msgs: Thread['messages']) => msgs.map((m) => m.from === 'system' ? `<p class="chat-note">${esc(m.body)}</p>` :
+    `<div class="msg ${m.from === 'user' ? 'them' : m.from === 'agent' ? 'me' : 'bot'}"><span class="who">${m.from === 'user' ? esc(c.name || t('support.guest')) : m.from === 'agent' ? esc(m.agent || t('chat.agent')) : t('chat.bot')}</span>${esc(m.body).replace(/\n/g, '<br>')}<time>${chatTime(m.at)}</time></div>`).join('');
   const wa = (c.phone || '').replace(/\D/g, '');
   openModal(`<div class="row between"><h2>${esc(c.name || c.phone || '—')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
     <p class="muted small">${esc(d.ticket.ref)} · ${esc(c.phone || '')}${wa ? ` · <a href="https://wa.me/${wa}" target="_blank" rel="noopener">WhatsApp</a> · <a href="tel:${esc(c.phone)}">${t('support.call')}</a>` : ''}</p>
     <p class="small">${c.signedIn ? t('support.signedIn', { role: t('support.role.' + c.account?.role) }) : c.account ? t('support.guestKnown', { name: esc(c.account.name), role: t('support.role.' + c.account.role) }) : t('support.guestUnknown')}</p>
     ${d.bill ? `<p class="small">${t('ref')} <button class="link" data-sbill="${d.bill.id}">${esc(d.bill.ref)}</button> · ${esc(d.bill.patientName)} · <span class="pill st">${t('status.' + d.bill.status)}</span></p>` : ''}
     ${d.ticket.reason ? `<p class="muted small">${t('support.reason')} : ${esc(t('support.why.' + d.ticket.reason) !== 'support.why.' + d.ticket.reason ? t('support.why.' + d.ticket.reason) : d.ticket.reason)}</p>` : ''}
-    <div class="chat agent-view">${d.messages.map((m) => m.from === 'system' ? `<p class="chat-note">${esc(m.body)}</p>` :
-      `<div class="msg ${m.from === 'user' ? 'them' : m.from === 'agent' ? 'me' : 'bot'}"><span class="who">${m.from === 'user' ? esc(c.name || t('support.guest')) : m.from === 'agent' ? esc(m.agent || t('chat.agent')) : t('chat.bot')}</span>${esc(m.body).replace(/\n/g, '<br>')}<time>${chatTime(m.at)}</time></div>`).join('')}</div>
+    <div class="chat agent-view">${threadHtml(d.messages)}</div>
     <label for="sReply">${t('support.reply')}</label>
     <textarea id="sReply" rows="3" maxlength="2000"></textarea>
     <p class="muted small">${t('support.replyHint')}</p>
     <div class="row"><button class="grow" id="sSend">${t('chat.send')}</button>
     ${d.ticket.status === 'resolved' ? `<button class="secondary grow" id="sReopen">${t('support.reopen')}</button>` : `<button class="secondary grow" id="sResolve">✓ ${t('support.resolve')}</button>`}</div>`, (sheet) => {
     const box = $('.chat', sheet); box.scrollTop = box.scrollHeight;
+    let count = d.messages.length;
+    // New messages from the person (or the assistant) appear by themselves while this is open.
+    const refresh = async (force = false) => {
+      const x = await api<Thread>('GET', `/api/admin/support/${id}`);
+      if (!force && x.messages.length === count) return;
+      const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+      box.innerHTML = threadHtml(x.messages);
+      if (force || atBottom || x.messages.length > count) box.scrollTop = box.scrollHeight;
+      count = x.messages.length;
+    };
+    clearInterval(agentPoll);
+    agentPoll = setInterval(() => {
+      if (!document.body.contains(box)) { clearInterval(agentPoll); return; }
+      if (!document.hidden) refresh().catch(() => { /* try again later */ });
+    }, 5000);
     sheet.querySelector<HTMLButtonElement>('[data-sbill]')?.addEventListener('click', () => showBill(d.bill!.id));
     $('#sSend', sheet).onclick = (e) => busy(btn(e), async () => {
       const text = val('#sReply', sheet).trim();
       if (!text) return;
       await api('POST', `/api/admin/support/${id}/messages`, { text });
-      toast(t('support.sent')); supportThread(id); renderAdmin();
+      $<HTMLTextAreaElement>('#sReply', sheet).value = '';
+      toast(t('support.sent'));
+      await refresh(true);
+      renderAdmin();
     });
+    $<HTMLTextAreaElement>('#sReply', sheet).onkeydown = (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $<HTMLButtonElement>('#sSend', sheet).click(); } };
     const setStatus = (status: string) => (e: Event) => busy(btn(e), async () => { await api('PATCH', `/api/admin/support/${id}`, { status }); closeModal(); renderAdmin(); });
     sheet.querySelector<HTMLButtonElement>('#sResolve')?.addEventListener('click', setStatus('resolved'));
     sheet.querySelector<HTMLButtonElement>('#sReopen')?.addEventListener('click', setStatus('open'));

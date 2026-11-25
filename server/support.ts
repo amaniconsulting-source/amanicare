@@ -188,9 +188,9 @@ Reply with ONLY a JSON object: {"reply": string, "handoff": boolean, "reason": s
 export interface BotAnswer { reply: string; handoff: boolean; reason: string }
 type Answerer = (t: TicketRow, user: UserRow | null, history: MsgRow[]) => Promise<BotAnswer | null>;
 
-const askClaude: Answerer = async (t, user, history) => {
-  if (!config.anthropicKey) return null;
-  // The conversation so far, as alternating turns (agent and system notes count as our side).
+/** The conversation so far, as alternating turns (agent and system notes count as our side),
+ *  starting and ending with the person's turn, as the service requires. */
+export function buildTurns(history: { sender: string; body: string }[]): { role: 'user' | 'assistant'; content: string }[] {
   const turns: { role: 'user' | 'assistant'; content: string }[] = [];
   for (const m of history.slice(-20)) {
     const role = m.sender === 'user' ? 'user' : 'assistant';
@@ -199,6 +199,15 @@ const askClaude: Answerer = async (t, user, history) => {
     if (last && last.role === role) last.content += '\n' + content; else turns.push({ role, content });
   }
   while (turns.length && turns[0].role !== 'user') turns.shift();
+  // It must end with the person's turn (the service refuses a conversation ending on our side),
+  // e.g. after "number verified", the question asked before it is answered again.
+  while (turns.length && turns[turns.length - 1].role !== 'user') turns.pop();
+  return turns;
+}
+
+const askClaude: Answerer = async (t, user, history) => {
+  if (!config.anthropicKey) return null;
+  const turns = buildTurns(history);
   if (!turns.length) return null;
   let system: string;
   try { system = await systemPrompt(t, user); }
