@@ -414,7 +414,7 @@ function openHelp(): void {
 // Signed in: conversations belong to the account. Not signed in: name + phone number with its country
 // code, and the conversation is kept on this device with a token (localStorage).
 type ChatMsg = { id: number; at: string; from: 'user' | 'bot' | 'agent' | 'system'; body: string };
-type Ticket = { id: string; status: 'bot' | 'open' | 'waiting' | 'resolved'; billId: string | null; unread: number; messages: ChatMsg[] };
+type Ticket = { id: string; ref: string; status: 'bot' | 'open' | 'waiting' | 'resolved'; billId: string | null; unread: number; messages: ChatMsg[] };
 const GUEST_TICKET_KEY = 'supportTicket';
 function guestTicket(): { id: string; token: string } | null {
   try { return JSON.parse(localStorage.getItem(GUEST_TICKET_KEY) || 'null'); } catch { return null; }
@@ -504,7 +504,7 @@ async function showChat(id: string, ticket?: Ticket): Promise<void> {
   const tk = ticket || (await supportApi<{ ticket: Ticket }>('GET', `/api/support/tickets/${id}`)).ticket;
   const statusText = (s: Ticket['status']) => t('chat.status.' + s);
   openModal(`<div class="row between"><h2>💬 ${t('chat.title')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
-    <p class="muted small" id="chStatus">${statusText(tk.status)}</p>
+    <p class="muted small"><span>${t('chat.request', { ref: esc(tk.ref) })}</span> · <span id="chStatus">${statusText(tk.status)}</span></p>
     <div class="chat" id="chList" aria-live="polite">${chatBubbles(tk.messages)}</div>
     <div class="chat-input"><textarea id="chText" rows="2" maxlength="1000" placeholder="${esc(t('chat.placeholder'))}"></textarea><button id="chSend" aria-label="${t('chat.send')}">➤</button></div>
     <div class="row between chat-actions"><button class="link ${tk.status === 'bot' ? '' : 'hidden'}" id="chHuman">🙋 ${t('chat.human')}</button><button class="link" id="chNew">${t('chat.new')}</button></div>`, (sheet) => {
@@ -1415,7 +1415,7 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
     });
   },
   async support(el) {
-    type Row = { id: string; status: string; channel: string; subject: string; reason: string; name: string; phone: string | null; role: string | null;
+    type Row = { id: string; ref: string; status: string; channel: string; subject: string; reason: string; name: string; phone: string | null; role: string | null;
       signedIn: boolean; billRef: string | null; last: string | null; lastFrom: string | null; messages: number; updatedAt: string };
     const filters = ['open', 'waiting', 'bot', 'resolved', 'all'];
     const filter = sessionStorage.getItem('supportFilter') || 'open';
@@ -1432,7 +1432,7 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
       wrap: (inner) => `<div data-rows>${inner}</div>`, body: '[data-rows]', empty: t('support.empty'),
       renderRows: (rows) => rows.map((x) => `<button class="ticket" data-ticket="${x.id}">
         <span class="row between"><b>${esc(x.name || x.phone || '—')}</b><span class="pill ${x.status === 'open' ? 'high' : x.status === 'waiting' ? 'med' : x.status === 'resolved' ? 'low' : 'st'}">${t('support.filter.' + x.status)}</span></span>
-        <span class="muted small">${esc(x.phone || '')} · ${x.signedIn ? t('support.role.' + x.role) : t('support.guest')}${x.channel === 'whatsapp' ? ' · WhatsApp' : ''}${x.billRef ? ' · ' + t('ref') + ' ' + esc(x.billRef) : ''} · ${fmtDate(x.updatedAt)}</span>
+        <span class="muted small">${esc(x.ref)} · ${esc(x.phone || '')} · ${x.signedIn ? t('support.role.' + x.role) : t('support.guest')}${x.channel === 'whatsapp' ? ' · WhatsApp' : ''}${x.billRef ? ' · ' + t('ref') + ' ' + esc(x.billRef) : ''} · ${fmtDate(x.updatedAt)}</span>
         <span class="small">“${esc((x.last || x.subject).slice(0, 140))}”${x.lastFrom === 'agent' ? ` <span class="muted">· ${t('support.youAnswered')}</span>` : ''}</span></button>`).join(''),
       wire: () => $$('[data-ticket]', el).forEach((b) => (b.onclick = () => supportThread(b.dataset.ticket!))),
     });
@@ -1461,7 +1461,7 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
 
 // One conversation, for the team: the person, the bill, the messages, and a reply box.
 async function supportThread(id: string): Promise<void> {
-  type Thread = { ticket: { id: string; status: string; channel: string; reason: string; assignedTo: string | null };
+  type Thread = { ticket: { id: string; ref: string; status: string; channel: string; reason: string; assignedTo: string | null };
     contact: { name: string; phone: string | null; signedIn: boolean; account: { id: string; name: string; role: string } | null };
     bill: { id: string; ref: string; status: string; patientName: string } | null;
     messages: (ChatMsg & { agent?: string })[] };
@@ -1469,7 +1469,7 @@ async function supportThread(id: string): Promise<void> {
   const c = d.contact;
   const wa = (c.phone || '').replace(/\D/g, '');
   openModal(`<div class="row between"><h2>${esc(c.name || c.phone || '—')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
-    <p class="muted small">${esc(c.phone || '')}${wa ? ` · <a href="https://wa.me/${wa}" target="_blank" rel="noopener">WhatsApp</a> · <a href="tel:${esc(c.phone)}">${t('support.call')}</a>` : ''}</p>
+    <p class="muted small">${esc(d.ticket.ref)} · ${esc(c.phone || '')}${wa ? ` · <a href="https://wa.me/${wa}" target="_blank" rel="noopener">WhatsApp</a> · <a href="tel:${esc(c.phone)}">${t('support.call')}</a>` : ''}</p>
     <p class="small">${c.signedIn ? t('support.signedIn', { role: t('support.role.' + c.account?.role) }) : c.account ? t('support.guestKnown', { name: esc(c.account.name), role: t('support.role.' + c.account.role) }) : t('support.guestUnknown')}</p>
     ${d.bill ? `<p class="small">${t('ref')} <button class="link" data-sbill="${d.bill.id}">${esc(d.bill.ref)}</button> · ${esc(d.bill.patientName)} · <span class="pill st">${t('status.' + d.bill.status)}</span></p>` : ''}
     ${d.ticket.reason ? `<p class="muted small">${t('support.reason')} : ${esc(t('support.why.' + d.ticket.reason) !== 'support.why.' + d.ticket.reason ? t('support.why.' + d.ticket.reason) : d.ticket.reason)}</p>` : ''}

@@ -571,5 +571,6 @@
  "support.why.asked_for_person": "they asked for a person",
  "support.why.sensitive": "money problem, dispute or emergency",
  "support.why.assistant_unavailable": "assistant unavailable",
- "support.why.assistant_handoff": "the assistant didn't have the answer"
+ "support.why.assistant_handoff": "the assistant didn't have the answer",
+ "chat.request": "Request {ref}"
 }

@@ -36,6 +36,8 @@ const LANGS = ['fr', 'en', 'ln'] as const;
 const langOf = (v: unknown) => (LANGS.includes(v as never) ? (v as string) : 'fr');
 const MAX_TEXT = 1000;
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
+/** A short request number people can quote ("S-1A2B3C"), shown in the chat and in WhatsApp notices. */
+export const ticketRef = (id: string) => 'S-' + id.replace(/-/g, '').slice(0, 6).toUpperCase();
 
 // ---------- texts the server writes into a conversation ----------
 const SYSTEM = {
@@ -226,7 +228,7 @@ async function alertAgents(t: TicketRow, firstLine: string): Promise<void> {
   const { name, phone: p } = await contactOf(t);
   const admins = await all<{ phone: string; lang: string }>("SELECT phone, lang FROM users WHERE role = 'admin' AND active = 1");
   for (const a of admins) {
-    await notify('supportAlert', { to: a.phone, lang: a.lang, kind: 'support_alert', params: { who: name || p || '—', text: firstLine.slice(0, 200) } }).catch(() => {});
+    await notify('supportAlert', { to: a.phone, lang: a.lang, kind: 'support_alert', params: { ref: ticketRef(t.id), who: name || p || '—', text: firstLine.slice(0, 200) } }).catch(() => {});
   }
 }
 
@@ -267,7 +269,7 @@ async function onUserMessage(t: TicketRow, user: UserRow | null, text: string): 
 
 function ticketView(t: TicketRow, msgs: MsgRow[]) {
   return {
-    id: t.id, status: t.status, lang: t.lang, billId: t.bill_id, createdAt: t.created_at, updatedAt: t.updated_at, unread: t.user_unread,
+    id: t.id, ref: ticketRef(t.id), status: t.status, lang: t.lang, billId: t.bill_id, createdAt: t.created_at, updatedAt: t.updated_at, unread: t.user_unread,
     messages: msgs.map((m) => ({ id: m.id, at: m.at, from: m.sender, body: m.body })),
   };
 }
@@ -395,7 +397,7 @@ router.get('/api/admin/support', requireRole('admin'), async ({ url }: AuthCtx) 
   const counts = Object.fromEntries((await all<{ status: string; n: number }>('SELECT status, COUNT(*)::int n FROM support_tickets GROUP BY status')).map((r) => [r.status, r.n]));
   return {
     tickets: rows.slice(0, lim).map((t) => ({
-      id: t.id, status: t.status, channel: t.channel, lang: t.lang, subject: t.subject, reason: t.escalate_reason,
+      id: t.id, ref: ticketRef(t.id), status: t.status, channel: t.channel, lang: t.lang, subject: t.subject, reason: t.escalate_reason,
       name: t.user_name || t.guest_name, phone: t.user_phone || t.guest_phone, role: t.user_role, signedIn: Boolean(t.user_id),
       billRef: t.bill_ref, last: t.last, lastFrom: t.last_from, messages: t.n, updatedAt: t.updated_at,
     })),
@@ -413,7 +415,7 @@ router.get('/api/admin/support/:id', requireRole('admin'), async ({ params }: Au
   const agents = await all<{ id: string; name: string }>("SELECT id, name FROM users WHERE role = 'admin'");
   const msgs = (await messagesOf(t.id)).map((m) => ({ id: m.id, at: m.at, from: m.sender, body: m.body, agent: agents.find((a) => a.id === m.agent_id)?.name }));
   return {
-    ticket: { id: t.id, status: t.status, channel: t.channel, lang: t.lang, reason: t.escalate_reason, createdAt: t.created_at, assignedTo: agents.find((a) => a.id === t.assigned_to)?.name || null },
+    ticket: { id: t.id, ref: ticketRef(t.id), status: t.status, channel: t.channel, lang: t.lang, reason: t.escalate_reason, createdAt: t.created_at, assignedTo: agents.find((a) => a.id === t.assigned_to)?.name || null },
     contact: { name, phone: p, signedIn: Boolean(user), account: account ? { id: account.id, name: account.name, role: account.role } : null },
     bill: bill ? { id: bill.id, ref: bill.ref, status: bill.status, patientName: bill.patient_name } : null,
     messages: msgs,
@@ -434,7 +436,7 @@ router.post('/api/admin/support/:id/messages', requireRole('admin'), async ({ us
     // On WhatsApp a free reply only arrives within 24 h of the person's last message; otherwise the template.
     if (t.channel === 'whatsapp') delivery = await send({ to, kind: 'support_reply', text });
     if (delivery !== 'sent' && delivery !== 'stored') {
-      delivery = await notify('supportReply', { to, lang: t.lang, kind: 'support_reply', params: { text: text.slice(0, 300) } });
+      delivery = await notify('supportReply', { to, lang: t.lang, kind: 'support_reply', params: { ref: ticketRef(t.id), text: text.slice(0, 300) } });
     }
   }
   await audit(user.id, 'support_reply', { ticket: t.id });

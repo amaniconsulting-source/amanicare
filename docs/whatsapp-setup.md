@@ -117,18 +117,19 @@ variable is the whole link, so the already-submitted `amanicare_invite` template
 
 ### `amanicare_support_reply`: Utility, French and English
 Sent when someone on the team answers a customer-service conversation (in the app, or on WhatsApp
-more than 24 h after the person's last message).
-- fr: `AmaniCare – réponse du service client : « {{1}} » Ouvrez myamanicare.com (bouton ?) pour continuer la conversation.`
-- en: `AmaniCare – customer service replied: "{{1}}" Open myamanicare.com (? button) to continue the conversation.`
+more than 24 h after the person's last message). The variable is only the request number: Meta
+refuses a Utility template whose variable could be any text (the answer itself is in the app).
+- fr: `AmaniCare : votre demande d'assistance {{1}} a reçu une réponse. Ouvrez myamanicare.com et touchez le bouton ? pour la lire.`
+- en: `AmaniCare: your support request {{1}} has a reply. Open myamanicare.com and tap the ? button to read it.`
 
-Samples: `Bonjour Marie, votre paiement est bien arrivé à l'hôpital.` (en: `Hello Marie, your payment reached the hospital.`)
+Sample: `S-1A2B3C`
 
 ### `amanicare_support_alert`: Utility, French and English
 Sent to every active admin when a conversation needs a person.
-- fr: `AmaniCare – service client : {{1}} attend une réponse. « {{2}} » Ouvrez l'onglet Support pour répondre.`
-- en: `AmaniCare – customer service: {{1}} is waiting for an answer. "{{2}}" Open the Support tab to reply.`
+- fr: `AmaniCare : la demande d'assistance {{1}} attend une réponse. Ouvrez l'onglet Support pour y répondre.`
+- en: `AmaniCare: support request {{1}} is waiting for an answer. Open the Support tab to reply.`
 
-Samples: `Marie` · `J'ai payé hier mais l'hôpital n'a rien reçu`
+Sample: `S-1A2B3C`
 
 ### Customer service on WhatsApp
 A written message to the business number (anything that is not a button tap) goes to customer

@@ -101,21 +101,23 @@ const NOTIFICATIONS = {
     template: { name: 'amanicare_invite', languages: ['fr', 'en'], body: (p) => [p.name, p.link] },
   },
   supportReply: {
-    // A person on the team answered a customer-service conversation.
+    // A person on the team answered a customer-service conversation. Free text carries the answer;
+    // the template (Utility) only says there is one, with the request number: Meta refuses a Utility
+    // template whose variable could be any text.
     texts: {
-      fr: (p) => `AmaniCare – réponse du service client : « ${p.text} » Ouvrez myamanicare.com (bouton ?) pour continuer la conversation.`,
-      en: (p) => `AmaniCare – customer service replied: "${p.text}" Open myamanicare.com (? button) to continue the conversation.`,
-      ln: (p) => `AmaniCare – eyano ya service client : « ${p.text} » Fungola myamanicare.com (bouton ?) mpo na kokoba lisolo.`,
+      fr: (p) => `AmaniCare – réponse à votre demande d'assistance ${p.ref} : « ${p.text} » Ouvrez myamanicare.com (bouton ?) pour continuer la conversation.`,
+      en: (p) => `AmaniCare – reply to your support request ${p.ref}: "${p.text}" Open myamanicare.com (? button) to continue the conversation.`,
+      ln: (p) => `AmaniCare – eyano na motuna na yo ${p.ref} : « ${p.text} » Fungola myamanicare.com (bouton ?) mpo na kokoba lisolo.`,
     },
-    template: { name: 'amanicare_support_reply', languages: ['fr', 'en'], body: (p) => [p.text] },
+    template: { name: 'amanicare_support_reply', languages: ['fr', 'en'], body: (p) => [p.ref] },
   },
   supportAlert: {
     // To the team: a conversation needs a person.
     texts: {
-      fr: (p) => `AmaniCare – service client : ${p.who} attend une réponse. « ${p.text} » Ouvrez l'onglet Support pour répondre.`,
-      en: (p) => `AmaniCare – customer service: ${p.who} is waiting for an answer. "${p.text}" Open the Support tab to reply.`,
+      fr: (p) => `AmaniCare – service client : ${p.who} attend une réponse (demande ${p.ref}). « ${p.text} » Ouvrez l'onglet Support pour répondre.`,
+      en: (p) => `AmaniCare – customer service: ${p.who} is waiting for an answer (request ${p.ref}). "${p.text}" Open the Support tab to reply.`,
     },
-    template: { name: 'amanicare_support_alert', languages: ['fr', 'en'], body: (p) => [p.who, p.text] },
+    template: { name: 'amanicare_support_alert', languages: ['fr', 'en'], body: (p) => [p.ref] },
   },
 } satisfies Record<string, Notification>;
 

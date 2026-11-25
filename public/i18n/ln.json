@@ -572,5 +572,6 @@
  "support.why.asked_for_person": "asengi moto",
  "support.why.sensitive": "likambo ya mbongo, koswana to likama",
  "support.why.assistant_unavailable": "assistant azali te",
- "support.why.assistant_handoff": "assistant azalaki na eyano te"
+ "support.why.assistant_handoff": "assistant azalaki na eyano te",
+ "chat.request": "Motuna {ref}"
 }
