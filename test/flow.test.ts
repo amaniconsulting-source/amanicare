@@ -836,3 +836,14 @@ test('partner hospitals: anyone can see them by commune, and the assistant knows
   const prompt = await systemPrompt({ lang: 'fr', bill_id: null } as any, null);
   assert.ok(prompt.includes(r.facilities[0].name));
 });
+
+test('customer service: questions about partner hospitals are answered even without the assistant', async () => {
+  const { resetLimitsForTests } = await import('../server/support.js');
+  resetLimitsForTests();
+  const ask = async (text: string) => ((await (await fetch(`${base}/api/support/tickets`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) })).json()) as any).ticket;
+  const none = await ask('Avez vous un hopital a Maluku ?');
+  assert.equal(none.status, 'bot'); assert.match(none.messages.at(-1).body, /pas encore d'établissement partenaire à Maluku/);
+  const c = (await one<{ commune: string; name: string }>("SELECT commune, name FROM clinics WHERE active = 1 AND commune <> '' LIMIT 1"))!;
+  const some = await ask(`Quels hôpitaux à ${c.commune} ?`);
+  assert.ok(some.messages.at(-1).body.includes(c.name), JSON.stringify([c, some.messages]));
+});

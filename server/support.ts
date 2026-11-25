@@ -197,7 +197,7 @@ ${await networkList()}
 ACCOUNT DATA:
 ${user ? await accountContext(user, t.bill_id) : '(not signed in: none)'}
 
-Answer with the "answer" tool, once: "reply" is exactly what the person reads (plain text, never JSON or notes to yourself).`;
+Give your answer once: "reply" is exactly what the person reads (plain text, never JSON or notes to yourself).`;
 }
 
 export interface BotAnswer { reply: string; handoff: boolean; reason: string }
@@ -232,22 +232,24 @@ const askClaude: Answerer = async (t, user, history) => {
   let system: string;
   try { system = await systemPrompt(t, user); }
   catch (err) { console.error('[support] could not prepare the assistant:', (err as Error).message); fail('prepare: ' + (err as Error).message); Sentry.captureException(err, { tags: { area: 'support' } }); return null; }
-  // Two tries: a busy API or an odd answer shouldn't send everyone to the team.
+  // Two tries: first the answer as the fields of a tool call (nothing to pick apart), then, if that
+  // fails for any reason, as plain JSON text. A busy API or an odd answer shouldn't send everyone to the team.
   for (let attempt = 1; attempt <= 2; attempt++) {
+    const withTool = attempt === 1;
     try {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': config.anthropicKey, 'anthropic-version': '2023-06-01' },
-        // The answer comes back as the fields of a tool call, so there is no text to pick apart.
-        body: JSON.stringify({ model: config.anthropicModel, max_tokens: 1200, system, messages: turns, tools: [ANSWER_TOOL], tool_choice: { type: 'tool', name: 'answer' } }),
+        body: JSON.stringify(withTool
+          ? { model: config.anthropicModel, max_tokens: 1200, system, messages: turns, tools: [ANSWER_TOOL], tool_choice: { type: 'tool', name: 'answer' } }
+          : { model: config.anthropicModel, max_tokens: 1200, system: system + TEXT_MODE, messages: turns }),
         signal: AbortSignal.timeout(30000),
       });
       if (!res.ok) {
         const body = (await res.text()).slice(0, 300);
-        console.error(`[support] Anthropic API error (try ${attempt})`, res.status, body);
-        fail(`API ${res.status}: ${body}`);
+        console.error(`[support] Anthropic API error (try ${attempt}${withTool ? ', tool' : ', text'})`, res.status, body);
+        fail(`API ${res.status}${withTool ? ' (tool)' : ''}: ${body}`);
         if (attempt === 2) Sentry.captureMessage(`Support assistant: Anthropic API error ${res.status}`, { level: 'warning', tags: { area: 'support' } });
-        if (res.status >= 400 && res.status < 500 && res.status !== 429) return null; // a bad request won't get better
         continue;
       }
       const data = (await res.json()) as { content?: { type: string; text?: string; name?: string; input?: unknown }[] };
@@ -264,6 +266,8 @@ const askClaude: Answerer = async (t, user, history) => {
   }
   return null;
 };
+
+const TEXT_MODE = '\n\nReply with ONLY one JSON object, once, and nothing else: {"reply": string, "handoff": boolean, "reason": string}';
 
 const ANSWER_TOOL = {
   name: 'answer',
@@ -300,6 +304,32 @@ export function parseAnswer(text: string): BotAnswer | null {
   if (found) return found;
   const plain = clean.trim();
   return plain && !looksLikeData(plain) ? { reply: plain.slice(0, 1500), handoff: false, reason: '' } : null;
+}
+
+const KINSHASA_COMMUNES = ['Bandalungwa', 'Barumbu', 'Bumbu', 'Gombe', 'Kalamu', 'Kasa-Vubu', 'Kimbanseke', 'Kinshasa', 'Kintambo',
+  'Kisenso', 'Lemba', 'Limete', 'Lingwala', 'Makala', 'Maluku', 'Masina', 'Matete', 'Mont-Ngafula', "N'Djili", 'Ndjili',
+  "N'Sele", 'Nsele', 'Ngaba', 'Ngaliema', 'Ngiri-Ngiri', 'Selembao'];
+const fold = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f']/g, '').replace(/-/g, ' ').toLowerCase();
+
+/** When the assistant can't answer a question about partner facilities: the list, for the commune asked. */
+async function networkFallback(t: TicketRow, question: string): Promise<string | null> {
+  const q = fold(question);
+  if (!/(hopit|hospit|clini|centre|center|labo|pharmac|lopitalo|reseau|network|partenaire|partner)/.test(q)) return null;
+  const rows = await all<{ name: string; commune: string; category: string }>("SELECT name, commune, category FROM clinics WHERE active = 1 ORDER BY commune, name");
+  const d = await dict(t.lang);
+  const asked = KINSHASA_COMMUNES.find((c) => new RegExp(`\\b${fold(c)}\\b`).test(q))
+    || [...new Set(rows.map((r) => r.commune))].find((c) => c && q.includes(fold(c)));
+  const list = (rs: typeof rows) => rs.map((r) => `${r.name} (${d['cat.' + r.category] || r.category}${asked ? '' : ', ' + (r.commune || '?')})`).join(' ; ');
+  const here = asked ? rows.filter((r) => fold(r.commune) === fold(asked)) : rows;
+  const T: Record<string, Record<string, string>> = {
+    some: { fr: `Établissements partenaires${asked ? ' à ' + asked : ''} : ${list(here)}.`, en: `Partner facilities${asked ? ' in ' + asked : ''}: ${list(here)}.`, ln: `Ba lopitalo ya réseau${asked ? ' na ' + asked : ''}: ${list(here)}.` },
+    none: { fr: `Nous n'avons pas encore d'établissement partenaire à ${asked}. Touchez « Voir les hôpitaux partenaires » sous l'aide pour voir les communes proches, ou écrivez-nous le nom de l'hôpital : nous pouvons l'inviter.`,
+      en: `We don't have a partner facility in ${asked} yet. Tap "See partner hospitals" in Help for nearby communes, or tell us the hospital's name: we can invite it.`,
+      ln: `Tozali naino na lopitalo ya réseau na ${asked} te. Finá « Tala ba lopitalo ya réseau » mpo omona ba commune ya pembeni, to komela biso nkombo ya lopitalo.` },
+  };
+  const k = here.length ? 'some' : 'none';
+  if (!rows.length) return null;
+  return T[k][t.lang] || T[k].fr;
 }
 
 /** When the assistant can't answer, a signed-in person still gets the facts about their latest bill. */
@@ -391,8 +421,10 @@ async function onUserMessage(t: TicketRow, user: UserRow | null, text: string): 
 async function botAnswer(t: TicketRow, user: UserRow | null): Promise<void> {
   const ans = await answerer(t, user, await messagesOf(t.id));
   if (!ans) {
-    // A signed-in person asking about their bill still gets an answer from their own data.
-    const fallback = user && config.anthropicKey ? await statusFallback(t, user) : null;
+    // Questions about partner hospitals get the list; a signed-in person asking about their bill
+    // still gets the facts from their own data.
+    const lastQ = [...(await messagesOf(t.id))].reverse().find((m) => m.sender === 'user')?.body || '';
+    const fallback = (await networkFallback(t, lastQ)) || (user && config.anthropicKey ? await statusFallback(t, user) : null);
     if (fallback) { await addMessage(t.id, 'bot', fallback); return; }
     await escalate(t, 'assistant_unavailable' + (lastFailure ? ': ' + lastFailure : ''));
     return;
