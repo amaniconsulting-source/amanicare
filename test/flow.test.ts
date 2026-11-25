@@ -15,7 +15,7 @@ process.env.MESSAGING = 'sandbox';
 process.env.ANTHROPIC_API_KEY = '';
 
 const { config } = await import('../server/config.js');
-const { openDb, closeDb, one } = await import('../server/db.js');
+const { openDb, closeDb, one, run } = await import('../server/db.js');
 const { migrate } = await import('../server/migrate.js');
 const { seedIfEmpty } = await import('../server/seed.js');
 const { createApp } = await import('../server/index.js');
@@ -774,4 +774,20 @@ test('customer service: a visitor verifies their number with a code, then the as
     }
     assert.equal(await one("SELECT 1 FROM users WHERE phone = '+33699887766'"), undefined);
   } finally { setAnswererForTests(null); }
+});
+
+test('customer service: a conversation ends when the person ends it, or after a quiet while', async () => {
+  const { resetLimitsForTests } = await import('../server/support.js');
+  resetLimitsForTests();
+  const api = client(); await login(api, '+243819990031', { name: 'Fin Conversation', role: 'family' });
+  const a = (await api('POST', '/api/support/tickets', { text: 'Bonjour' })).data.ticket;
+  assert.equal((await api('POST', `/api/support/tickets/${a.id}/close`)).status, 200);
+  const mine = (await api('GET', '/api/support/tickets')).data.tickets;
+  assert.equal(mine.find((x: { id: string }) => x.id === a.id).status, 'resolved');
+  // Only the assistant, and quiet for more than 2 hours: ended on its own.
+  const b = (await api('POST', '/api/support/tickets', { text: 'Encore moi' })).data.ticket;
+  await run("UPDATE support_tickets SET status = 'bot', updated_at = now() - interval '3 hours' WHERE id = $1", b.id);
+  assert.equal((await api('GET', `/api/support/tickets/${b.id}`)).data.ticket.status, 'resolved');
+  // Writing again reopens it.
+  assert.notEqual((await api('POST', `/api/support/tickets/${b.id}/messages`, { text: 'Re-bonjour' })).data.ticket.status, 'resolved');
 });

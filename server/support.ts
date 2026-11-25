@@ -51,6 +51,11 @@ const SYSTEM = {
     en: 'This conversation is marked as resolved. Write here if you still have a question.',
     ln: 'Lisolo oyo esili. Koma awa soki ozali naino na motuna.',
   },
+  ended: {
+    fr: 'Conversation terminée. Merci ! Touchez « Nouvelle conversation » si vous avez une autre question.',
+    en: 'Conversation ended. Thank you! Tap "New conversation" if you have another question.',
+    ln: 'Lisolo esili. Matondi! Finá « Lisolo ya sika » soki ozali na motuna mosusu.',
+  },
   verified: {
     fr: "Numéro vérifié : l'assistant voit maintenant vos factures.",
     en: 'Number verified: the assistant can now see your bills.',
@@ -217,6 +222,12 @@ let answerer: Answerer = askClaude;
 export function setAnswererForTests(fn: Answerer | null): void { answerer = fn || askClaude; }
 
 // ---------- conversations ----------
+/** Conversations end on their own: with only the assistant, after 2 hours without a message;
+ *  after the team's answer, 3 days without a reply. (Writing again reopens them.) */
+async function endIdle(): Promise<void> {
+  await run(`UPDATE support_tickets SET status = 'resolved', resolved_at = now()
+    WHERE (status = 'bot' AND updated_at < now() - interval '2 hours') OR (status = 'waiting' AND updated_at < now() - interval '3 days')`);
+}
 const getTicket = (id: string) => one<TicketRow>('SELECT * FROM support_tickets WHERE id = $1', id);
 const messagesOf = (id: string) => all<MsgRow>('SELECT id, at, sender, agent_id, body FROM support_messages WHERE ticket_id = $1 ORDER BY id', id);
 async function addMessage(ticketId: string, sender: MsgRow['sender'], body: string, agentId: string | null = null): Promise<void> {
@@ -312,6 +323,7 @@ const textOf = (v: unknown) => str(v, { min: 1, max: MAX_TEXT, name: 'message' }
 // ---------- the person's side ----------
 /** My recent conversations (signed in). */
 router.get('/api/support/tickets', requireRole(), async ({ user }: AuthCtx) => {
+  await endIdle();
   const rows = await all<TicketRow & { last: string | null }>(`SELECT t.*, (SELECT body FROM support_messages m WHERE m.ticket_id = t.id ORDER BY id DESC LIMIT 1) last
     FROM support_tickets t WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 10`, user.id);
   return { tickets: rows.map((t) => ({ id: t.id, status: t.status, billId: t.bill_id, updatedAt: t.updated_at, unread: t.user_unread, last: t.last })) };
@@ -346,6 +358,7 @@ router.post('/api/support/tickets', async ({ user, body, req }: Ctx) => {
 });
 
 router.get('/api/support/tickets/:id', async (ctx: Ctx) => {
+  await endIdle();
   const t = await ticketFor(ctx);
   if (t.user_unread) await run('UPDATE support_tickets SET user_unread = 0 WHERE id = $1', t.id);
   return { ticket: ticketView({ ...t, user_unread: 0 }, await messagesOf(t.id)) };
@@ -358,6 +371,16 @@ router.post('/api/support/tickets/:id/messages', async (ctx: Ctx) => {
   if (!ctx.user) limit('msg-ip:' + ipOf(ctx.req), 60, 3600_000);
   await onUserMessage(t, t.user_id ? ctx.user : null, text);
   return { ticket: ticketView((await getTicket(t.id))!, await messagesOf(t.id)) };
+});
+
+/** The person ends the conversation: the next time they open the chat, it starts fresh. */
+router.post('/api/support/tickets/:id/close', async (ctx: Ctx) => {
+  const t = await ticketFor(ctx);
+  if (t.status !== 'resolved') {
+    await run("UPDATE support_tickets SET status = 'resolved', resolved_at = now(), user_unread = 0 WHERE id = $1", t.id);
+    await addMessage(t.id, 'system', sys('ended', t.lang));
+  }
+  return { ok: true };
 });
 
 /** "Talk to a person". */
@@ -452,6 +475,7 @@ export async function onWhatsAppText(from: string, text: string): Promise<void> 
 const STATUSES: (TicketStatus | 'all')[] = ['open', 'waiting', 'bot', 'resolved', 'all'];
 
 router.get('/api/admin/support', requireRole('admin'), async ({ url }: AuthCtx) => {
+  await endIdle();
   const status = oneOf(url.searchParams.get('status') || 'open', STATUSES, 'status');
   const { limit: lim, offset } = pageOf(url);
   const rows = await all<TicketRow & { user_name: string | null; user_phone: string | null; user_role: string | null; bill_ref: string | null; last: string | null; last_from: string | null; n: number }>(

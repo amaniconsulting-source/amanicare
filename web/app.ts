@@ -507,7 +507,7 @@ async function showChat(id: string, ticket?: Ticket): Promise<void> {
     <p class="muted small"><span>${t('chat.request', { ref: esc(tk.ref) })}</span> · <span id="chStatus">${statusText(tk.status)}</span></p>
     <div class="chat" id="chList" aria-live="polite">${chatBubbles(tk.messages)}</div>
     <div class="chat-input"><textarea id="chText" rows="2" maxlength="1000" placeholder="${esc(t('chat.placeholder'))}"></textarea><button id="chSend" aria-label="${t('chat.send')}">➤</button></div>
-    <div class="row between chat-actions"><button class="link ${tk.status === 'bot' ? '' : 'hidden'}" id="chHuman">🙋 ${t('chat.human')}</button><button class="link" id="chNew">${t('chat.new')}</button></div>
+    <div class="row between chat-actions"><button class="link ${tk.status === 'bot' ? '' : 'hidden'}" id="chHuman">🙋 ${t('chat.human')}</button><button class="link" id="chEnd">✓ ${t('chat.end')}</button><button class="link" id="chNew">${t('chat.new')}</button></div>
     <div class="verify-box ${tk.canVerify ? '' : 'hidden'}" id="chVerifyBox">
       <p class="small">🔒 ${t('chat.verifyWhy')}</p>
       <button class="secondary block" id="chVerify">${t('chat.verify', { phone: esc(tk.phoneHint || '') })}</button>
@@ -544,6 +544,12 @@ async function showChat(id: string, ticket?: Ticket): Promise<void> {
     $<HTMLTextAreaElement>('#chText', sheet).onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && matchMedia('(pointer:fine)').matches) { e.preventDefault(); $<HTMLButtonElement>('#chSend', sheet).click(); } };
     $('#chHuman', sheet).onclick = (e) => busy(btn(e), async () => paint((await supportApi<{ ticket: Ticket }>('POST', `/api/support/tickets/${id}/escalate`)).ticket));
     $('#chNew', sheet).onclick = () => { if (!state.me) setGuestTicket(null); newChat(); };
+    // Ending it clears the chat: the help button then opens a fresh one.
+    $('#chEnd', sheet).onclick = (e) => busy(btn(e), async () => {
+      await supportApi('POST', `/api/support/tickets/${id}/close`);
+      if (!state.me) setGuestTicket(null);
+      stopChatPoll(); closeModal(); markSupportUnread(false); toast(t('chat.ended'));
+    });
     // A visitor proves the number is theirs (code by WhatsApp): then the assistant sees their bills.
     $('#chVerify', sheet).onclick = (e) => busy(btn(e), async () => {
       const r = await supportApi<{ devCode?: string }>('POST', `/api/support/tickets/${id}/send-code`);

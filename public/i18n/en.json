@@ -577,5 +577,7 @@
  "chat.verify": "Verify my number ({phone})",
  "chat.codeSent": "If this number has used AmaniCare before, a code will arrive at {phone}. Enter it here:",
  "chat.check": "Confirm",
- "chat.noCode": "No code after a few minutes? This number may not have a history with us yet: tap \"Talk to a person\"."
+ "chat.noCode": "No code after a few minutes? This number may not have a history with us yet: tap \"Talk to a person\".",
+ "chat.end": "End conversation",
+ "chat.ended": "Conversation ended. Thank you!"
 }

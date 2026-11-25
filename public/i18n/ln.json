@@ -578,5 +578,7 @@
  "chat.verify": "Ndimisa nimero na ngai ({phone})",
  "chat.codeSent": "Soki nimero oyo esalelaki AmaniCare liboso, code ekoya na {phone}. Koma yango awa :",
  "chat.check": "Ndimisa",
- "chat.noCode": "Code eyei te sima ya miniti mwa? Nimero oyo ekoki kozala naino na lisolo elongo na biso te: finá « Kosolola na moto »."
+ "chat.noCode": "Code eyei te sima ya miniti mwa? Nimero oyo ekoki kozala naino na lisolo elongo na biso te: finá « Kosolola na moto ».",
+ "chat.end": "Silisa lisolo",
+ "chat.ended": "Lisolo esili. Matondi!"
 }
