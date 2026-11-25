@@ -17,7 +17,7 @@ import * as Sentry from '@sentry/node';
 import { config } from './config.js';
 import { one, all, run, audit } from './db.js';
 import { router } from './api.js';
-import { requireRole } from './auth.js';
+import { requireRole, requestOtp, verifyOtp, createSession, sessionCookie } from './auth.js';
 import { HttpError, notFound, str, oneOf, phone, pageOf, type AuthCtx, type Ctx } from './http.js';
 import { canView, getBill } from './bills.js';
 import { notify, send } from './messaging/index.js';
@@ -50,6 +50,16 @@ const SYSTEM = {
     fr: 'Cette conversation est marquée comme résolue. Écrivez ici si vous avez encore une question.',
     en: 'This conversation is marked as resolved. Write here if you still have a question.',
     ln: 'Lisolo oyo esili. Koma awa soki ozali naino na motuna.',
+  },
+  verified: {
+    fr: "Numéro vérifié : l'assistant voit maintenant vos factures.",
+    en: 'Number verified: the assistant can now see your bills.',
+    ln: 'Nimero endimami: assistant amoni sikoyo ba facture na yo.',
+  },
+  noAccount: {
+    fr: "Numéro vérifié, mais il n'a pas encore de compte AmaniCare : aucune facture à afficher.",
+    en: 'Number verified, but it has no AmaniCare account yet: there are no bills to show.',
+    ln: 'Nimero endimami, kasi ezali naino na compte AmaniCare te: facture moko te.',
   },
   waGreeting: {
     fr: 'Bonjour, ici le service client AmaniCare.',
@@ -145,7 +155,7 @@ const LANG_NAME: Record<string, string> = { fr: 'French', en: 'English', ln: 'Li
 export async function systemPrompt(t: TicketRow, user: UserRow | null): Promise<string> {
   const who = user
     ? `The person is signed in (verified) as a ${user.role === 'payer' ? 'payer living abroad' : user.role === 'family' ? 'relative in the DRC (family)' : user.role === 'clinic' ? 'hospital staff member' : user.role}, name "${user.name}". ACCOUNT DATA lists only their own bills (most recent first; one may be marked asked_about_this_bill).`
-    : `The person is NOT signed in: you do not know who they are and have NO access to any account. Never discuss a specific bill, payment, amount or person. For questions about their own bill, say they can sign in on myamanicare.com with their phone number to see its status at any time, or that a person on the team can look into it (handoff).`;
+    : `The person is NOT signed in: you do not know who they are and have NO access to any account. Never discuss a specific bill, payment, amount or person. For questions about their own bill or payment, tell them to tap "Vérifier mon numéro" / "Verify my number" under the chat: they receive a code on their phone, and once it is entered you will see their bills. (Or a person on the team can look into it: handoff if they prefer.)`;
   return `You are AmaniCare's customer service assistant. AmaniCare lets relatives abroad pay hospital bills in the DR Congo directly to the hospital: a relative in the DRC photographs the bill in the app, the hospital confirms it on WhatsApp, the relative abroad pays by card or mobile money, and AmaniCare sends the money straight to the hospital. A bill is not always a hospital stay: it can be a consultation, lab tests, medicine, etc.
 
 Write in ${LANG_NAME[t.lang] || 'French'}. Be short (2 to 4 sentences), warm and simple: people read on a phone, often in a second language. Plain text, no markdown.
@@ -261,6 +271,11 @@ async function onUserMessage(t: TicketRow, user: UserRow | null, text: string): 
   }
   const forced = mustEscalate(text);
   if (forced) { await escalate(t, forced); return; }
+  await botAnswer(t, user);
+}
+
+/** The assistant answers the conversation so far (or hands over). */
+async function botAnswer(t: TicketRow, user: UserRow | null): Promise<void> {
   const ans = await answerer(t, user, await messagesOf(t.id));
   if (!ans) { await escalate(t, 'assistant_unavailable'); return; }
   await addMessage(t.id, 'bot', ans.reply);
@@ -270,6 +285,8 @@ async function onUserMessage(t: TicketRow, user: UserRow | null, text: string): 
 function ticketView(t: TicketRow, msgs: MsgRow[]) {
   return {
     id: t.id, ref: ticketRef(t.id), status: t.status, lang: t.lang, billId: t.bill_id, createdAt: t.created_at, updatedAt: t.updated_at, unread: t.user_unread,
+    canVerify: !t.user_id && !!t.guest_phone && t.channel === 'app',
+    phoneHint: !t.user_id && t.guest_phone ? t.guest_phone.slice(0, 4) + ' ••• ' + t.guest_phone.slice(-3) : undefined,
     messages: msgs.map((m) => ({ id: m.id, at: m.at, from: m.sender, body: m.body })),
   };
 }
@@ -353,6 +370,53 @@ router.post('/api/support/tickets/:id/escalate', async (ctx: Ctx) => {
   const t = await ticketFor(ctx);
   if (t.status !== 'open' && t.status !== 'waiting') await escalate(t, 'asked_for_person');
   return { ticket: ticketView((await getTicket(t.id))!, await messagesOf(t.id)) };
+});
+
+// ---------- a visitor proves the number is theirs: then the assistant may use their bills ----------
+// Same one-time code as the login (it also signs them in). Typing a number alone never shows any bill.
+async function guestTicket(ctx: Ctx): Promise<TicketRow & { guest_phone: string }> {
+  const t = await ticketFor(ctx);
+  if (t.user_id || !t.guest_phone || t.channel !== 'app') throw new HttpError(409, 'already_verified');
+  return t as TicketRow & { guest_phone: string };
+}
+
+router.post('/api/support/tickets/:id/send-code', async (ctx: Ctx) => {
+  const t = await guestTicket(ctx);
+  limit('code:' + t.id, 5, 3600_000);
+  const u = await one<UserRow>('SELECT * FROM users WHERE phone = $1', t.guest_phone);
+  if (u && !u.active) throw new HttpError(403, 'account_disabled');
+  return requestOtp(t.guest_phone, t.lang);
+});
+
+router.post('/api/support/tickets/:id/verify', async (ctx: Ctx) => {
+  const t = await guestTicket(ctx);
+  const code = str(ctx.body.code, { min: 6, max: 6, name: 'code' });
+  const u = await one<UserRow>('SELECT * FROM users WHERE phone = $1', t.guest_phone);
+  if (u && !u.active) throw new HttpError(403, 'account_disabled');
+  await verifyOtp(t.guest_phone, code); // wrong or expired code: refused (and attempts are counted)
+  if (!u) {
+    await addMessage(t.id, 'system', sys('noAccount', t.lang));
+    return { ticket: ticketView((await getTicket(t.id))!, await messagesOf(t.id)), user: null };
+  }
+  // The conversation now belongs to the account, and the person is signed in.
+  await run('UPDATE support_tickets SET user_id = $2, guest_token_hash = NULL WHERE id = $1', t.id, u.id);
+  ctx.res.setHeader('set-cookie', sessionCookie(await createSession(u.id)));
+  await audit(u.id, 'support_verified', { ticket: t.id });
+  await addMessage(t.id, 'system', sys('verified', t.lang));
+  let fresh = (await getTicket(t.id))!;
+  // Handed over only because the assistant couldn't see the account, and no one has answered yet:
+  // give it back to the assistant, which can answer now.
+  const agentAnswered = await one("SELECT 1 FROM support_messages WHERE ticket_id = $1 AND sender = 'agent'", t.id);
+  if (fresh.status === 'open' && fresh.escalate_reason === 'assistant_handoff' && !agentAnswered) {
+    await run("UPDATE support_tickets SET status = 'bot', escalate_reason = '' WHERE id = $1", t.id);
+    fresh = (await getTicket(t.id))!;
+  }
+  // With the assistant: it answers the question again, now with their bills.
+  if (fresh.status === 'bot') await botAnswer(fresh, u);
+  return {
+    ticket: ticketView((await getTicket(t.id))!, await messagesOf(t.id)),
+    user: { id: u.id, phone: u.phone, name: u.name, role: u.role, lang: u.lang, clinicId: u.clinic_id },
+  };
 });
 
 // ---------- WhatsApp: messages to the business number ----------

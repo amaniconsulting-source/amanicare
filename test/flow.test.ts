@@ -725,3 +725,47 @@ test('customer service: the assistant sees only the signed-in person\'s own bill
     assert.equal((await api('GET', '/api/support/tickets')).data.tickets.length >= 2, true);
   } finally { setAnswererForTests(null); }
 });
+
+test('customer service: a visitor verifies their number with a code, then the assistant sees their bills', async () => {
+  const { setAnswererForTests, resetLimitsForTests } = await import('../server/support.js');
+  resetLimitsForTests();
+  const payer = (await one<any>('SELECT u.* FROM users u JOIN bills b ON b.payer_id = u.id LIMIT 1'))!;
+  const seen: (string | null)[] = [];
+  setAnswererForTests(async (_t, user) => { seen.push(user?.id || null); return { reply: user ? 'Votre facture est payée.' : 'Vérifiez votre numéro.', handoff: false, reason: '' }; });
+  try {
+    // A visitor with its own token and cookie jar.
+    let token = ''; let cookie = '';
+    const g = async (method: string, path: string, body?: unknown) => {
+      const res = await fetch(base + path, { method, headers: { 'content-type': 'application/json', 'x-support-token': token, cookie }, body: body ? JSON.stringify(body) : undefined });
+      const sc = res.headers.get('set-cookie'); if (sc) cookie = sc.split(';')[0];
+      return { status: res.status, data: (await res.json()) as any };
+    };
+    const r = await g('POST', '/api/support/tickets', { text: 'Où en est ma transaction ?', phone: payer.phone, lang: 'fr' });
+    token = r.data.token;
+    const id = r.data.ticket.id;
+    // Typing the number shows nothing: the assistant answered without any account.
+    assert.equal(seen.at(-1), null);
+    assert.equal(r.data.ticket.canVerify, true);
+    assert.ok(!r.data.ticket.phoneHint.includes(payer.phone.slice(4, -3)));
+    const sent = await g('POST', `/api/support/tickets/${id}/send-code`);
+    assert.equal(sent.status, 200); assert.ok(sent.data.devCode);
+    assert.equal((await g('POST', `/api/support/tickets/${id}/verify`, { code: sent.data.devCode === '000000' ? '111111' : '000000' })).status >= 400, true);
+    const ok = await g('POST', `/api/support/tickets/${id}/verify`, { code: sent.data.devCode });
+    assert.equal(ok.status, 200, JSON.stringify(ok.data));
+    assert.equal(ok.data.user.id, payer.id);
+    // The assistant answered again, now with the payer's account; the visitor is signed in.
+    assert.equal(seen.at(-1), payer.id);
+    assert.equal(ok.data.ticket.messages.at(-1).body, 'Votre facture est payée.');
+    assert.equal(ok.data.ticket.canVerify, false);
+    token = '';
+    assert.equal((await g('GET', '/api/support/tickets')).data.tickets[0].id, id);
+    // A number without an account: verified, but nothing to show.
+    token = ''; cookie = '';
+    const r2 = await g('POST', '/api/support/tickets', { text: 'Bonjour', phone: '+33699887766' });
+    token = r2.data.token;
+    const c2 = await g('POST', `/api/support/tickets/${r2.data.ticket.id}/send-code`);
+    const v2 = await g('POST', `/api/support/tickets/${r2.data.ticket.id}/verify`, { code: c2.data.devCode });
+    assert.equal(v2.data.user, null); assert.equal(v2.data.ticket.messages.at(-1).from, 'system');
+    assert.equal(await one("SELECT 1 FROM users WHERE phone = '+33699887766'"), undefined);
+  } finally { setAnswererForTests(null); }
+});

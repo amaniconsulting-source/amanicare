@@ -572,5 +572,9 @@
  "support.why.sensitive": "money problem, dispute or emergency",
  "support.why.assistant_unavailable": "assistant unavailable",
  "support.why.assistant_handoff": "the assistant didn't have the answer",
- "chat.request": "Request {ref}"
+ "chat.request": "Request {ref}",
+ "chat.verifyWhy": "For the assistant to look at your bills and payments, confirm this number is yours.",
+ "chat.verify": "Verify my number ({phone})",
+ "chat.codeSent": "We sent a code to {phone}. Enter it here:",
+ "chat.check": "Confirm"
 }

@@ -414,7 +414,7 @@ function openHelp(): void {
 // Signed in: conversations belong to the account. Not signed in: name + phone number with its country
 // code, and the conversation is kept on this device with a token (localStorage).
 type ChatMsg = { id: number; at: string; from: 'user' | 'bot' | 'agent' | 'system'; body: string };
-type Ticket = { id: string; ref: string; status: 'bot' | 'open' | 'waiting' | 'resolved'; billId: string | null; unread: number; messages: ChatMsg[] };
+type Ticket = { id: string; ref: string; status: 'bot' | 'open' | 'waiting' | 'resolved'; billId: string | null; unread: number; messages: ChatMsg[]; canVerify?: boolean; phoneHint?: string };
 const GUEST_TICKET_KEY = 'supportTicket';
 function guestTicket(): { id: string; token: string } | null {
   try { return JSON.parse(localStorage.getItem(GUEST_TICKET_KEY) || 'null'); } catch { return null; }
@@ -507,7 +507,16 @@ async function showChat(id: string, ticket?: Ticket): Promise<void> {
     <p class="muted small"><span>${t('chat.request', { ref: esc(tk.ref) })}</span> · <span id="chStatus">${statusText(tk.status)}</span></p>
     <div class="chat" id="chList" aria-live="polite">${chatBubbles(tk.messages)}</div>
     <div class="chat-input"><textarea id="chText" rows="2" maxlength="1000" placeholder="${esc(t('chat.placeholder'))}"></textarea><button id="chSend" aria-label="${t('chat.send')}">➤</button></div>
-    <div class="row between chat-actions"><button class="link ${tk.status === 'bot' ? '' : 'hidden'}" id="chHuman">🙋 ${t('chat.human')}</button><button class="link" id="chNew">${t('chat.new')}</button></div>`, (sheet) => {
+    <div class="row between chat-actions"><button class="link ${tk.status === 'bot' ? '' : 'hidden'}" id="chHuman">🙋 ${t('chat.human')}</button><button class="link" id="chNew">${t('chat.new')}</button></div>
+    <div class="verify-box ${tk.canVerify ? '' : 'hidden'}" id="chVerifyBox">
+      <p class="small">🔒 ${t('chat.verifyWhy')}</p>
+      <button class="secondary block" id="chVerify">${t('chat.verify', { phone: esc(tk.phoneHint || '') })}</button>
+      <div class="hidden" id="chCodeStep">
+        <p class="small">${t('chat.codeSent', { phone: esc(tk.phoneHint || '') })}</p>
+        <p class="notice hidden" id="chDev"></p>
+        <div class="chat-input"><input id="chCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456"><button id="chCheck">${t('chat.check')}</button></div>
+      </div>
+    </div>`, (sheet) => {
     let last = tk;
     const list = $('#chList', sheet);
     const paint = (x: Ticket) => {
@@ -534,6 +543,23 @@ async function showChat(id: string, ticket?: Ticket): Promise<void> {
     $<HTMLTextAreaElement>('#chText', sheet).onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && matchMedia('(pointer:fine)').matches) { e.preventDefault(); $<HTMLButtonElement>('#chSend', sheet).click(); } };
     $('#chHuman', sheet).onclick = (e) => busy(btn(e), async () => paint((await supportApi<{ ticket: Ticket }>('POST', `/api/support/tickets/${id}/escalate`)).ticket));
     $('#chNew', sheet).onclick = () => { if (!state.me) setGuestTicket(null); newChat(); };
+    // A visitor proves the number is theirs (code by WhatsApp): then the assistant sees their bills.
+    $('#chVerify', sheet).onclick = (e) => busy(btn(e), async () => {
+      const r = await supportApi<{ devCode?: string }>('POST', `/api/support/tickets/${id}/send-code`);
+      $('#chCodeStep', sheet).classList.remove('hidden');
+      $('#chVerify', sheet).classList.add('hidden');
+      if (r.devCode) { const d = $('#chDev', sheet); d.textContent = t('login.devCode', { code: r.devCode }); d.classList.remove('hidden'); }
+      $<HTMLInputElement>('#chCode', sheet).focus();
+    });
+    $('#chCheck', sheet).onclick = (e) => busy(btn(e), async () => {
+      const code = val('#chCode', sheet).replace(/\D/g, '');
+      if (code.length !== 6) { toast(t('err.invalid_code')); return; }
+      const r = await supportApi<{ ticket: Ticket; user: Me | null }>('POST', `/api/support/tickets/${id}/verify`, { code });
+      $('#chVerifyBox', sheet).classList.add('hidden');
+      if (r.user) { setGuestTicket(null); state.me = r.user; setUser(r.user.id, r.user.role); document.getElementById('logoutBtn')!.classList.remove('hidden'); route(); }
+      paint(r.ticket);
+    });
+    $<HTMLInputElement>('#chCode', sheet).onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); $<HTMLButtonElement>('#chCheck', sheet).click(); } };
     // While a person is on it, look for their answer every few seconds (only while the chat is open).
     // Also checked as soon as the person comes back to the app.
     chatTick = async () => {

@@ -573,5 +573,9 @@
  "support.why.sensitive": "likambo ya mbongo, koswana to likama",
  "support.why.assistant_unavailable": "assistant azali te",
  "support.why.assistant_handoff": "assistant azalaki na eyano te",
- "chat.request": "Motuna {ref}"
+ "chat.request": "Motuna {ref}",
+ "chat.verifyWhy": "Mpo assistant atala ba facture mpe ba paiement na yo, ndimisa ete nimero oyo ezali ya yo.",
+ "chat.verify": "Ndimisa nimero na ngai ({phone})",
+ "chat.codeSent": "Totindi code na {phone}. Koma yango awa :",
+ "chat.check": "Ndimisa"
 }
