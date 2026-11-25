@@ -525,8 +525,8 @@
  "chat.intro": "Tuna motuna na yo. Assistant na biso azongisaka eyano mbala moko; moto ya ekipe AmaniCare akozwa lisolo soki esengeli.",
  "chat.aboutBill": "Mpo na facture {ref}",
  "chat.name": "Nkombo na yo",
- "chat.phone": "Nimero ya telefone na yo (na indicatif ya mboka)",
- "chat.phoneHint": "Pona mboka, sima koma nimero. Tokozongisa eyano lisusu na WhatsApp na nimero oyo.",
+ "chat.phone": "Nimero ya telefone na yo (soki olingi, na indicatif ya mboka)",
+ "chat.phoneHint": "Nimero esengeli te mpo na motuna ya bato nyonso. Bakisa yango mpo ozwa eyano na WhatsApp, to mpo assistant atala ba facture na yo.",
  "chat.question": "Motuna na yo",
  "chat.placeholder": "Koma message na yo…",
  "chat.send": "Tinda",
@@ -580,5 +580,8 @@
  "chat.check": "Ndimisa",
  "chat.noCode": "Code eyei te sima ya miniti mwa? Nimero oyo ekoki kozala naino na lisolo elongo na biso te: finá « Kosolola na moto ».",
  "chat.end": "Silisa lisolo",
- "chat.ended": "Lisolo esili. Matondi!"
+ "chat.ended": "Lisolo esili. Matondi!",
+ "chat.addPhoneWhy": "Bakisa nimero na yo (na indicatif ya mboka) mpo ozwa eyano na WhatsApp, to mpo assistant atala ba facture na yo.",
+ "chat.addPhone": "Bakisa nimero na ngai",
+ "support.noPhone": "Akoti te, nimero te: eyano na yo ekomonana kaka na lisolo na ye."
 }

@@ -414,7 +414,7 @@ function openHelp(): void {
 // Signed in: conversations belong to the account. Not signed in: name + phone number with its country
 // code, and the conversation is kept on this device with a token (localStorage).
 type ChatMsg = { id: number; at: string; from: 'user' | 'bot' | 'agent' | 'system'; body: string };
-type Ticket = { id: string; ref: string; status: 'bot' | 'open' | 'waiting' | 'resolved'; billId: string | null; unread: number; messages: ChatMsg[]; canVerify?: boolean; phoneHint?: string };
+type Ticket = { id: string; ref: string; status: 'bot' | 'open' | 'waiting' | 'resolved'; billId: string | null; unread: number; messages: ChatMsg[]; canVerify?: boolean; needsPhone?: boolean; phoneHint?: string };
 const GUEST_TICKET_KEY = 'supportTicket';
 function guestTicket(): { id: string; token: string } | null {
   try { return JSON.parse(localStorage.getItem(GUEST_TICKET_KEY) || 'null'); } catch { return null; }
@@ -490,8 +490,7 @@ function newChat(opts: { billId?: string; billRef?: string } = {}): void {
       const body: Record<string, unknown> = { text, lang: state.lang, billId: opts.billId };
       if (guest) {
         body.name = val('#chName', sheet).trim();
-        body.phone = readPhone('chPhone', sheet);
-        if (!body.phone) { toast(t('chat.phoneNeeded')); return; }
+        body.phone = readPhone('chPhone', sheet) || undefined;
       }
       const r = await supportApi<{ ticket: Ticket; token?: string }>('POST', '/api/support/tickets', body);
       if (r.token) setGuestTicket({ id: r.ticket.id, token: r.token });
@@ -508,6 +507,11 @@ async function showChat(id: string, ticket?: Ticket): Promise<void> {
     <div class="chat" id="chList" aria-live="polite">${chatBubbles(tk.messages)}</div>
     <div class="chat-input"><textarea id="chText" rows="2" maxlength="1000" placeholder="${esc(t('chat.placeholder'))}"></textarea><button id="chSend" aria-label="${t('chat.send')}">➤</button></div>
     <div class="row between chat-actions"><button class="link ${tk.status === 'bot' ? '' : 'hidden'}" id="chHuman">🙋 ${t('chat.human')}</button><button class="link" id="chEnd">✓ ${t('chat.end')}</button><button class="link" id="chNew">${t('chat.new')}</button></div>
+    <div class="verify-box ${tk.needsPhone ? '' : 'hidden'}" id="chPhoneBox">
+      <p class="small">📱 ${t('chat.addPhoneWhy')}</p>
+      ${phoneField('chAddPhone', { autocomplete: true, cc: state.lang === 'en' ? 'US' : 'CD' })}
+      <button class="secondary block" id="chAddPhoneBtn">${t('chat.addPhone')}</button>
+    </div>
     <div class="verify-box ${tk.canVerify ? '' : 'hidden'}" id="chVerifyBox">
       <p class="small">🔒 ${t('chat.verifyWhy')}</p>
       <button class="secondary block" id="chVerify">${t('chat.verify', { phone: esc(tk.phoneHint || '') })}</button>
@@ -549,6 +553,13 @@ async function showChat(id: string, ticket?: Ticket): Promise<void> {
       await supportApi('POST', `/api/support/tickets/${id}/close`);
       if (!state.me) setGuestTicket(null);
       stopChatPoll(); closeModal(); markSupportUnread(false); toast(t('chat.ended'));
+    });
+    // A visitor who started without a number adds it (then can verify it).
+    $('#chAddPhoneBtn', sheet).onclick = (e) => busy(btn(e), async () => {
+      const ph = readPhone('chAddPhone', sheet);
+      if (!ph) { toast(t('chat.phoneNeeded')); return; }
+      const r = await supportApi<{ ticket: Ticket }>('POST', `/api/support/tickets/${id}/phone`, { phone: ph });
+      showChat(id, r.ticket);
     });
     // A visitor proves the number is theirs (code by WhatsApp): then the assistant sees their bills.
     $('#chVerify', sheet).onclick = (e) => busy(btn(e), async () => {
@@ -1513,7 +1524,7 @@ async function supportThread(id: string): Promise<void> {
   const wa = (c.phone || '').replace(/\D/g, '');
   openModal(`<div class="row between"><h2>${esc(c.name || c.phone || '—')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
     <p class="muted small">${esc(d.ticket.ref)} · ${esc(c.phone || '')}${wa ? ` · <a href="https://wa.me/${wa}" target="_blank" rel="noopener">WhatsApp</a> · <a href="tel:${esc(c.phone)}">${t('support.call')}</a>` : ''}</p>
-    <p class="small">${c.signedIn ? t('support.signedIn', { role: t('support.role.' + c.account?.role) }) : c.account ? t('support.guestKnown', { name: esc(c.account.name), role: t('support.role.' + c.account.role) }) : t('support.guestUnknown')}</p>
+    <p class="small">${c.signedIn ? t('support.signedIn', { role: t('support.role.' + c.account?.role) }) : c.account ? t('support.guestKnown', { name: esc(c.account.name), role: t('support.role.' + c.account.role) }) : c.phone ? t('support.guestUnknown') : t('support.noPhone')}</p>
     ${d.bill ? `<p class="small">${t('ref')} <button class="link" data-sbill="${d.bill.id}">${esc(d.bill.ref)}</button> · ${esc(d.bill.patientName)} · <span class="pill st">${t('status.' + d.bill.status)}</span></p>` : ''}
     ${d.ticket.reason ? `<p class="muted small">${t('support.reason')} : ${esc(t('support.why.' + d.ticket.reason) !== 'support.why.' + d.ticket.reason ? t('support.why.' + d.ticket.reason) : d.ticket.reason)}</p>` : ''}
     <div class="chat agent-view">${threadHtml(d.messages)}</div>

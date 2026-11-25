@@ -804,3 +804,16 @@ test('customer service: what the assistant is sent always ends with the person\'
   assert.deepEqual(t2.map((x) => x.role), ['user', 'assistant', 'user']);
   assert.match(t2[1].content, /team member/);
 });
+
+test('customer service: no phone number needed for a general question; it can be added later', async () => {
+  const { resetLimitsForTests } = await import('../server/support.js');
+  resetLimitsForTests();
+  const r = await fetch(`${base}/api/support/tickets`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'Comment fonctionne votre application ?' }) });
+  const d = (await r.json()) as any;
+  assert.equal(r.status, 200, JSON.stringify(d));
+  assert.equal(d.ticket.needsPhone, true); assert.equal(d.ticket.canVerify, false);
+  const add = async (phone: string) => fetch(`${base}/api/support/tickets/${d.ticket.id}/phone`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-support-token': d.token }, body: JSON.stringify({ phone }) });
+  assert.equal((await add('2145550123')).status, 400); // still needs its country code
+  const ok = (await (await add('+12145550123')).json()) as any;
+  assert.equal(ok.ticket.needsPhone, false); assert.equal(ok.ticket.canVerify, true);
+});

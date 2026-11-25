@@ -524,8 +524,8 @@
  "chat.intro": "Ask your question. Our assistant answers right away; a person on the AmaniCare team takes over when needed.",
  "chat.aboutBill": "About bill {ref}",
  "chat.name": "Your name",
- "chat.phone": "Your phone number (with country code)",
- "chat.phoneHint": "Pick the country, then type the number. We'll also answer you on WhatsApp at this number.",
+ "chat.phone": "Your phone number (optional, with country code)",
+ "chat.phoneHint": "No number needed for a general question. Add it to get the answer on WhatsApp, or for the assistant to look at your bills.",
  "chat.question": "Your question",
  "chat.placeholder": "Type your message…",
  "chat.send": "Send",
@@ -579,5 +579,8 @@
  "chat.check": "Confirm",
  "chat.noCode": "No code after a few minutes? This number may not have a history with us yet: tap \"Talk to a person\".",
  "chat.end": "End conversation",
- "chat.ended": "Conversation ended. Thank you!"
+ "chat.ended": "Conversation ended. Thank you!",
+ "chat.addPhoneWhy": "Add your number (with country code) to get the answer on WhatsApp, or for the assistant to look at your bills.",
+ "chat.addPhone": "Add my number",
+ "support.noPhone": "Not signed in, no number: your reply only shows in their conversation."
 }

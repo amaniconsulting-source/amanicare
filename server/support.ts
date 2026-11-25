@@ -51,6 +51,11 @@ const SYSTEM = {
     en: 'This conversation is marked as resolved. Write here if you still have a question.',
     ln: 'Lisolo oyo esili. Koma awa soki ozali naino na motuna.',
   },
+  handoffNoPhone: {
+    fr: "Je transmets votre demande à une personne de l'équipe AmaniCare. Elle vous répondra ici dès que possible. Ajoutez votre numéro ci-dessous pour recevoir aussi la réponse sur WhatsApp.",
+    en: "I'm passing your question to a person on the AmaniCare team. They will answer here as soon as possible. Add your number below to also get the answer on WhatsApp.",
+    ln: 'Nazali kotinda motuna na yo epai ya moto ya ekipe AmaniCare. Akozongisa eyano awa noki. Bakisa nimero na yo awa na nse mpo ozwa eyano lisusu na WhatsApp.',
+  },
   ended: {
     fr: 'Conversation terminée. Merci ! Touchez « Nouvelle conversation » si vous avez une autre question.',
     en: 'Conversation ended. Thank you! Tap "New conversation" if you have another question.',
@@ -161,7 +166,7 @@ const LANG_NAME: Record<string, string> = { fr: 'French', en: 'English', ln: 'Li
 export async function systemPrompt(t: TicketRow, user: UserRow | null): Promise<string> {
   const who = user
     ? `The person is signed in (verified) as a ${user.role === 'payer' ? 'payer living abroad' : user.role === 'family' ? 'relative in the DRC (family)' : user.role === 'clinic' ? 'hospital staff member' : user.role}, name "${user.name}". ACCOUNT DATA lists only their own bills (most recent first; one may be marked asked_about_this_bill).`
-    : `The person is NOT signed in: you do not know who they are and have NO access to any account. Never discuss a specific bill, payment, amount or person. For questions about their own bill or payment, tell them to tap "Vérifier mon numéro" / "Verify my number" under the chat: they receive a code on their phone, and once it is entered you will see their bills. (Or a person on the team can look into it: handoff if they prefer.)`;
+    : `The person is NOT signed in: you do not know who they are and have NO access to any account. Never discuss a specific bill, payment, amount or person. For questions about their own bill or payment, tell them to add their phone number under the chat if they haven't, then tap "Vérifier mon numéro" / "Verify my number": they receive a code on their phone, and once it is entered you will see their bills. (Or a person on the team can look into it: handoff if they prefer.)`;
   return `You are AmaniCare's customer service assistant. AmaniCare lets relatives abroad pay hospital bills in the DR Congo directly to the hospital: a relative in the DRC photographs the bill in the app, the hospital confirms it on WhatsApp, the relative abroad pays by card or mobile money, and AmaniCare sends the money straight to the hospital. A bill is not always a hospital stay: it can be a consultation, lab tests, medicine, etc.
 
 Write in ${LANG_NAME[t.lang] || 'French'}. Be short (2 to 4 sentences), warm and simple: people read on a phone, often in a second language. Plain text, no markdown.
@@ -313,7 +318,7 @@ async function alertAgents(t: TicketRow, firstLine: string): Promise<void> {
 async function escalate(t: TicketRow, reason: string, { note = true } = {}): Promise<void> {
   if (t.status === 'open') return;
   await run("UPDATE support_tickets SET status = 'open', escalate_reason = $2, escalated_at = COALESCE(escalated_at, now()), resolved_at = NULL WHERE id = $1", t.id, reason);
-  if (note) await addMessage(t.id, 'system', sys('handoff', t.lang));
+  if (note) await addMessage(t.id, 'system', sys(!t.user_id && !t.guest_phone && t.channel === 'app' ? 'handoffNoPhone' : 'handoff', t.lang));
   const firstUser = (await one<{ body: string }>("SELECT body FROM support_messages WHERE ticket_id = $1 AND sender = 'user' ORDER BY id DESC LIMIT 1", t.id))?.body || t.subject;
   await alertAgents(t, firstUser);
 }
@@ -359,6 +364,7 @@ function ticketView(t: TicketRow, msgs: MsgRow[]) {
   return {
     id: t.id, ref: ticketRef(t.id), status: t.status, lang: t.lang, billId: t.bill_id, createdAt: t.created_at, updatedAt: t.updated_at, unread: t.user_unread,
     canVerify: !t.user_id && !!t.guest_phone && t.channel === 'app',
+    needsPhone: !t.user_id && !t.guest_phone && t.channel === 'app',
     phoneHint: !t.user_id && t.guest_phone ? t.guest_phone.slice(0, 4) + ' ••• ' + t.guest_phone.slice(-3) : undefined,
     messages: msgs.map((m) => ({ id: m.id, at: m.at, from: m.sender, body: m.body })),
   };
@@ -413,7 +419,9 @@ router.post('/api/support/tickets', async ({ user, body, req }: Ctx) => {
     await run('INSERT INTO support_tickets(id, user_id, lang, bill_id, subject) VALUES($1,$2,$3,$4,$5)', id, user.id, lang, billId, text.slice(0, 140));
   } else {
     limit('new-ip:' + ipOf(req), 5, 3600_000);
-    const p = phone(body.phone); // a number without its country code is refused (except Congolese ones, completed)
+    // Optional: general questions need no number. When given, it must carry its country code
+    // (Congolese numbers are completed); it's needed for WhatsApp replies and to see one's bills.
+    const p = body.phone ? phone(body.phone) : null;
     const name = str(body.name, { max: 80, name: 'name' });
     token = randomBytes(24).toString('base64url');
     await run('INSERT INTO support_tickets(id, guest_phone, guest_name, guest_token_hash, lang, subject) VALUES($1,$2,$3,$4,$5,$6)',
@@ -454,6 +462,16 @@ router.post('/api/support/tickets/:id/close', async (ctx: Ctx) => {
 router.post('/api/support/tickets/:id/escalate', async (ctx: Ctx) => {
   const t = await ticketFor(ctx);
   if (t.status !== 'open' && t.status !== 'waiting') await escalate(t, 'asked_for_person');
+  return { ticket: ticketView((await getTicket(t.id))!, await messagesOf(t.id)) };
+});
+
+/** A visitor adds their number later (for a WhatsApp reply, or to verify it and see their bills). */
+router.post('/api/support/tickets/:id/phone', async (ctx: Ctx) => {
+  const t = await ticketFor(ctx);
+  if (t.user_id || t.channel !== 'app') throw new HttpError(409, 'already_verified');
+  limit('phone:' + t.id, 5, 3600_000);
+  const p = phone(ctx.body.phone);
+  await run('UPDATE support_tickets SET guest_phone = $2 WHERE id = $1', t.id, p);
   return { ticket: ticketView((await getTicket(t.id))!, await messagesOf(t.id)) };
 });
 
