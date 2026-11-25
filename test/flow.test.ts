@@ -827,3 +827,12 @@ test('customer service: the person never sees JSON from the assistant', async ()
   assert.equal(parseAnswer('Bonjour, votre facture est payée.')?.reply, 'Bonjour, votre facture est payée.');
   assert.equal(parseAnswer('{"reply":"{\\"reply\\":\\"x\\"}","handoff":false}'), null);
 });
+
+test('partner hospitals: anyone can see them by commune, and the assistant knows them', async () => {
+  const r = (await (await fetch(`${base}/api/network`)).json()) as any;
+  assert.ok(r.facilities.length > 0);
+  assert.deepEqual(Object.keys(r.facilities[0]).sort(), ['category', 'city', 'commune', 'name']); // nothing private
+  const { systemPrompt } = await import('../server/support.js');
+  const prompt = await systemPrompt({ lang: 'fr', bill_id: null } as any, null);
+  assert.ok(prompt.includes(r.facilities[0].name));
+});

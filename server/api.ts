@@ -153,6 +153,11 @@ router.get('/api/payers', requireRole('family'), async ({ user }: AuthCtx) => ({
   payers: await all(`SELECT u.id, u.name, l.relation FROM links l JOIN users u ON u.id = l.payer_id WHERE l.family_id = $1 ORDER BY l.created_at`, user.id),
 }));
 
+// The partner network, for anyone (welcome page, help, customer service): names, types and communes only.
+router.get('/api/network', async () => ({
+  facilities: await all("SELECT name, commune, city, category FROM clinics WHERE active = 1 ORDER BY city, commune, name"),
+}));
+
 router.get('/api/clinics', requireRole(), async () => ({
   clinics: await all('SELECT id, name, commune, city, category FROM clinics WHERE active = 1 ORDER BY city, commune, name'),
 }));

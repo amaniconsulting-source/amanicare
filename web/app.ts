@@ -403,11 +403,12 @@ function openHelp(): void {
   const selected: GuideRole = role === 'family' ? 'family' : role === 'clinic' ? 'clinic' : 'payer';
   openModal(`<div class="row between"><h2>${t('guide.title')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
     ${role === 'admin' ? '' : `<button class="block chat-cta" data-chat>💬 ${t('chat.cta')}</button>`}
+    ${role === 'admin' ? '' : networkLink()}
     <p class="muted">${t('guide.intro')}</p>
     ${guideHtml(selected)}
     ${trustHtml()}
     ${installed() ? '' : `<div class="install-help"><h2>${t('install.title')}</h2><p class="muted">${t('install.why')}</p>${installSteps()}${installPrompt ? `<button class="block" data-install-now>${t('install.button')}</button>` : ''}</div>`}
-    ${faqHtml()}`, (sheet) => { wireGuide(sheet); wireChatLinks(sheet); sheet.querySelector<HTMLButtonElement>('[data-install-now]')?.addEventListener('click', () => { closeModal(); installApp().catch(() => {}); }); });
+    ${faqHtml()}`, (sheet) => { wireGuide(sheet); wireChatLinks(sheet); wireNetworkLinks(sheet); sheet.querySelector<HTMLButtonElement>('[data-install-now]')?.addEventListener('click', () => { closeModal(); installApp().catch(() => {}); }); });
 }
 // ---------- customer service chat ----------
 // The assistant answers first; a person on the team takes over when needed (or when asked).
@@ -607,6 +608,36 @@ async function checkSupportUnread(): Promise<void> {
     }
   } catch { /* not important */ }
 }
+// ---------- partner hospitals, by commune ----------
+type Facility = { name: string; commune: string; city: string; category: string };
+async function openNetwork(): Promise<void> {
+  const { facilities } = await api<{ facilities: Facility[] }>('GET', '/api/network');
+  const communes = [...new Set(facilities.map((f) => f.commune).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+  openModal(`<div class="row between"><h2>🏥 ${t('network.title')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
+    <p class="muted">${t('network.intro')}</p>
+    <div class="row filters"><select id="nwCommune" aria-label="${t('network.commune')}"><option value="">${t('network.allCommunes')} (${facilities.length})</option>
+      ${communes.map((c) => `<option value="${esc(c)}">${esc(c)} (${facilities.filter((f) => f.commune === c).length})</option>`).join('')}</select>
+      <input id="nwSearch" type="search" placeholder="${esc(t('network.search'))}" aria-label="${esc(t('network.search'))}"></div>
+    <div id="nwList"></div>
+    <p class="muted small">${t('network.missing')}</p>
+    <button class="secondary block" data-chat>💬 ${t('chat.cta')}</button>`, (sheet) => {
+    const paint = () => {
+      const c = val('#nwCommune', sheet), q = val('#nwSearch', sheet).trim().toLowerCase();
+      const rows = facilities.filter((f) => (!c || f.commune === c) && (!q || `${f.name} ${f.commune}`.toLowerCase().includes(q)));
+      const groups = [...new Set(rows.map((f) => f.commune || t('network.noCommune')))];
+      $('#nwList', sheet).innerHTML = rows.length ? groups.map((g) => `<h3 class="nw-commune">${esc(g)}</h3><ul class="nw">${rows.filter((f) => (f.commune || t('network.noCommune')) === g)
+        .map((f) => `<li><b>${esc(f.name)}</b><span class="muted small">${t('cat.' + f.category)}${f.city && f.city !== 'Kinshasa' ? ' · ' + esc(f.city) : ''}</span></li>`).join('')}</ul>`).join('')
+        : `<p class="muted">${t('network.none')}</p>`;
+    };
+    $('#nwCommune', sheet).onchange = paint;
+    $('#nwSearch', sheet).oninput = paint;
+    wireChatLinks(sheet);
+    paint();
+  });
+}
+const networkLink = () => `<p class="center"><button class="link" data-network>🏥 ${t('network.cta')}</button></p>`;
+const wireNetworkLinks = (root: ParentNode) => $$('[data-network]', root).forEach((b) => (b.onclick = () => openNetwork().catch(reportUnexpected)));
+
 const chatLink = () => `<p class="center"><button class="link" data-chat>💬 ${t('chat.cta')}</button></p>`;
 const wireChatLinks = (root: ParentNode) => $$('[data-chat]', root).forEach((b) => (b.onclick = () => openSupport()));
 
@@ -729,6 +760,7 @@ function renderLogin(): void {
           <button class="block" id="finish">${t('login.start')}</button>`}
       </div>
       <p class="center"><a class="link" href="#guide">❓ ${t('login.haveQuestions')}</a></p>
+      ${networkLink()}
       ${chatLink()}
       <section class="card" id="guide">
         <h2>${t('guide.title')}</h2>
@@ -739,7 +771,7 @@ function renderLogin(): void {
       </section>
       <p class="muted small center">${t('login.footer')}</p>
       <p class="muted small center"><a href="/privacy.html${state.lang === 'en' ? '#en' : ''}">${t('privacy')}</a></p>`;
-    wireGuide(app); wireChatLinks(app);
+    wireGuide(app); wireChatLinks(app); wireNetworkLinks(app);
 
     if (s.step === 'phone') {
       $$<HTMLButtonElement>('[data-side]').forEach((b) => (b.onclick = () => { setSide(b.dataset.side as 'payer' | 'family', true); $('#ph').focus(); }));
@@ -1526,7 +1558,8 @@ async function supportThread(id: string): Promise<void> {
     <p class="muted small">${esc(d.ticket.ref)} · ${esc(c.phone || '')}${wa ? ` · <a href="https://wa.me/${wa}" target="_blank" rel="noopener">WhatsApp</a> · <a href="tel:${esc(c.phone)}">${t('support.call')}</a>` : ''}</p>
     <p class="small">${c.signedIn ? t('support.signedIn', { role: t('support.role.' + c.account?.role) }) : c.account ? t('support.guestKnown', { name: esc(c.account.name), role: t('support.role.' + c.account.role) }) : c.phone ? t('support.guestUnknown') : t('support.noPhone')}</p>
     ${d.bill ? `<p class="small">${t('ref')} <button class="link" data-sbill="${d.bill.id}">${esc(d.bill.ref)}</button> · ${esc(d.bill.patientName)} · <span class="pill st">${t('status.' + d.bill.status)}</span></p>` : ''}
-    ${d.ticket.reason ? `<p class="muted small">${t('support.reason')} : ${esc(t('support.why.' + d.ticket.reason) !== 'support.why.' + d.ticket.reason ? t('support.why.' + d.ticket.reason) : d.ticket.reason)}</p>` : ''}
+    ${d.ticket.reason ? (() => { const [code, ...more] = d.ticket.reason.split(': '); const label = t('support.why.' + code) !== 'support.why.' + code ? t('support.why.' + code) : code;
+      return `<p class="muted small">${t('support.reason')} : ${esc(label)}${more.length ? `<br><code class="small">${esc(more.join(': '))}</code>` : ''}</p>`; })() : ''}
     <div class="chat agent-view">${threadHtml(d.messages)}</div>
     <label for="sReply">${t('support.reply')}</label>
     <textarea id="sReply" rows="3" maxlength="2000"></textarea>

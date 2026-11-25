@@ -241,3 +241,7 @@ ol.steps{padding-left:22px;display:grid;gap:8px}
 .verify-box p{margin:0 0 8px}
 .verify-box .chat-input input{flex:1;font-size:20px;letter-spacing:4px;text-align:center}
 .verify-box .chat-input button{width:auto;padding:0 16px;font-size:16px}
+.nw-commune{font-size:15px;margin:14px 0 4px;color:var(--brand)}
+ul.nw{list-style:none;margin:0;padding:0}
+ul.nw li{display:flex;flex-direction:column;padding:8px 0;border-bottom:1px solid var(--line)}
+#nwSearch{flex:1;min-width:140px}

@@ -126,6 +126,13 @@ async function helpCentre(lang: string): Promise<string> {
   return text;
 }
 
+/** The partner facilities, one per line. */
+async function networkList(): Promise<string> {
+  const rows = await all<{ name: string; commune: string; city: string; category: string }>(
+    'SELECT name, commune, city, category FROM clinics WHERE active = 1 ORDER BY city, commune, name');
+  return rows.map((r) => `- ${r.name} (${r.category}; ${r.commune || 'commune unknown'}, ${r.city})`).join('\n') || '(none yet)';
+}
+
 /** The signed-in person's own bills, as short facts for the assistant. Never anyone else's. */
 export async function accountContext(user: UserRow, focusBillId?: string | null): Promise<string> {
   const where: Record<string, [string, unknown]> = {
@@ -184,6 +191,9 @@ Rules:
 HELP CENTRE:
 ${await helpCentre(t.lang)}
 
+PARTNER NETWORK (the only facilities AmaniCare can pay; type, commune, city). Use it to say whether there is a partner facility in a commune or of a type; if none matches, say so and suggest the nearest communes listed, or that they can ask the facility to join:
+${await networkList()}
+
 ACCOUNT DATA:
 ${user ? await accountContext(user, t.bill_id) : '(not signed in: none)'}
 
@@ -210,13 +220,18 @@ export function buildTurns(history: { sender: string; body: string }[]): { role:
   return turns;
 }
 
+/** Why the assistant last failed (shown to the team with the hand-over). */
+let lastFailure = '';
+const fail = (why: string) => { lastFailure = why.replace(/\s+/g, ' ').slice(0, 160); };
+
 const askClaude: Answerer = async (t, user, history) => {
-  if (!config.anthropicKey) return null;
+  lastFailure = '';
+  if (!config.anthropicKey) { fail('no ANTHROPIC_API_KEY'); return null; }
   const turns = buildTurns(history);
   if (!turns.length) return null;
   let system: string;
   try { system = await systemPrompt(t, user); }
-  catch (err) { console.error('[support] could not prepare the assistant:', (err as Error).message); Sentry.captureException(err, { tags: { area: 'support' } }); return null; }
+  catch (err) { console.error('[support] could not prepare the assistant:', (err as Error).message); fail('prepare: ' + (err as Error).message); Sentry.captureException(err, { tags: { area: 'support' } }); return null; }
   // Two tries: a busy API or an odd answer shouldn't send everyone to the team.
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
@@ -228,7 +243,9 @@ const askClaude: Answerer = async (t, user, history) => {
         signal: AbortSignal.timeout(30000),
       });
       if (!res.ok) {
-        console.error(`[support] Anthropic API error (try ${attempt})`, res.status, (await res.text()).slice(0, 300));
+        const body = (await res.text()).slice(0, 300);
+        console.error(`[support] Anthropic API error (try ${attempt})`, res.status, body);
+        fail(`API ${res.status}: ${body}`);
         if (attempt === 2) Sentry.captureMessage(`Support assistant: Anthropic API error ${res.status}`, { level: 'warning', tags: { area: 'support' } });
         if (res.status >= 400 && res.status < 500 && res.status !== 429) return null; // a bad request won't get better
         continue;
@@ -237,9 +254,11 @@ const askClaude: Answerer = async (t, user, history) => {
       const call = (data.content || []).find((c) => c.type === 'tool_use' && c.name === 'answer');
       const parsed = call ? fromFields(call.input) : parseAnswer((data.content || []).filter((c) => c.type === 'text').map((c) => c.text || '').join(''));
       if (parsed) return parsed;
-      console.error(`[support] the assistant's answer could not be read (try ${attempt})`);
+      console.error(`[support] the assistant's answer could not be read (try ${attempt})`, JSON.stringify(data.content || []).slice(0, 300));
+      fail('unreadable answer: ' + JSON.stringify(data.content || []).slice(0, 120));
     } catch (err) {
       console.error(`[support] assistant failed (try ${attempt}):`, (err as Error).message);
+      fail((err as Error).message);
       if (attempt === 2) Sentry.captureException(err, { level: 'warning', tags: { area: 'support' } });
     }
   }
@@ -375,7 +394,7 @@ async function botAnswer(t: TicketRow, user: UserRow | null): Promise<void> {
     // A signed-in person asking about their bill still gets an answer from their own data.
     const fallback = user && config.anthropicKey ? await statusFallback(t, user) : null;
     if (fallback) { await addMessage(t.id, 'bot', fallback); return; }
-    await escalate(t, 'assistant_unavailable');
+    await escalate(t, 'assistant_unavailable' + (lastFailure ? ': ' + lastFailure : ''));
     return;
   }
   await addMessage(t.id, 'bot', ans.reply);

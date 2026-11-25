@@ -582,5 +582,14 @@
  "chat.ended": "Conversation terminée. Merci !",
  "chat.addPhoneWhy": "Ajoutez votre numéro (avec l'indicatif du pays) pour recevoir la réponse sur WhatsApp, ou pour que l'assistant regarde vos factures.",
  "chat.addPhone": "Ajouter mon numéro",
- "support.noPhone": "Non connecté, sans numéro : votre réponse s'affiche seulement dans sa conversation."
+ "support.noPhone": "Non connecté, sans numéro : votre réponse s'affiche seulement dans sa conversation.",
+ "network.cta": "Voir les hôpitaux partenaires",
+ "network.title": "Hôpitaux partenaires",
+ "network.intro": "AmaniCare paie seulement les établissements de son réseau. Choisissez une commune pour voir ceux qui sont près de chez vous.",
+ "network.commune": "Commune",
+ "network.allCommunes": "Toutes les communes",
+ "network.search": "Chercher un nom…",
+ "network.noCommune": "Autres",
+ "network.none": "Aucun établissement partenaire ici pour le moment.",
+ "network.missing": "Votre hôpital n'est pas dans la liste ? Écrivez-nous : nous pouvons l'inviter à rejoindre le réseau."
 }

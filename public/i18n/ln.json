@@ -583,5 +583,14 @@
  "chat.ended": "Lisolo esili. Matondi!",
  "chat.addPhoneWhy": "Bakisa nimero na yo (na indicatif ya mboka) mpo ozwa eyano na WhatsApp, to mpo assistant atala ba facture na yo.",
  "chat.addPhone": "Bakisa nimero na ngai",
- "support.noPhone": "Akoti te, nimero te: eyano na yo ekomonana kaka na lisolo na ye."
+ "support.noPhone": "Akoti te, nimero te: eyano na yo ekomonana kaka na lisolo na ye.",
+ "network.cta": "Tala ba lopitalo ya réseau",
+ "network.title": "Ba lopitalo ya réseau",
+ "network.intro": "AmaniCare efutaka kaka ba lopitalo ya réseau na yango. Pona commune mpo omona oyo ezali pene na yo.",
+ "network.commune": "Commune",
+ "network.allCommunes": "Ba commune nyonso",
+ "network.search": "Luka nkombo…",
+ "network.noCommune": "Mosusu",
+ "network.none": "Lopitalo moko te awa sikoyo.",
+ "network.missing": "Lopitalo na yo ezali na liste te? Komela biso: tokoki kobenga yango ekota na réseau."
 }
