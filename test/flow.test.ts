@@ -817,3 +817,13 @@ test('customer service: no phone number needed for a general question; it can be
   const ok = (await (await add('+12145550123')).json()) as any;
   assert.equal(ok.ticket.needsPhone, false); assert.equal(ok.ticket.canVerify, true);
 });
+
+test('customer service: the person never sees JSON from the assistant', async () => {
+  const { parseAnswer } = await import('../server/support.js');
+  const doubled = 'Voici:\n{"reply":"Première version.","handoff":false,"reason":""}\n\nCorrection: the reply must be only the JSON object.\n\n{"reply":"Votre facture est réglée.","handoff":false,"reason":""}';
+  assert.deepEqual(parseAnswer(doubled), { reply: 'Votre facture est réglée.', handoff: false, reason: '' });
+  assert.equal(parseAnswer('```json\n{"reply":"ok","handoff":true,"reason":"x"}\n```')?.handoff, true);
+  assert.equal(parseAnswer('{"reply": "broken'), null);
+  assert.equal(parseAnswer('Bonjour, votre facture est payée.')?.reply, 'Bonjour, votre facture est payée.');
+  assert.equal(parseAnswer('{"reply":"{\\"reply\\":\\"x\\"}","handoff":false}'), null);
+});

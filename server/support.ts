@@ -187,7 +187,7 @@ ${await helpCentre(t.lang)}
 ACCOUNT DATA:
 ${user ? await accountContext(user, t.bill_id) : '(not signed in: none)'}
 
-Reply with ONLY a JSON object: {"reply": string, "handoff": boolean, "reason": short English string or ""}`;
+Answer with the "answer" tool, once: "reply" is exactly what the person reads (plain text, never JSON or notes to yourself).`;
 }
 
 export interface BotAnswer { reply: string; handoff: boolean; reason: string }
@@ -223,7 +223,8 @@ const askClaude: Answerer = async (t, user, history) => {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': config.anthropicKey, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: config.anthropicModel, max_tokens: 1200, system, messages: turns }),
+        // The answer comes back as the fields of a tool call, so there is no text to pick apart.
+        body: JSON.stringify({ model: config.anthropicModel, max_tokens: 1200, system, messages: turns, tools: [ANSWER_TOOL], tool_choice: { type: 'tool', name: 'answer' } }),
         signal: AbortSignal.timeout(30000),
       });
       if (!res.ok) {
@@ -232,8 +233,9 @@ const askClaude: Answerer = async (t, user, history) => {
         if (res.status >= 400 && res.status < 500 && res.status !== 429) return null; // a bad request won't get better
         continue;
       }
-      const data = (await res.json()) as { content?: { type: string; text?: string }[] };
-      const parsed = parseAnswer((data.content || []).filter((c) => c.type === 'text').map((c) => c.text || '').join(''));
+      const data = (await res.json()) as { content?: { type: string; text?: string; name?: string; input?: unknown }[] };
+      const call = (data.content || []).find((c) => c.type === 'tool_use' && c.name === 'answer');
+      const parsed = call ? fromFields(call.input) : parseAnswer((data.content || []).filter((c) => c.type === 'text').map((c) => c.text || '').join(''));
       if (parsed) return parsed;
       console.error(`[support] the assistant's answer could not be read (try ${attempt})`);
     } catch (err) {
@@ -244,21 +246,41 @@ const askClaude: Answerer = async (t, user, history) => {
   return null;
 };
 
-/** The JSON answer, tolerant of code fences or text around it; plain text is taken as the reply. */
+const ANSWER_TOOL = {
+  name: 'answer',
+  description: 'Send your answer to the person.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      reply: { type: 'string', description: 'What the person reads: plain text, 2 to 4 sentences, in their language.' },
+      handoff: { type: 'boolean', description: 'true to hand the conversation to a person on the AmaniCare team' },
+      reason: { type: 'string', description: 'If handoff: why, in a few English words; else empty' },
+    },
+    required: ['reply', 'handoff'],
+  },
+};
+
+function fromFields(o: unknown): BotAnswer | null {
+  const x = o as { reply?: unknown; handoff?: unknown; reason?: unknown } | null;
+  if (!x || typeof x.reply !== 'string' || !x.reply.trim() || looksLikeData(x.reply)) return null;
+  return { reply: x.reply.trim().slice(0, 1500), handoff: x.handoff === true, reason: String(x.reason || '').slice(0, 120) };
+}
+/** Never show the person JSON or our field names. */
+const looksLikeData = (s: string) => /[{}]|"(reply|handoff|reason)"\s*:/.test(s);
+
+/** Fallback when the answer comes as text: the LAST well-formed {"reply": ...} object in it.
+ *  Text that isn't a clean answer is never shown. */
 export function parseAnswer(text: string): BotAnswer | null {
-  const clean = text.replace(/```(?:json)?/gi, '').trim();
-  if (!clean) return null;
-  const s = clean.indexOf('{'), e = clean.lastIndexOf('}');
-  if (s >= 0 && e > s) {
-    try {
-      const o = JSON.parse(clean.slice(s, e + 1));
-      if (typeof o.reply === 'string' && o.reply.trim()) {
-        return { reply: o.reply.trim().slice(0, 1500), handoff: o.handoff === true, reason: String(o.reason || '').slice(0, 120) };
-      }
-    } catch { /* not JSON: below */ }
+  const clean = text.replace(/```(?:json)?/gi, '');
+  let found: BotAnswer | null = null;
+  for (let i = clean.indexOf('{'); i >= 0; i = clean.indexOf('{', i + 1)) {
+    for (let j = clean.indexOf('}', i); j >= 0; j = clean.indexOf('}', j + 1)) {
+      try { const a = fromFields(JSON.parse(clean.slice(i, j + 1))); if (a) { found = a; i = j; break; } } catch { /* keep looking */ }
+    }
   }
-  if (s === 0) return null; // broken JSON: don't show it to the person
-  return { reply: clean.slice(0, 1500), handoff: false, reason: '' };
+  if (found) return found;
+  const plain = clean.trim();
+  return plain && !looksLikeData(plain) ? { reply: plain.slice(0, 1500), handoff: false, reason: '' } : null;
 }
 
 /** When the assistant can't answer, a signed-in person still gets the facts about their latest bill. */
