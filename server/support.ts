@@ -18,7 +18,7 @@ import { config } from './config.js';
 import { one, all, run, audit } from './db.js';
 import { router } from './api.js';
 import { requireRole, requestOtp, verifyOtp, createSession, sessionCookie } from './auth.js';
-import { HttpError, notFound, str, oneOf, phone, pageOf, type AuthCtx, type Ctx } from './http.js';
+import { HttpError, bad, notFound, str, oneOf, phone, pageOf, type AuthCtx, type Ctx } from './http.js';
 import { canView, getBill } from './bills.js';
 import { notify, send } from './messaging/index.js';
 import type { BillRow, UserRow } from './types.js';
@@ -55,11 +55,6 @@ const SYSTEM = {
     fr: "Numéro vérifié : l'assistant voit maintenant vos factures.",
     en: 'Number verified: the assistant can now see your bills.',
     ln: 'Nimero endimami: assistant amoni sikoyo ba facture na yo.',
-  },
-  noAccount: {
-    fr: "Numéro vérifié, mais il n'a pas encore de compte AmaniCare : aucune facture à afficher.",
-    en: 'Number verified, but it has no AmaniCare account yet: there are no bills to show.',
-    ln: 'Nimero endimami, kasi ezali naino na compte AmaniCare te: facture moko te.',
   },
   waGreeting: {
     fr: 'Bonjour, ici le service client AmaniCare.',
@@ -380,24 +375,33 @@ async function guestTicket(ctx: Ctx): Promise<TicketRow & { guest_phone: string 
   return t as TicketRow & { guest_phone: string };
 }
 
+/** The account behind this number, only if it is active and has a history with us (bills it sent,
+ *  paid or received). Anything else gets no code and sees nothing. */
+async function accountWithHistory(p: string): Promise<UserRow | null> {
+  const u = await one<UserRow>('SELECT * FROM users WHERE phone = $1 AND active = 1', p);
+  if (!u) return null;
+  const has = u.role === 'payer' ? await one('SELECT 1 FROM bills WHERE payer_id = $1 LIMIT 1', u.id)
+    : u.role === 'family' ? await one('SELECT 1 FROM bills WHERE family_id = $1 LIMIT 1', u.id)
+    : u.role === 'clinic' ? await one('SELECT 1 FROM bills WHERE clinic_id = $1 LIMIT 1', u.clinic_id)
+    : null;
+  return has ? u : null;
+}
+
 router.post('/api/support/tickets/:id/send-code', async (ctx: Ctx) => {
   const t = await guestTicket(ctx);
   limit('code:' + t.id, 5, 3600_000);
-  const u = await one<UserRow>('SELECT * FROM users WHERE phone = $1', t.guest_phone);
-  if (u && !u.active) throw new HttpError(403, 'account_disabled');
+  // Same answer whether or not the number has a history, so the chat can't be used to find out who
+  // uses AmaniCare; only numbers with a history actually get a code (no codes to random numbers).
+  if (!(await accountWithHistory(t.guest_phone))) return { sent: true };
   return requestOtp(t.guest_phone, t.lang);
 });
 
 router.post('/api/support/tickets/:id/verify', async (ctx: Ctx) => {
   const t = await guestTicket(ctx);
   const code = str(ctx.body.code, { min: 6, max: 6, name: 'code' });
-  const u = await one<UserRow>('SELECT * FROM users WHERE phone = $1', t.guest_phone);
-  if (u && !u.active) throw new HttpError(403, 'account_disabled');
+  const u = await accountWithHistory(t.guest_phone);
+  if (!u) throw bad('code_expired'); // no history: no code was sent, so any code is refused the same way
   await verifyOtp(t.guest_phone, code); // wrong or expired code: refused (and attempts are counted)
-  if (!u) {
-    await addMessage(t.id, 'system', sys('noAccount', t.lang));
-    return { ticket: ticketView((await getTicket(t.id))!, await messagesOf(t.id)), user: null };
-  }
   // The conversation now belongs to the account, and the person is signed in.
   await run('UPDATE support_tickets SET user_id = $2, guest_token_hash = NULL WHERE id = $1', t.id, u.id);
   ctx.res.setHeader('set-cookie', sessionCookie(await createSession(u.id)));

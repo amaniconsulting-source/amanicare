@@ -575,6 +575,7 @@
  "chat.request": "Request {ref}",
  "chat.verifyWhy": "For the assistant to look at your bills and payments, confirm this number is yours.",
  "chat.verify": "Verify my number ({phone})",
- "chat.codeSent": "We sent a code to {phone}. Enter it here:",
- "chat.check": "Confirm"
+ "chat.codeSent": "If this number has used AmaniCare before, a code will arrive at {phone}. Enter it here:",
+ "chat.check": "Confirm",
+ "chat.noCode": "No code after a few minutes? This number may not have a history with us yet: tap \"Talk to a person\"."
 }

@@ -513,6 +513,7 @@ async function showChat(id: string, ticket?: Ticket): Promise<void> {
       <button class="secondary block" id="chVerify">${t('chat.verify', { phone: esc(tk.phoneHint || '') })}</button>
       <div class="hidden" id="chCodeStep">
         <p class="small">${t('chat.codeSent', { phone: esc(tk.phoneHint || '') })}</p>
+        <p class="muted small">${t('chat.noCode')}</p>
         <p class="notice hidden" id="chDev"></p>
         <div class="chat-input"><input id="chCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456"><button id="chCheck">${t('chat.check')}</button></div>
       </div>
@@ -554,9 +555,9 @@ async function showChat(id: string, ticket?: Ticket): Promise<void> {
     $('#chCheck', sheet).onclick = (e) => busy(btn(e), async () => {
       const code = val('#chCode', sheet).replace(/\D/g, '');
       if (code.length !== 6) { toast(t('err.invalid_code')); return; }
-      const r = await supportApi<{ ticket: Ticket; user: Me | null }>('POST', `/api/support/tickets/${id}/verify`, { code });
+      const r = await supportApi<{ ticket: Ticket; user: Me }>('POST', `/api/support/tickets/${id}/verify`, { code });
       $('#chVerifyBox', sheet).classList.add('hidden');
-      if (r.user) { setGuestTicket(null); state.me = r.user; setUser(r.user.id, r.user.role); document.getElementById('logoutBtn')!.classList.remove('hidden'); route(); }
+      { setGuestTicket(null); state.me = r.user; setUser(r.user.id, r.user.role); document.getElementById('logoutBtn')!.classList.remove('hidden'); route(); }
       paint(r.ticket);
     });
     $<HTMLInputElement>('#chCode', sheet).onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); $<HTMLButtonElement>('#chCheck', sheet).click(); } };

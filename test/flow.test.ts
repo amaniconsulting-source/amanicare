@@ -759,13 +759,19 @@ test('customer service: a visitor verifies their number with a code, then the as
     assert.equal(ok.data.ticket.canVerify, false);
     token = '';
     assert.equal((await g('GET', '/api/support/tickets')).data.tickets[0].id, id);
-    // A number without an account: verified, but nothing to show.
-    token = ''; cookie = '';
-    const r2 = await g('POST', '/api/support/tickets', { text: 'Bonjour', phone: '+33699887766' });
-    token = r2.data.token;
-    const c2 = await g('POST', `/api/support/tickets/${r2.data.ticket.id}/send-code`);
-    const v2 = await g('POST', `/api/support/tickets/${r2.data.ticket.id}/verify`, { code: c2.data.devCode });
-    assert.equal(v2.data.user, null); assert.equal(v2.data.ticket.messages.at(-1).from, 'system');
+    // Numbers with no history with us (no account, or an account without any bill) get no code,
+    // and the answer looks the same, so the chat doesn't reveal who uses AmaniCare.
+    const fresh = client(); await login(fresh, '+33611223344', { name: 'Sans Historique', role: 'payer' });
+    for (const num of ['+33699887766', '+33611223344']) {
+      token = ''; cookie = '';
+      const r2 = await g('POST', '/api/support/tickets', { text: 'Bonjour', phone: num });
+      token = r2.data.token;
+      const before = (await one<{ n: number }>("SELECT COUNT(*)::int n FROM messages WHERE payload LIKE '%otp%'"))!.n;
+      const c2 = await g('POST', `/api/support/tickets/${r2.data.ticket.id}/send-code`);
+      assert.deepEqual(c2.data, { sent: true });
+      assert.equal((await one<{ n: number }>("SELECT COUNT(*)::int n FROM messages WHERE payload LIKE '%otp%'"))!.n, before);
+      assert.equal((await g('POST', `/api/support/tickets/${r2.data.ticket.id}/verify`, { code: '123456' })).status, 400);
+    }
     assert.equal(await one("SELECT 1 FROM users WHERE phone = '+33699887766'"), undefined);
   } finally { setAnswererForTests(null); }
 });

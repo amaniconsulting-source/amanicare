@@ -576,6 +576,7 @@
  "chat.request": "Motuna {ref}",
  "chat.verifyWhy": "Mpo assistant atala ba facture mpe ba paiement na yo, ndimisa ete nimero oyo ezali ya yo.",
  "chat.verify": "Ndimisa nimero na ngai ({phone})",
- "chat.codeSent": "Totindi code na {phone}. Koma yango awa :",
- "chat.check": "Ndimisa"
+ "chat.codeSent": "Soki nimero oyo esalelaki AmaniCare liboso, code ekoya na {phone}. Koma yango awa :",
+ "chat.check": "Ndimisa",
+ "chat.noCode": "Code eyei te sima ya miniti mwa? Nimero oyo ekoki kozala naino na lisolo elongo na biso te: finá « Kosolola na moto »."
 }
