@@ -594,5 +594,16 @@
  "network.none": "Lopitalo moko te awa sikoyo.",
  "network.missing": "Lopitalo na yo ezali na liste te? Komela biso: tokoki kobenga yango ekota na réseau.",
  "network.didYouMean": "Olingaki koloba",
- "network.noneIn": "Lopitalo moko te na {commune} sikoyo."
+ "network.noneIn": "Lopitalo moko te na {commune} sikoyo.",
+ "nav.home": "Ebandeli",
+ "nav.hospitals": "Lopitalo",
+ "nav.chat": "Solola",
+ "nav.guide": "Ndenge",
+ "nav.help": "Lisalisi",
+ "nav.account": "Compte",
+ "nav.send": "Tinda",
+ "nav.toPay": "Ya kofuta",
+ "nav.bills": "Ba facture",
+ "nav.admin": "Tableau",
+ "nav.language": "Lokota"
 }

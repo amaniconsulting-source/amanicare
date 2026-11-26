@@ -593,5 +593,16 @@
  "network.none": "Aucun établissement partenaire ici pour le moment.",
  "network.missing": "Votre hôpital n'est pas dans la liste ? Écrivez-nous : nous pouvons l'inviter à rejoindre le réseau.",
  "network.didYouMean": "Vouliez-vous dire",
- "network.noneIn": "Pas encore d'établissement partenaire à {commune}."
+ "network.noneIn": "Pas encore d'établissement partenaire à {commune}.",
+ "nav.home": "Accueil",
+ "nav.hospitals": "Hôpitaux",
+ "nav.chat": "Discuter",
+ "nav.guide": "Guide",
+ "nav.help": "Aide",
+ "nav.account": "Compte",
+ "nav.send": "Envoyer",
+ "nav.toPay": "À payer",
+ "nav.bills": "Factures",
+ "nav.admin": "Tableau",
+ "nav.language": "Langue"
 }

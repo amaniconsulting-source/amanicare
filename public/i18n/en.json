@@ -593,5 +593,16 @@
  "network.none": "No partner facility here yet.",
  "network.missing": "Your hospital isn't listed? Write to us: we can invite it to join the network.",
  "network.didYouMean": "Did you mean",
- "network.noneIn": "No partner facility in {commune} yet."
+ "network.noneIn": "No partner facility in {commune} yet.",
+ "nav.home": "Home",
+ "nav.hospitals": "Hospitals",
+ "nav.chat": "Chat",
+ "nav.guide": "Guide",
+ "nav.help": "Help",
+ "nav.account": "Account",
+ "nav.send": "Send",
+ "nav.toPay": "To pay",
+ "nav.bills": "Bills",
+ "nav.admin": "Dashboard",
+ "nav.language": "Language"
 }

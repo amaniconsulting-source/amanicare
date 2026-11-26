@@ -592,7 +592,10 @@ async function showChat(id: string, ticket?: Ticket): Promise<void> {
 }
 
 /** A dot on the help button when the team has answered. */
-function markSupportUnread(on: boolean): void { document.getElementById('helpBtn')?.classList.toggle('unread', on); }
+function markSupportUnread(on: boolean): void {
+  document.getElementById('helpBtn')?.classList.toggle('unread', on);
+  document.querySelectorAll('[data-nav="help"], [data-nav="chat"]').forEach((b) => b.classList.toggle('unread', on));
+}
 async function checkSupportUnread(): Promise<void> {
   try {
     if (state.me) {
@@ -863,6 +866,7 @@ async function renderPayer(): Promise<void> {
   const todo = bills.filter((b) => ['awaiting_payer', 'payment_failed'].includes(b.status));
   const moving = bills.filter((b) => ['review', 'awaiting_clinic', 'payment_pending', 'paying_out'].includes(b.status));
   const done = bills.filter((b) => ['paid', 'rejected', 'declined', 'payout_failed'].includes(b.status));
+  if (navBadges.pay !== todo.length) { navBadges.pay = todo.length; renderTabbar(); }
   app.innerHTML = `
     <h1>${t('hello', { name: esc(me().name) })}</h1>
     <p class="muted">${t('payer.subtitle')}</p>
@@ -870,7 +874,7 @@ async function renderPayer(): Promise<void> {
       ${guideSteps('payer')}
       <button class="block" data-invite>👨‍👩‍👧 ${t('start.payer.button')}</button>
       <button class="secondary block" data-have-code>🔑 ${t('code.received')}</button></div>`}
-    <div class="card"><h2>${t('payer.toApprove')}</h2>
+    <div class="card" id="toApprove"><h2>${t('payer.toApprove')}</h2>
       ${todo.length ? todo.map((b) => billCard(b, { showReasons: true, showExpected: true, showNext: false, actions: `
         ${b.status === 'payment_failed' ? `<p class="notice">${t('payer.paymentFailed')}</p>` : ''}
         <div class="row"><button class="grow" data-pay="${b.id}" data-amount="${usd(b.totalUsd + b.feeUsd)}">${t('payer.pay', { amount: usd(b.totalUsd + b.feeUsd) })}</button><button class="secondary small" data-decline="${b.id}">${t('payer.decline')}</button></div>
@@ -1186,7 +1190,7 @@ async function renderAdmin(): Promise<void> {
   app.innerHTML = `<h1>${t('admin.title')}</h1>
     <nav class="tabs">${ADMIN_TABS.map((k) => `<button data-tab="${k}" class="${state.adminTab === k ? 'on' : ''}">${t('admin.tab.' + k)}</button>`).join('')}</nav>
     <div id="adminBody"><p class="center"><span class="spinner"></span></p></div>`;
-  $$('[data-tab]').forEach((b) => (b.onclick = () => { state.adminTab = b.dataset.tab as AdminTab; renderAdmin(); }));
+  $$('[data-tab]').forEach((b) => (b.onclick = () => { state.adminTab = b.dataset.tab as AdminTab; activeNav = ['support', 'bills'].includes(state.adminTab) ? state.adminTab : 'home'; renderTabbar(); renderAdmin(); }));
   // On phones the tabs are one swipeable row: keep the open tab in view, and drop the fade at the end.
   const nav = $('nav.tabs');
   const atEnd = () => nav.classList.toggle('end', nav.scrollLeft + nav.clientWidth >= nav.scrollWidth - 4);
@@ -1198,6 +1202,7 @@ async function renderAdmin(): Promise<void> {
   api<{ counts: Record<string, number> }>('GET', '/api/admin/support?status=open&limit=1').then(({ counts }) => {
     const tab = nav.querySelector('[data-tab="support"]');
     if (tab && counts.open) tab.innerHTML = `${t('admin.tab.support')} <span class="badge">${counts.open}</span>`;
+    if (navBadges.support !== counts.open) { navBadges.support = counts.open || 0; renderTabbar(); }
   }).catch(() => {});
   const body = $('#adminBody');
   try { await ADMIN[state.adminTab](body); } catch (e) { reportUnexpected(e); body.innerHTML = `<p class="notice">${esc(errText(e))}</p>`; }
@@ -1630,7 +1635,82 @@ async function supportThread(id: string): Promise<void> {
 }
 
 // ---------- routing ----------
+
+// ---------- bottom navigation (phones) ----------
+// On a phone, the main places are one thumb away at the bottom, for everyone (signed in or not),
+// like Sendwave or Ria. On a computer the bar is hidden (CSS) and the header does the job.
+type NavTab = { id: string; icon: string; label: string; go: () => void; main?: boolean; badge?: number };
+let activeNav = 'home';
+function goHome(): void { closeModal(); activeNav = 'home'; route(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+function navTabs(): NavTab[] {
+  const role = state.me?.role;
+  const help: NavTab = { id: 'help', icon: '💬', label: t('nav.help'), go: () => openHelp() };
+  const account: NavTab = { id: 'account', icon: '👤', label: t('nav.account'), go: openAccount };
+  if (!role) return [
+    { id: 'home', icon: '🏠', label: t('nav.home'), go: goHome },
+    { id: 'hospitals', icon: '🏥', label: t('nav.hospitals'), go: () => openNetwork().catch(reportUnexpected) },
+    { id: 'chat', icon: '💬', label: t('nav.chat'), go: () => openSupport() },
+    { id: 'guide', icon: '❓', label: t('nav.guide'), go: () => openHelp() },
+  ];
+  if (role === 'family') return [
+    { id: 'home', icon: '🏠', label: t('nav.home'), go: goHome },
+    { id: 'send', icon: '📷', label: t('nav.send'), main: true, go: () => {
+      closeModal(); activeNav = 'home';
+      const go = () => (document.getElementById('newBill') || document.querySelector<HTMLElement>('[data-invite]'))?.click();
+      if (document.getElementById('newBill') || document.querySelector('[data-invite]')) go(); else Promise.resolve(renderFamily()).then(go);
+    } },
+    help, account,
+  ];
+  if (role === 'payer') return [
+    { id: 'home', icon: '🏠', label: t('nav.home'), go: goHome },
+    { id: 'pay', icon: '💳', label: t('nav.toPay'), main: true, badge: navBadges.pay, go: () => {
+      closeModal(); activeNav = 'pay';
+      document.getElementById('toApprove')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); renderTabbar();
+    } },
+    help, account,
+  ];
+  if (role === 'clinic') return [{ id: 'home', icon: '🧾', label: t('nav.bills'), go: goHome }, help, account];
+  return [
+    { id: 'home', icon: '📊', label: t('nav.admin'), go: () => { state.adminTab = 'overview'; goHome(); } },
+    { id: 'support', icon: '💬', label: t('admin.tab.support'), badge: navBadges.support, go: () => { closeModal(); activeNav = 'support'; state.adminTab = 'support'; route(); } },
+    { id: 'bills', icon: '🧾', label: t('nav.bills'), go: () => { closeModal(); activeNav = 'bills'; state.adminTab = 'bills'; route(); } },
+    account,
+  ];
+}
+const navBadges: { pay?: number; support?: number } = {};
+function renderTabbar(): void {
+  const bar = document.getElementById('tabbar')!;
+  const tabs = navTabs();
+  bar.innerHTML = tabs.map((x) => `<button type="button" class="${x.id === activeNav ? 'on' : ''} ${x.main ? 'main' : ''}" data-nav="${x.id}" ${x.id === activeNav ? 'aria-current="page"' : ''}>
+    <span class="ic" aria-hidden="true">${x.icon}${x.badge ? `<span class="badge">${x.badge}</span>` : ''}</span><span class="lb">${esc(x.label)}</span></button>`).join('');
+  tabs.forEach((x) => { bar.querySelector<HTMLButtonElement>(`[data-nav="${x.id}"]`)!.onclick = x.go; });
+  document.body.classList.add('has-tabbar');
+  document.body.classList.toggle('signed-in', !!state.me);
+  markSupportUnread(document.getElementById('helpBtn')?.classList.contains('unread') || false);
+}
+
+/** "Compte": who you are, language, hospitals, log out (on phones, instead of the header). */
+function openAccount(): void {
+  const u = state.me!;
+  openModal(`<div class="row between"><h2>👤 ${t('nav.account')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
+    <p><b>${esc(u.name)}</b><br><span class="muted">${esc(u.phone)} · ${t('support.role.' + u.role)}</span></p>
+    <label for="accLang">${t('nav.language')}</label>
+    <select id="accLang">${[['fr', 'Français'], ['en', 'English'], ['ln', 'Lingala']].map(([v, l]) => `<option value="${v}" ${state.lang === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    ${u.role !== 'admin' ? `<button class="secondary block" data-network>🏥 ${t('network.cta')}</button>` : ''}
+    ${installed() ? '' : `<button class="secondary block" data-install-now>📲 ${t('install.button')}</button>`}
+    <button class="secondary block" id="accLogout">${t('logout')}</button>`, (sheet) => {
+    $('#accLang', sheet).onchange = () => {
+      const sel = document.getElementById('langSel') as HTMLSelectElement;
+      sel.value = val('#accLang', sheet); sel.dispatchEvent(new Event('change')); closeModal();
+    };
+    wireNetworkLinks(sheet);
+    sheet.querySelector<HTMLButtonElement>('[data-install-now]')?.addEventListener('click', () => { closeModal(); installApp(); });
+    $('#accLogout', sheet).onclick = () => { closeModal(); document.getElementById('logoutBtn')!.click(); };
+  });
+}
+
 function route(): void {
+  renderTabbar();
   if (!state.me) return renderLogin();
   const r = { payer: renderPayer, family: renderFamily, clinic: renderClinic, admin: renderAdmin }[state.me.role];
   Promise.resolve(r()).catch((e) => {
