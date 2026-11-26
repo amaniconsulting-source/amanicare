@@ -195,6 +195,9 @@ export function createApp(): Server {
   return createServer(async (req, res) => {
     const url = new URL(req.url || '/', 'http://localhost');
     res.setHeader('x-app-version', BUILD_ID); // lets open pages notice a new deploy
+    res.setHeader('x-content-type-options', 'nosniff');
+    // HTTPS only, for a year, once in production (browsers then never try plain http).
+    if (config.production) res.setHeader('strict-transport-security', 'max-age=31536000; includeSubDomains');
     try {
       if (url.pathname === '/healthz') return sendJson(res, 200, { ok: true });
       if (canonicalRedirect(req, res, url)) return;

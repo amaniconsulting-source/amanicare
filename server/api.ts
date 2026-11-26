@@ -1,3 +1,4 @@
+import { limit, clientIp } from './limits.js';
 import { canonicalCommune, KINSHASA_COMMUNES } from './communes.js';
 // REST API routes.
 import { randomUUID, randomBytes, createHmac, timingSafeEqual } from 'node:crypto';
@@ -26,9 +27,12 @@ const inviteLink = (code: string, inviterRole: 'payer' | 'family' | string = 'pa
   `${config.baseUrl.replace(/\/$/, '')}/?invite=${code}&as=${inviterRole === 'payer' ? 'family' : 'payer'}`;
 
 // ---------- Auth ----------
-router.post('/api/auth/request-otp', async ({ body }: Ctx) => {
+router.post('/api/auth/request-otp', async ({ body, req }: Ctx) => {
   const lang = isLang(body.lang) ? body.lang : 'fr';
   const p = phone(body.phone);
+  // Besides 5 codes per number per hour: per address, and overall, so nobody can make us send
+  // codes to thousands of numbers (each WhatsApp/SMS code costs money).
+  if (config.production) { limit('otp-ip:' + clientIp(req), 15, 3600_000); limit('otp-all', 500, 3600_000); }
   if (await one('SELECT 1 FROM users WHERE phone = $1 AND active = 0', p)) throw new HttpError(403, 'account_disabled');
   return requestOtp(p, lang);
 });
@@ -127,6 +131,8 @@ router.post('/api/invites/:code/renew', requireRole('payer', 'family'), async ({
 });
 
 router.post('/api/invites/accept', requireRole('payer', 'family'), async ({ user, body }: AuthCtx) => {
+  // Invitation codes are short (typed by hand): limit tries so they can't be guessed.
+  limit('invite-try:' + user.id, 10, 15 * 60_000);
   const code = str(body.code, { min: 6, max: 6, name: 'code' }).toUpperCase();
   const inv = await tx(async () => {
     // Lock the invite so it can only be used once, even with two taps at the same moment.
@@ -212,7 +218,9 @@ router.get('/api/bills/:id/photo', requireRole(), async ({ user, params, res }: 
     const ext = b.photo_path.split('.').pop();
     type = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
   }
-  res.writeHead(200, { 'content-type': type, 'cache-control': 'private, max-age=3600' });
+  // Never run as a page, whatever is inside the file.
+  res.writeHead(200, { 'content-type': type, 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff',
+    'content-security-policy': "default-src 'none'; sandbox", 'content-disposition': 'inline' });
   res.end(data);
   return undefined;
 });
@@ -478,18 +486,18 @@ router.get('/api/admin/audit', requireRole('admin'), async ({ url }: AuthCtx) =>
 
 // ---------- Payment partner webhooks ----------
 router.post('/api/webhooks/payments/:partner', async ({ params, raw, req }: Ctx) => {
-  if (!hasPartner(params.partner)) throw notFound();
+  // Only the partner in use can report payments (not the sandbox while FlexPay is live, etc.).
+  if (!hasPartner(params.partner) || params.partner !== config.paymentPartner) throw notFound();
   const partner = getPartner(params.partner);
   if (!partner.verifyWebhook(raw, req.headers)) throw new HttpError(401, 'bad_signature');
   let update = partner.parseWebhook(JSON.parse(raw.toString('utf8') || '{}'));
-  if (partner.confirm) {
-    // Unsigned callbacks (FlexPay): only the partner's status API decides, for a payment of that partner.
-    const p = update.paymentId ? await one<PaymentRow>('SELECT * FROM payments WHERE id = $1', update.paymentId)
-      : update.partnerRef ? await one<PaymentRow>('SELECT * FROM payments WHERE partner_ref = $1', update.partnerRef) : undefined;
-    if (!p || p.partner !== partner.name) return { ok: true };
-    update = await partner.confirm(p, update);
-  }
-  await applyPaymentUpdate(update);
+  // A partner can only report on its own payments.
+  const p = update.paymentId ? await one<PaymentRow>('SELECT * FROM payments WHERE id = $1', update.paymentId)
+    : update.partnerRef ? await one<PaymentRow>('SELECT * FROM payments WHERE partner_ref = $1', update.partnerRef) : undefined;
+  if (!p || p.partner !== partner.name) return { ok: true };
+  // Unsigned callbacks (FlexPay): only the partner's status API decides.
+  if (partner.confirm) update = await partner.confirm(p, update);
+  await applyPaymentUpdate({ ...update, paymentId: p.id, partnerRef: undefined });
   return { ok: true };
 });
 

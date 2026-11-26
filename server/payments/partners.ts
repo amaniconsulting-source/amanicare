@@ -26,6 +26,8 @@ export function hmacHex(secret: string, body: string | Buffer): string {
 }
 
 function verifyHmac(rawBody: Buffer, headers: IncomingHttpHeaders): boolean {
+  // The built-in development secret is public (it's in the code): never accept it in production.
+  if (config.production && (!config.paymentWebhookSecret || config.paymentWebhookSecret === 'dev-webhook-secret')) return false;
   const sig = String(headers['x-signature'] || '');
   const expected = hmacHex(config.paymentWebhookSecret, rawBody);
   return sig.length === expected.length && timingSafeEqual(Buffer.from(sig), Buffer.from(expected));

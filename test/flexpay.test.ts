@@ -132,6 +132,14 @@ test('FlexPay direct: mobile money straight into the hospital\'s own merchant ac
   await callback({ code: '0', reference: pay.data.paymentId, orderNumber: 'FXOTHER' });
   assert.equal(await billStatus(payer, bill.id), 'payment_pending');
 
+  // A callback forged as the sandbox partner, correctly signed with the (public) development secret,
+  // is refused: only the partner in use may report, and only on its own payments.
+  const { hmacHex } = await import('../server/payments/partners.js');
+  const forged = JSON.stringify({ payment_id: pay.data.paymentId, status: 'succeeded' });
+  const fr = await realFetch(`${base}/api/webhooks/payments/sandbox`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-signature': hmacHex(config.paymentWebhookSecret, forged) }, body: forged });
+  assert.equal(fr.status, 404);
+  assert.equal(await billStatus(payer, bill.id), 'payment_pending');
+
   // The payer approves on the phone: FlexPay confirms, the hospital already has the money.
   const order = [...txs.entries()].find(([, t]) => t.reference === pay.data.paymentId)![0];
   txs.get(order)!.status = '0';

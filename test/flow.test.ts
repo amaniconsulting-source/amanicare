@@ -880,3 +880,22 @@ test('invitations: once the relative has joined, the other invitations to them s
   assert.equal((await payer('GET', '/api/invites')).data.invites.length, 0);
   assert.ok(first.code);
 });
+
+test('security: limits refuse after the allowed number of tries', async () => {
+  const { limit, resetLimits } = await import('../server/limits.js');
+  for (let i = 0; i < 3; i++) limit('t:x', 3, 60_000);
+  assert.throws(() => limit('t:x', 3, 60_000), /too_many_requests/);
+  resetLimits();
+});
+
+test('security: bill photos can never run as a page; responses carry nosniff', async () => {
+  const b = await one<{ id: string }>("SELECT id FROM bills WHERE photo_path LIKE 'db:%' LIMIT 1");
+  const otp = (await (await fetch(`${base}/api/auth/request-otp`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone: '+15550000001' }) })).json()) as any;
+  const v = await fetch(`${base}/api/auth/verify`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone: '+15550000001', code: otp.devCode }) });
+  const cookie = v.headers.get('set-cookie')!.split(';')[0];
+  const r = await fetch(`${base}/api/bills/${b!.id}/photo`, { headers: { cookie } });
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
+  assert.match(r.headers.get('content-security-policy') || '', /sandbox/);
+  assert.equal((await fetch(`${base}/api/network`)).headers.get('x-content-type-options'), 'nosniff');
+});

@@ -18,6 +18,7 @@ import { config } from './config.js';
 import { one, all, run, audit } from './db.js';
 import { router } from './api.js';
 import { canonicalCommune, communesIn, KINSHASA_COMMUNES } from './communes.js';
+import { limit, clientIp, resetLimits } from './limits.js';
 import { requireRole, requestOtp, verifyOtp, createSession, sessionCookie } from './auth.js';
 import { HttpError, bad, notFound, str, oneOf, phone, pageOf, type AuthCtx, type Ctx } from './http.js';
 import { canView, getBill } from './bills.js';
@@ -444,17 +445,9 @@ function ticketView(t: TicketRow, msgs: MsgRow[]) {
   };
 }
 
-// ---------- limits (in memory: enough for one server; keeps the assistant from being abused) ----------
-const hits = new Map<string, number[]>();
-function limit(key: string, max: number, windowMs: number): void {
-  const now = Date.now();
-  const list = (hits.get(key) || []).filter((x) => x > now - windowMs);
-  if (list.length >= max) throw new HttpError(429, 'too_many_requests');
-  list.push(now); hits.set(key, list);
-  if (hits.size > 10_000) for (const [k, v] of hits) if (!v.some((x) => x > now - windowMs)) hits.delete(k);
-}
-const ipOf = (req: IncomingMessage) => String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '?';
-export function resetLimitsForTests(): void { hits.clear(); }
+// ---------- limits ----------
+const ipOf = clientIp;
+export function resetLimitsForTests(): void { resetLimits(); }
 
 /** The ticket, if this request may see it: its signed-in owner, or the device holding its token. */
 async function ticketFor(ctx: Ctx): Promise<TicketRow> {
@@ -493,6 +486,7 @@ router.post('/api/support/tickets', async ({ user, body, req }: Ctx) => {
     await run('INSERT INTO support_tickets(id, user_id, lang, bill_id, subject) VALUES($1,$2,$3,$4,$5)', id, user.id, lang, billId, text.slice(0, 140));
   } else {
     limit('new-ip:' + ipOf(req), 5, 3600_000);
+    limit('new-guest-all', 300, 3600_000); // overall cap: per-address limits can be dodged
     // Optional: general questions need no number. When given, it must carry its country code
     // (Congolese numbers are completed); it's needed for WhatsApp replies and to see one's bills.
     const p = body.phone ? phone(body.phone) : null;
