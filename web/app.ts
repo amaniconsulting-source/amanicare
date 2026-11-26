@@ -610,27 +610,57 @@ async function checkSupportUnread(): Promise<void> {
 }
 // ---------- partner hospitals, by commune ----------
 type Facility = { name: string; commune: string; city: string; category: string };
+type Commune = { name: string; aliases: string[] };
+const foldText = (x: string) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/['’`]/g, '').replace(/[-_]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+function editDistance(a: string, b: string): number {
+  const d = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = d[0]; d[0] = i;
+    for (let j = 1; j <= b.length; j++) { const tmp = d[j]; d[j] = Math.min(d[j] + 1, d[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = tmp; }
+  }
+  return d[b.length];
+}
 async function openNetwork(): Promise<void> {
-  const { facilities } = await api<{ facilities: Facility[] }>('GET', '/api/network');
+  const { facilities, communes: all } = await api<{ facilities: Facility[]; communes: Commune[] }>('GET', '/api/network');
   const communes = [...new Set(facilities.map((f) => f.commune).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+  // Every way of writing a commune ("Bandal", "Ndjili", "Binza"…), and every facility name: what a search can mean.
+  const names: { key: string; label: string; commune?: string }[] = [
+    ...all.flatMap((c) => [c.name, ...c.aliases].map((n) => ({ key: foldText(n), label: c.name, commune: c.name }))),
+    ...facilities.flatMap((f) => [foldText(f.name), ...foldText(f.name).split(' ').filter((w) => w.length >= 4)].map((key) => ({ key, label: f.name }))),
+  ];
   openModal(`<div class="row between"><h2>🏥 ${t('network.title')}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
     <p class="muted">${t('network.intro')}</p>
     <div class="row filters"><select id="nwCommune" aria-label="${t('network.commune')}"><option value="">${t('network.allCommunes')} (${facilities.length})</option>
       ${communes.map((c) => `<option value="${esc(c)}">${esc(c)} (${facilities.filter((f) => f.commune === c).length})</option>`).join('')}</select>
       <input id="nwSearch" type="search" placeholder="${esc(t('network.search'))}" aria-label="${esc(t('network.search'))}"></div>
+    <p class="small hidden" id="nwSuggest"></p>
     <div id="nwList"></div>
     <p class="muted small">${t('network.missing')}</p>
     <button class="secondary block" data-chat>💬 ${t('chat.cta')}</button>`, (sheet) => {
+    const search = $<HTMLInputElement>('#nwSearch', sheet);
     const paint = () => {
-      const c = val('#nwCommune', sheet), q = val('#nwSearch', sheet).trim().toLowerCase();
-      const rows = facilities.filter((f) => (!c || f.commune === c) && (!q || `${f.name} ${f.commune}`.toLowerCase().includes(q)));
+      const c = val('#nwCommune', sheet), q = foldText(search.value);
+      // A commune typed by its short name or a neighbourhood counts as that commune.
+      const meant = q.length >= 3 ? names.find((n) => n.commune && n.key === q)?.commune : undefined;
+      const rows = facilities.filter((f) => (!c || f.commune === c) && (!q || (meant ? f.commune === meant : foldText(`${f.name} ${f.commune}`).includes(q))));
+      // Nothing found: suggest the closest name or commune ("Vouliez-vous dire Bandalungwa ?").
+      const sug = $('#nwSuggest', sheet);
+      let suggestion: string | undefined;
+      if (q.length >= 3 && !rows.length && !meant) {
+        const scored = names.map((n) => ({ n, d: n.key.startsWith(q) ? 0 : editDistance(q, n.key.slice(0, Math.max(q.length, Math.min(n.key.length, q.length + 2)))) }))
+          .filter((x) => x.d <= (q.length >= 6 ? 2 : 1)).sort((a, b) => a.d - b.d);
+        suggestion = scored[0]?.n.label;
+      }
+      sug.classList.toggle('hidden', !suggestion);
+      sug.innerHTML = suggestion ? `${t('network.didYouMean')} <button class="link" data-sug="${esc(suggestion)}">${esc(suggestion)}</button> ?` : '';
+      sug.querySelector<HTMLButtonElement>('[data-sug]')?.addEventListener('click', (e) => { search.value = (e.currentTarget as HTMLElement).dataset.sug!; paint(); });
       const groups = [...new Set(rows.map((f) => f.commune || t('network.noCommune')))];
       $('#nwList', sheet).innerHTML = rows.length ? groups.map((g) => `<h3 class="nw-commune">${esc(g)}</h3><ul class="nw">${rows.filter((f) => (f.commune || t('network.noCommune')) === g)
         .map((f) => `<li><b>${esc(f.name)}</b><span class="muted small">${t('cat.' + f.category)}${f.city && f.city !== 'Kinshasa' ? ' · ' + esc(f.city) : ''}</span></li>`).join('')}</ul>`).join('')
-        : `<p class="muted">${t('network.none')}</p>`;
+        : `<p class="muted">${meant ? t('network.noneIn', { commune: esc(meant) }) : t('network.none')}</p>`;
     };
     $('#nwCommune', sheet).onchange = paint;
-    $('#nwSearch', sheet).oninput = paint;
+    search.oninput = paint;
     wireChatLinks(sheet);
     paint();
   });
@@ -1287,7 +1317,7 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
         <div class="grid2">
           <div><label>${t('admin.clinicName')}</label><input id="cName"></div>
           <div><label>${t('admin.category')}</label><select id="cCat">${CATEGORIES.map((k) => `<option value="${k}" ${k === 'clinic' ? 'selected' : ''}>${t('cat.' + k)}</option>`).join('')}</select></div>
-          <div><label>${t('admin.commune')}</label><input id="cCommune"></div>
+          <div><label>${t('admin.commune')}</label><input id="cCommune" list="communeList" autocomplete="off"></div>
           <div><label>${t('admin.city')}</label><input id="cCity" value="Kinshasa"></div>
           <div><label>${t('admin.whatsapp')}</label>${phoneField('cWa')}</div>
           <div><label>${t('admin.payoutMethod')}</label><select id="cMethod"><option value="bank">${t('pay.bankAccount')}</option><option value="mpesa">M-Pesa</option><option value="orange">Orange Money</option><option value="airtel">Airtel Money</option></select></div>
@@ -1307,7 +1337,7 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
         <label for="eName">${t('admin.clinicName')}</label><input id="eName" value="${esc(c.name)}">
         <label for="eCat">${t('admin.category')}</label><select id="eCat">${CATEGORIES.map((k) => `<option value="${k}" ${k === c.category ? 'selected' : ''}>${t('cat.' + k)}</option>`).join('')}</select>
         <div class="grid2">
-          <div><label for="eCommune">${t('admin.commune')}</label><input id="eCommune" value="${esc(c.commune)}"></div>
+          <div><label for="eCommune">${t('admin.commune')}</label><input id="eCommune" list="communeList" autocomplete="off" value="${esc(c.commune)}"></div>
           <div><label for="eCity">${t('admin.city')}</label><input id="eCity" value="${esc(c.city)}"></div>
         </div>
         <label for="eWa">${t('admin.whatsapp')}</label>${phoneField('eWa', { value: c.whatsapp_phone })}

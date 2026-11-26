@@ -1,3 +1,4 @@
+import { canonicalCommune, KINSHASA_COMMUNES } from './communes.js';
 // REST API routes.
 import { randomUUID, randomBytes, createHmac, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -155,11 +156,14 @@ router.get('/api/payers', requireRole('family'), async ({ user }: AuthCtx) => ({
 
 // The partner network, for anyone (welcome page, help, customer service): names, types and communes only.
 router.get('/api/network', async () => ({
-  facilities: await all("SELECT name, commune, city, category FROM clinics WHERE active = 1 ORDER BY city, commune, name"),
+  facilities: (await all<{ name: string; commune: string; city: string; category: string }>("SELECT name, commune, city, category FROM clinics WHERE active = 1 ORDER BY city, commune, name"))
+    .map((f) => ({ ...f, commune: canonicalCommune(f.commune) })),
+  communes: KINSHASA_COMMUNES,
 }));
 
 router.get('/api/clinics', requireRole(), async () => ({
-  clinics: await all('SELECT id, name, commune, city, category FROM clinics WHERE active = 1 ORDER BY city, commune, name'),
+  clinics: (await all<{ commune: string }>('SELECT id, name, commune, city, category FROM clinics WHERE active = 1 ORDER BY city, commune, name'))
+    .map((c) => ({ ...c, commune: canonicalCommune(c.commune) })),
 }));
 
 // ---------- Bills ----------
@@ -238,7 +242,7 @@ router.get('/api/admin/clinics', requireRole('admin'), async () => ({ clinics: a
 
 const clinicFields = (b: Body) => ({
   name: str(b.name, { min: 2, max: 100, name: 'name' }),
-  commune: str(b.commune, { max: 60, name: 'commune' }),
+  commune: canonicalCommune(str(b.commune, { max: 60, name: 'commune' })), // "Bandal" → Bandalungwa
   city: str(b.city || 'Kinshasa', { max: 60, name: 'city' }),
   whatsapp_phone: b.whatsappPhone ? phone(b.whatsappPhone) : '',
   payout_method: oneOf(b.payoutMethod || 'bank', ['bank', 'mpesa', 'orange', 'airtel'], 'payout_method'),

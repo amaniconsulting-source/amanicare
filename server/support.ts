@@ -17,6 +17,7 @@ import * as Sentry from '@sentry/node';
 import { config } from './config.js';
 import { one, all, run, audit } from './db.js';
 import { router } from './api.js';
+import { canonicalCommune, communesIn, KINSHASA_COMMUNES } from './communes.js';
 import { requireRole, requestOtp, verifyOtp, createSession, sessionCookie } from './auth.js';
 import { HttpError, bad, notFound, str, oneOf, phone, pageOf, type AuthCtx, type Ctx } from './http.js';
 import { canView, getBill } from './bills.js';
@@ -130,7 +131,9 @@ async function helpCentre(lang: string): Promise<string> {
 async function networkList(): Promise<string> {
   const rows = await all<{ name: string; commune: string; city: string; category: string }>(
     'SELECT name, commune, city, category FROM clinics WHERE active = 1 ORDER BY city, commune, name');
-  return rows.map((r) => `- ${r.name} (${r.category}; ${r.commune || 'commune unknown'}, ${r.city})`).join('\n') || '(none yet)';
+  const list = rows.map((r) => `- ${r.name} (${r.category}; ${canonicalCommune(r.commune) || 'commune unknown'}, ${r.city})`).join('\n') || '(none yet)';
+  const short = KINSHASA_COMMUNES.filter((c) => c.aliases.length).map((c) => `${c.aliases.join('/')} = ${c.name}`).join('; ');
+  return `${list}\nShort names and neighbourhoods people use for communes: ${short}. Treat them as the same commune.`;
 }
 
 /** The signed-in person's own bills, as short facts for the assistant. Never anyone else's. */
@@ -307,9 +310,6 @@ export function parseAnswer(text: string): BotAnswer | null {
   return plain && !looksLikeData(plain) ? { reply: plain.slice(0, 1500), handoff: false, reason: '' } : null;
 }
 
-const KINSHASA_COMMUNES = ['Bandalungwa', 'Barumbu', 'Bumbu', 'Gombe', 'Kalamu', 'Kasa-Vubu', 'Kimbanseke', 'Kinshasa', 'Kintambo',
-  'Kisenso', 'Lemba', 'Limete', 'Lingwala', 'Makala', 'Maluku', 'Masina', 'Matete', 'Mont-Ngafula', "N'Djili", 'Ndjili',
-  "N'Sele", 'Nsele', 'Ngaba', 'Ngaliema', 'Ngiri-Ngiri', 'Selembao'];
 const fold = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f']/g, '').replace(/-/g, ' ').toLowerCase();
 
 /** When the assistant can't answer a question about partner facilities: the list, for the commune asked. */
@@ -318,10 +318,10 @@ async function networkFallback(t: TicketRow, question: string): Promise<string |
   if (!/(hopit|hospit|clini|centre|center|labo|pharmac|lopitalo|reseau|network|partenaire|partner)/.test(q)) return null;
   const rows = await all<{ name: string; commune: string; category: string }>("SELECT name, commune, category FROM clinics WHERE active = 1 ORDER BY commune, name");
   const d = await dict(t.lang);
-  const asked = KINSHASA_COMMUNES.find((c) => new RegExp(`\\b${fold(c)}\\b`).test(q))
+  const asked = communesIn(question)[0]
     || [...new Set(rows.map((r) => r.commune))].find((c) => c && q.includes(fold(c)));
-  const list = (rs: typeof rows) => rs.map((r) => `${r.name} (${d['cat.' + r.category] || r.category}${asked ? '' : ', ' + (r.commune || '?')})`).join(' ; ');
-  const here = asked ? rows.filter((r) => fold(r.commune) === fold(asked)) : rows;
+  const list = (rs: typeof rows) => rs.map((r) => `${r.name} (${d['cat.' + r.category] || r.category}${asked ? '' : ', ' + (canonicalCommune(r.commune) || '?')})`).join(' ; ');
+  const here = asked ? rows.filter((r) => canonicalCommune(r.commune) === canonicalCommune(asked)) : rows;
   const T: Record<string, Record<string, string>> = {
     some: { fr: `Établissements partenaires${asked ? ' à ' + asked : ''} : ${list(here)}.`, en: `Partner facilities${asked ? ' in ' + asked : ''}: ${list(here)}.`, ln: `Ba lopitalo ya réseau${asked ? ' na ' + asked : ''}: ${list(here)}.` },
     none: { fr: `Nous n'avons pas encore d'établissement partenaire à ${asked}. Touchez « Voir les hôpitaux partenaires » sous l'aide pour voir les communes proches, ou écrivez-nous le nom de l'hôpital : nous pouvons l'inviter.`,

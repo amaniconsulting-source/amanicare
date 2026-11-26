@@ -847,3 +847,22 @@ test('customer service: questions about partner hospitals are answered even with
   const some = await ask(`Quels hôpitaux à ${c.commune} ?`);
   assert.ok(some.messages.at(-1).body.includes(c.name), JSON.stringify([c, some.messages]));
 });
+
+test('communes: short names, neighbourhoods and close spellings land on the official commune', async () => {
+  const { canonicalCommune, communesIn } = await import('../server/communes.js');
+  assert.equal(canonicalCommune('Bandal'), 'Bandalungwa');
+  assert.equal(canonicalCommune('bandalungua'), 'Bandalungwa');
+  assert.equal(canonicalCommune('ndjili'), "N'Djili");
+  assert.equal(canonicalCommune('Kasavubu'), 'Kasa-Vubu');
+  assert.equal(canonicalCommune('Binza'), 'Ngaliema');
+  assert.equal(canonicalCommune('Lubumbashi'), 'Lubumbashi'); // not a Kinshasa commune: kept as typed
+  assert.deepEqual(communesIn('Et bandalungwa ?'), ['Bandalungwa']);
+  assert.deepEqual(communesIn('un hôpital à Bandal'), ['Bandalungwa']);
+  assert.deepEqual(communesIn('Avez vous un hopital a Lingwalla'), ['Lingwala']);
+  assert.deepEqual(communesIn('Comment ça marche ?'), []);
+  // The network shows "Bandal" as Bandalungwa.
+  await run("UPDATE clinics SET commune = 'Bandal' WHERE id = (SELECT id FROM clinics WHERE active = 1 ORDER BY name LIMIT 1)");
+  const r = (await (await fetch(`${base}/api/network`)).json()) as any;
+  assert.ok(r.facilities.every((f: { commune: string }) => f.commune !== 'Bandal'));
+  assert.ok(r.facilities.some((f: { commune: string }) => f.commune === 'Bandalungwa'));
+});

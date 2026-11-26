@@ -592,5 +592,7 @@
  "network.search": "Luka nkombo…",
  "network.noCommune": "Mosusu",
  "network.none": "Lopitalo moko te awa sikoyo.",
- "network.missing": "Lopitalo na yo ezali na liste te? Komela biso: tokoki kobenga yango ekota na réseau."
+ "network.missing": "Lopitalo na yo ezali na liste te? Komela biso: tokoki kobenga yango ekota na réseau.",
+ "network.didYouMean": "Olingaki koloba",
+ "network.noneIn": "Lopitalo moko te na {commune} sikoyo."
 }

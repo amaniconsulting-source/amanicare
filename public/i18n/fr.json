@@ -591,5 +591,7 @@
  "network.search": "Chercher un nom…",
  "network.noCommune": "Autres",
  "network.none": "Aucun établissement partenaire ici pour le moment.",
- "network.missing": "Votre hôpital n'est pas dans la liste ? Écrivez-nous : nous pouvons l'inviter à rejoindre le réseau."
+ "network.missing": "Votre hôpital n'est pas dans la liste ? Écrivez-nous : nous pouvons l'inviter à rejoindre le réseau.",
+ "network.didYouMean": "Vouliez-vous dire",
+ "network.noneIn": "Pas encore d'établissement partenaire à {commune}."
 }
