@@ -385,9 +385,10 @@ test('SITE_PASSWORD protects the test site but not the privacy page or webhooks'
     });
     // Pages show a password form (keeping the address to return to); the API answers 401.
     const page = await get('/?invite=ABC123');
-    assert.equal(page.status, 401);
+    assert.equal(page.status, 200);
     const html = await page.text();
     assert.match(html, /name="password"/);
+    assert.match(html, /Amani Consulting &amp; Investment SARL/); // who runs the service, for visitors and Meta's review
     assert.match(html, /value="\/\?invite=ABC123"/);
     assert.equal(((await (await get('/api/me')).json()) as { error: string }).error, 'site_password_required');
     // Wrong password: the form again. Right password: a cookie, back to where they were going.
@@ -398,7 +399,7 @@ test('SITE_PASSWORD protects the test site but not the privacy page or webhooks'
     const cookie = ok.headers.get('set-cookie')!.split(';')[0];
     assert.equal((await get('/', { cookie })).status, 200);
     assert.equal((await get('/api/me', { cookie })).status, 200);
-    assert.equal((await get('/', { cookie: 'amc_site=forged' })).status, 401);
+    assert.match(await (await get('/', { cookie: 'amc_site=forged' })).text(), /name="password"/);
     // No redirects to other sites.
     assert.equal((await login('test-site-pass', '//evil.example')).headers.get('location'), '/');
     // The browser password box (Basic auth) still works for scripts.

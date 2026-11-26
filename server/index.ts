@@ -154,7 +154,9 @@ function siteAccessOk(req: IncomingMessage): boolean {
 const safeNext = (v: string | null) => (v && v.startsWith('/') && !v.startsWith('//') && !v.startsWith('/\\') ? v : '/');
 
 function sitePasswordPage(res: ServerResponse, next: string, wrong = false): void {
-  res.writeHead(401, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...securityHeaders() });
+  // 200, not 401: this is the public face of the site while it is in test (Meta's business verification
+  // looks at it), and it says who runs the service.
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...securityHeaders() });
   res.end(`<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0f6b5c">
 <title>AmaniCare</title><link rel="icon" href="/icon.svg"><link rel="stylesheet" href="/styles.css"></head><body>
@@ -169,7 +171,12 @@ ${wrong ? '<p class="notice">Mot de passe incorrect. · <span lang="en">Wrong pa
 <input type="hidden" name="next" value="${esc(next)}">
 <button class="block" type="submit">Continuer · <span lang="en">Continue</span></button>
 </form>
-<p class="muted small center"><a href="/privacy.html">Politique de confidentialité · Privacy policy</a></p></main>
+<section class="card"><h2>AmaniCare</h2>
+<p>Paiement des factures médicales en RDC par la famille à l'étranger : l'argent va directement à l'hôpital partenaire.<br>
+<span lang="en" class="muted">Medical bills in the DR Congo paid by relatives abroad, straight to the partner hospital.</span></p></section>
+<p class="muted small center">© ${new Date().getFullYear()} Amani Consulting &amp; Investment SARL · Kinshasa, République démocratique du Congo ·
+<a href="mailto:info@amaniconsultinggroup.com">info@amaniconsultinggroup.com</a> ·
+<a href="/privacy.html">Politique de confidentialité · Privacy policy</a></p></main>
 </body></html>`);
 }
 

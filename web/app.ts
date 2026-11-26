@@ -803,7 +803,7 @@ function renderLogin(): void {
         ${faqHtml()}
       </section>
       <p class="muted small center">${t('login.footer')}</p>
-      <p class="muted small center"><a href="/privacy.html${state.lang === 'en' ? '#en' : ''}">${t('privacy')}</a></p>`;
+      <p class="muted small center legal">© ${new Date().getFullYear()} Amani Consulting &amp; Investment SARL · Kinshasa, ${t('legal.country')} · <a href="/privacy.html${state.lang === 'en' ? '#en' : ''}">${t('privacy')}</a></p>`;
     wireGuide(app); wireChatLinks(app); wireNetworkLinks(app);
 
     if (s.step === 'phone') {
