@@ -40,6 +40,11 @@ export async function createDraft(family: UserRow, imageBase64: string, mediaTyp
   if (!/^image\/(jpeg|png|webp)$/.test(mediaType)) throw bad('unsupported_image');
   const buf = Buffer.from(imageBase64, 'base64');
   if (buf.length < 1000) throw bad('image_too_small');
+  // The file must really be the image it claims to be (first bytes), not a page or a script.
+  const isJpeg = buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+  const isPng = buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const isWebp = buf.subarray(0, 4).toString('latin1') === 'RIFF' && buf.subarray(8, 12).toString('latin1') === 'WEBP';
+  if (!({ 'image/jpeg': isJpeg, 'image/png': isPng, 'image/webp': isWebp } as Record<string, boolean>)[mediaType]) throw bad('unsupported_image');
   if (buf.length > 6 * 1024 * 1024) throw new HttpError(413, 'image_too_large');
   const id = randomUUID();
   // Stored in the database: hosting disks don't survive redeploys, and backups then include photos.

@@ -503,9 +503,10 @@ router.post('/api/webhooks/payments/:partner', async ({ params, raw, req }: Ctx)
 
 // ---------- Sandbox checkout (only when the sandbox partner is active) ----------
 const sandboxOnly = () => { if (config.paymentPartner !== 'sandbox') throw notFound(); };
-router.get('/api/sandbox/payments/:id', sandboxOnly, async ({ params }: Ctx) => {
+router.get('/api/sandbox/payments/:id', sandboxOnly, requireRole('payer'), async ({ user, params }: AuthCtx) => {
+  // Only the payer of this bill sees its checkout (patient, hospital, amount, wallet).
   const p = await one(`SELECT p.id, p.amount_usd, p.status, p.method, p.wallet_phone, b.ref, b.patient_name, c.name clinic FROM payments p
-    JOIN bills b ON b.id = p.bill_id JOIN clinics c ON c.id = b.clinic_id WHERE p.id = $1 AND p.kind = 'collection'`, params.id);
+    JOIN bills b ON b.id = p.bill_id JOIN clinics c ON c.id = b.clinic_id WHERE p.id = $1 AND p.kind = 'collection' AND b.payer_id = $2`, params.id, user.id);
   if (!p) throw notFound();
   return { payment: p };
 });

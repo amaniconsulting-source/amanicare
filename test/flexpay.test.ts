@@ -75,8 +75,10 @@ function client(): Api {
   };
 }
 /** A photo of the bill (required): a unique fake image per call, read into a draft. */
+/** A fake photo: JPEG's first bytes, then filler (the server checks the file really is a JPEG). */
+const fakeJpeg = (n: number, fill: number): string => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(n - 4, fill)]).toString('base64');
 let photoN = 0;
-const photo = async (api: Api): Promise<string> => (await api('POST', '/api/bills/extract', { image: Buffer.alloc(2600, 150 + (photoN++ % 100)).toString('base64'), mediaType: 'image/jpeg' })).data.draftId;
+const photo = async (api: Api): Promise<string> => (await api('POST', '/api/bills/extract', { image: fakeJpeg(2600, 150 + (photoN++ % 100)), mediaType: 'image/jpeg' })).data.draftId;
 
 async function login(api: Api, phone: string, profile: Record<string, string> = {}) {
   const { data } = await api('POST', '/api/auth/request-otp', { phone });

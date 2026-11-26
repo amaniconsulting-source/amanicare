@@ -60,8 +60,10 @@ function client(): Api {
   return Object.assign(api, { raw: (path: string) => fetch(base + path, { headers: { cookie } }) });
 }
 /** A photo of the bill (required): a unique fake image per call, read into a draft. */
+/** A fake photo: JPEG's first bytes, then filler (the server checks the file really is a JPEG). */
+const fakeJpeg = (n: number, fill: number): string => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(n - 4, fill)]).toString('base64');
 let photoN = 0;
-const photo = async (api: Api): Promise<string> => (await api('POST', '/api/bills/extract', { image: Buffer.alloc(2600, 150 + (photoN++ % 100)).toString('base64'), mediaType: 'image/jpeg' })).data.draftId;
+const photo = async (api: Api): Promise<string> => (await api('POST', '/api/bills/extract', { image: fakeJpeg(2600, 150 + (photoN++ % 100)), mediaType: 'image/jpeg' })).data.draftId;
 
 async function login(api: Api, phone: string, profile: Record<string, string> = {}) {
   const { data } = await api('POST', '/api/auth/request-otp', { phone });
@@ -69,7 +71,7 @@ async function login(api: Api, phone: string, profile: Record<string, string> = 
   assert.equal(r.status, 200, JSON.stringify(r.data));
   return r.data;
 }
-const tinyJpeg = Buffer.alloc(2048, 1).toString('base64');
+const tinyJpeg = fakeJpeg(2048, 1);
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // The sandbox payout completes on a timer; wait until it lands (instead of a fixed sleep).
 async function waitForStatus(billId: string, status: string, timeoutMs = 3000) {
@@ -299,7 +301,7 @@ test('the same bill sent twice is held for review', async () => {
   await family('POST', '/api/invites/accept', { code: (await payer('POST', '/api/invites', { relation: 'Father' })).data.code });
   const payerId = (await family('GET', '/api/payers')).data.payers[0].id;
   const clinicId = (await family('GET', '/api/clinics')).data.clinics.find((c: { name: string }) => c.name === 'Centre de Santé Amani').id;
-  const photo = Buffer.alloc(3000, 7).toString('base64');
+  const photo = fakeJpeg(3000, 7);
   const submit = async (billNumber: string, image = photo) => {
     const d = await family('POST', '/api/bills/extract', { image, mediaType: 'image/jpeg' });
     return (await family('POST', '/api/bills', { draftId: d.data.draftId, payerId, clinicId, patientName: 'Marie T.', billNumber,
@@ -310,9 +312,9 @@ test('the same bill sent twice is held for review', async () => {
   // Same photo again, different number typed: caught by the photo fingerprint.
   assert.equal((await submit('CSA-2')).status, 'review');
   // New photo, same number: caught by the bill number, even though prices are normal.
-  assert.equal((await submit('CSA-1', Buffer.alloc(3000, 8).toString('base64'))).status, 'review');
+  assert.equal((await submit('CSA-1', fakeJpeg(3000, 8))).status, 'review');
   // New photo, no number, same patient/clinic/amount: caught as a similar recent bill.
-  assert.equal((await submit('', Buffer.alloc(3000, 9).toString('base64'))).status, 'review');
+  assert.equal((await submit('', fakeJpeg(3000, 9))).status, 'review');
 });
 
 test('duplicate checks tolerate how bills are written', async () => {
@@ -324,7 +326,7 @@ test('duplicate checks tolerate how bills are written', async () => {
   const clinicId = (await family('GET', '/api/clinics')).data.clinics.find((c: { name: string }) => c.name === 'Polyclinique La Grâce').id;
   let n = 20;
   const submit = async (patientName: string, billNumber: string, total: number) => {
-    const d = await family('POST', '/api/bills/extract', { image: Buffer.alloc(3000, n++).toString('base64'), mediaType: 'image/jpeg' });
+    const d = await family('POST', '/api/bills/extract', { image: fakeJpeg(3000, n++), mediaType: 'image/jpeg' });
     return (await family('POST', '/api/bills', { draftId: d.data.draftId, payerId, clinicId, patientName, billNumber,
       currency: 'USD', items: [{ d: 'Consultation', q: 1, p: total }], total })).data.bill;
   };
@@ -357,7 +359,7 @@ test('reference prices can differ by facility type and facility', async () => {
   const clinics = (await family('GET', '/api/clinics')).data.clinics;
   // Price reasons as the payer sees them (the family only sees the risk level).
   const priceFlags = async (clinicId: string, n: number) => {
-    const d = await family('POST', '/api/bills/extract', { image: Buffer.alloc(3000, 60 + n).toString('base64'), mediaType: 'image/jpeg' });
+    const d = await family('POST', '/api/bills/extract', { image: fakeJpeg(3000, 60 + n), mediaType: 'image/jpeg' });
     const b = (await family('POST', '/api/bills', { draftId: d.data.draftId, payerId, clinicId, patientName: `Patient ${n}`, billNumber: '',
       currency: 'USD', items: [{ d: 'Consultation', q: 1, p: 40 }], total: 40 })).data.bill;
     const full = (await payer('GET', `/api/bills/${b.id}`)).data.bill;
@@ -425,7 +427,7 @@ test('a relative in the DRC can send a bill before the invited relative abroad j
   const code = renewed.data.code;
   const { data: { clinics } } = await fam('GET', '/api/clinics');
   const espoir = clinics.find((c: { name: string }) => c.name === 'Centre Médical Espoir');
-  const draft = await fam('POST', '/api/bills/extract', { image: Buffer.alloc(2500, 90).toString('base64'), mediaType: 'image/jpeg' });
+  const draft = await fam('POST', '/api/bills/extract', { image: fakeJpeg(2500, 90), mediaType: 'image/jpeg' });
   const body = { draftId: draft.data.draftId, clinicId: espoir.id, patientName: 'Waiting Patient', billNumber: 'CME-9001', currency: 'USD',
     items: [{ d: 'Consultation', q: 1, p: 10 }], total: 10 };
   // Someone else's invitation code can't be used.
@@ -898,4 +900,12 @@ test('security: bill photos can never run as a page; responses carry nosniff', a
   assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
   assert.match(r.headers.get('content-security-policy') || '', /sandbox/);
   assert.equal((await fetch(`${base}/api/network`)).headers.get('x-content-type-options'), 'nosniff');
+});
+
+test('security: a file that is not really an image is refused, even labelled as one', async () => {
+  const fam = client(); await login(fam, '+243819990041', { name: 'Upload Test', role: 'family' });
+  const html = Buffer.from('<html><script>alert(1)</script>' + 'x'.repeat(2000)).toString('base64');
+  assert.equal((await fam('POST', '/api/bills/extract', { image: html, mediaType: 'image/jpeg' })).data.error, 'unsupported_image');
+  assert.equal((await fam('POST', '/api/bills/extract', { image: fakeJpeg(2000, 3), mediaType: 'image/png' })).data.error, 'unsupported_image');
+  assert.ok((await fam('POST', '/api/bills/extract', { image: fakeJpeg(2000, 3), mediaType: 'image/jpeg' })).data.draftId);
 });

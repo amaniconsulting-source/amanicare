@@ -10,6 +10,7 @@ import { config } from './config.js';
 import { openDb } from './db.js';
 import { migrate } from './migrate.js';
 import { router } from './api.js';
+import { limit, clientIp } from './limits.js';
 import './support.js'; // adds the customer-service routes
 import { readBody, sendJson, parseCookies, HttpError, type Body, type Ctx } from './http.js';
 import { currentUser } from './auth.js';
@@ -175,6 +176,9 @@ ${wrong ? '<p class="notice">Mot de passe incorrect. · <span lang="en">Wrong pa
 async function handleSiteLogin(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const form = new URLSearchParams((await readBody(req, 10_000)).toString('utf8'));
   const next = safeNext(form.get('next'));
+  // Guessing the password: 10 tries per address per 15 minutes, 200 per hour overall.
+  try { limit('site-pw:' + clientIp(req), 10, 15 * 60_000); limit('site-pw-all', 200, 3600_000); }
+  catch { res.writeHead(429, { 'content-type': 'text/plain; charset=utf-8', 'retry-after': '900' }); res.end('Trop d\'essais. Réessayez dans 15 minutes.'); return; }
   if (!same(form.get('password') || '', config.sitePassword)) return sitePasswordPage(res, next, true);
   res.writeHead(303, {
     location: next,
