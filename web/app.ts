@@ -1663,7 +1663,7 @@ function navTabs(): NavTab[] {
   ];
   if (role === 'payer') return [
     { id: 'home', icon: '🏠', label: t('nav.home'), go: goHome },
-    { id: 'pay', icon: '💳', label: t('nav.toPay'), main: true, badge: navBadges.pay, go: () => {
+    { id: 'pay', icon: '💳', label: t('nav.toPay'), badge: navBadges.pay, go: () => {
       closeModal(); activeNav = 'pay';
       document.getElementById('toApprove')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); renderTabbar();
     } },
