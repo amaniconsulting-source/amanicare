@@ -104,8 +104,14 @@ router.post('/api/invites', requireRole('payer', 'family'), async ({ user, body 
 
 /** Invitations I sent that nobody has used yet (waiting or expired). */
 router.get('/api/invites', requireRole('payer', 'family'), async ({ user }: AuthCtx) => {
-  const rows = await all<InviteRow>(`SELECT * FROM invites WHERE used_by IS NULL AND inviter_role = $2
-     AND (payer_id = $1 OR family_id = $1) ORDER BY created_at DESC LIMIT 20`, user.id, user.role);
+  // Not shown: invitations to someone who has joined since (same number, or an expired invitation
+  // without a number under the same name as someone already linked, e.g. a second invitation was used).
+  const rows = await all<InviteRow>(`SELECT i.* FROM invites i WHERE i.used_by IS NULL AND i.inviter_role = $2
+     AND (i.payer_id = $1 OR i.family_id = $1)
+     AND NOT EXISTS (SELECT 1 FROM links l JOIN users u ON u.id = CASE WHEN $2 = 'payer' THEN l.family_id ELSE l.payer_id END
+       WHERE (CASE WHEN $2 = 'payer' THEN l.payer_id ELSE l.family_id END) = $1
+         AND (u.phone = i.phone OR (i.phone IS NULL AND i.expires_at < $3 AND i.relation <> '' AND lower(i.relation) IN (lower(l.relation), lower(u.name)))))
+     ORDER BY i.created_at DESC LIMIT 20`, user.id, user.role, Date.now());
   return { invites: rows.map((i) => inviteView(i, user)) };
 });
 
@@ -135,9 +141,15 @@ router.post('/api/invites/accept', requireRole('payer', 'family'), async ({ user
     const payerId = i.inviter_role === 'payer' ? i.payer_id! : user.id;
     const familyId = i.inviter_role === 'family' ? i.family_id! : user.id;
     await run('INSERT INTO links(payer_id, family_id, relation) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', payerId, familyId, i.relation);
-    await run('UPDATE invites SET used_by = $1 WHERE code = $2', user.id, code);
-    // Bills the family sent while waiting for this relative now go to them.
-    const toPay = i.inviter_role === 'family' ? await attachWaitingBills(code, payerId) : [];
+    // Other open invitations from the same person to this relative (same number, or no number and
+    // the same name) are done too: they no longer show as waiting.
+    const others = await all<{ code: string }>(`SELECT code FROM invites WHERE used_by IS NULL AND code <> $1 AND inviter_role = $2
+      AND (payer_id = $3 OR family_id = $3) AND (phone = $4 OR (phone IS NULL AND relation <> '' AND lower(relation) = lower($5)))`,
+      code, i.inviter_role, inviterId(i), user.phone, i.relation);
+    await run('UPDATE invites SET used_by = $1 WHERE code = ANY($2)', user.id, [code, ...others.map((o) => o.code)]);
+    // Bills the family sent while waiting for this relative (under any of those invitations) now go to them.
+    const toPay = [];
+    if (i.inviter_role === 'family') for (const c of [code, ...others.map((o) => o.code)]) toPay.push(...(await attachWaitingBills(c, payerId)));
     return { inviter, toPay };
   });
   for (const b of inv.toPay) await notifyPayerOf(b);

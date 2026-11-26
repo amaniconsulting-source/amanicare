@@ -866,3 +866,17 @@ test('communes: short names, neighbourhoods and close spellings land on the offi
   assert.ok(r.facilities.every((f: { commune: string }) => f.commune !== 'Bandal'));
   assert.ok(r.facilities.some((f: { commune: string }) => f.commune === 'Bandalungwa'));
 });
+
+test('invitations: once the relative has joined, the other invitations to them stop showing as waiting', async () => {
+  const payer = client(); await login(payer, '+15550001777', { name: 'Mira', role: 'payer' });
+  // Two invitations to the same brother ("ndeko"), no number; he uses the second one.
+  const first = (await payer('POST', '/api/invites', { relation: 'ndeko' })).data;
+  const second = (await payer('POST', '/api/invites', { relation: 'Ndeko' })).data;
+  // And one locked to his number.
+  await payer('POST', '/api/invites', { relation: 'frère', phone: '+243898910177' });
+  assert.equal((await payer('GET', '/api/invites')).data.invites.length, 3);
+  const bro = client(); await login(bro, '+243898910177', { name: 'Ndeko', role: 'family' });
+  assert.equal((await bro('POST', '/api/invites/accept', { code: second.code })).status, 200);
+  assert.equal((await payer('GET', '/api/invites')).data.invites.length, 0);
+  assert.ok(first.code);
+});
