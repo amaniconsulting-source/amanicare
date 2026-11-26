@@ -197,7 +197,7 @@ ${await networkList()}
 ACCOUNT DATA:
 ${user ? await accountContext(user, t.bill_id) : '(not signed in: none)'}
 
-Give your answer once: "reply" is exactly what the person reads (plain text, never JSON or notes to yourself).`;
+Always answer by calling the "answer" tool, once: "reply" is exactly what the person reads (plain text, never JSON or notes to yourself).`;
 }
 
 export interface BotAnswer { reply: string; handoff: boolean; reason: string }
@@ -232,7 +232,8 @@ const askClaude: Answerer = async (t, user, history) => {
   let system: string;
   try { system = await systemPrompt(t, user); }
   catch (err) { console.error('[support] could not prepare the assistant:', (err as Error).message); fail('prepare: ' + (err as Error).message); Sentry.captureException(err, { tags: { area: 'support' } }); return null; }
-  // Two tries: first the answer as the fields of a tool call (nothing to pick apart), then, if that
+  // Two tries: first the answer as the fields of a tool call (nothing to pick apart; "auto", because
+  // some models refuse a forced tool call), then, if that
   // fails for any reason, as plain JSON text. A busy API or an odd answer shouldn't send everyone to the team.
   for (let attempt = 1; attempt <= 2; attempt++) {
     const withTool = attempt === 1;
@@ -241,7 +242,7 @@ const askClaude: Answerer = async (t, user, history) => {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': config.anthropicKey, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify(withTool
-          ? { model: config.anthropicModel, max_tokens: 1200, system, messages: turns, tools: [ANSWER_TOOL], tool_choice: { type: 'tool', name: 'answer' } }
+          ? { model: config.anthropicModel, max_tokens: 1200, system, messages: turns, tools: [ANSWER_TOOL], tool_choice: { type: 'auto' } }
           : { model: config.anthropicModel, max_tokens: 1200, system: system + TEXT_MODE, messages: turns }),
         signal: AbortSignal.timeout(30000),
       });
