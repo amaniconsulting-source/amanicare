@@ -49,7 +49,9 @@ export async function startPayment(billId: string, payer: UserRow, how: PayChoic
   } catch (e) {
     await applyPaymentUpdate({ paymentId: payment.id, status: 'failed', reason: (e as Error).message });
     Sentry.captureException(e, { tags: { area: 'payments', step: 'collection', partner: partner.name } });
-    throw new HttpError(502, 'payment_partner_error', (e as Error).message);
+    console.warn(`[payments] ${partner.name} refused the collection for ${bill.ref}: ${(e as Error).message}`);
+    // 424, not 502: Cloudflare replaces an origin's 502 with its own "Bad gateway" page, hiding our answer.
+    throw new HttpError(424, 'payment_partner_error', (e as Error).message);
   }
 }
 
