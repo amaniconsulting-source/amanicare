@@ -67,8 +67,11 @@ async function post(url: string, body: Record<string, unknown>): Promise<any> {
     headers: { 'content-type': 'application/json', authorization: `Bearer ${config.flexpay.token}` },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(30_000),
+    redirect: 'manual', // a redirect would turn the POST into an empty GET: report it instead
   });
   const text = await res.text();
+  if (res.status >= 300 && res.status < 400) throw new Error(`FlexPaie ${res.status}: redirected to ${res.headers.get('location') || '?'} (check FLEXPAY_BASE_URL)`);
+  if (!text.trim()) throw new Error(`FlexPaie answered ${res.status} with an empty body (content-type ${res.headers.get('content-type') || 'none'}): check the token, the merchant code and that the account is active for this service`);
   let data: any;
   try { data = JSON.parse(text); } catch { data = { raw: text.slice(0, 300) }; }
   if (!res.ok) throw new Error(`FlexPaie ${res.status}: ${data?.message || text.slice(0, 300) || 'error'}`);
