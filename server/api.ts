@@ -7,7 +7,7 @@ import { config } from './config.js';
 import { one, all, run, tx, audit, setSetting } from './db.js';
 import { Router, HttpError, bad, notFound, forbidden, str, num, oneOf, phone, pageOf, type AuthCtx, type Body, type Ctx } from './http.js';
 import { requestOtp, verifyOtp, createSession, sessionCookie, destroySession, findOrCreateUser, requireRole } from './auth.js';
-import { createDraft, createBill, clinicDecision, reviewDecision, changeClinic, payerDecline, resendToClinic, hospitalReason, listBillsFor, listAllBills, view, canView, getBill, settings, prices, STATUSES, attachWaitingBills, notifyPayerOf } from './bills.js';
+import { createDraft, createBill, clinicDecision, reviewDecision, changeClinic, payerDecline, resendToClinic, hospitalReason, listBillsFor, listAllBills, billsStamp, view, canView, getBill, settings, prices, STATUSES, attachWaitingBills, notifyPayerOf } from './bills.js';
 import { startPayment, applyPaymentUpdate, retryPayout } from './payments/flow.js';
 import { getPartner, hasPartner } from './payments/partners.js';
 import { DEFAULT_SETTINGS } from './screening.js';
@@ -198,6 +198,8 @@ router.get('/api/bills', requireRole(), async ({ user, url }: AuthCtx) => {
   return listAllBills(user, { q: (url.searchParams.get('q') || '').trim().slice(0, 60), status: url.searchParams.get('status') || '', limit, offset });
 });
 
+// Cheap "did anything change?" check for open pages (see billsStamp).
+router.get('/api/bills/stamp', requireRole(), async ({ user }: AuthCtx) => ({ stamp: await billsStamp(user) }));
 router.get('/api/bills/:id', requireRole(), async ({ user, params }: AuthCtx) => {
   const b = await getBill(params.id);
   if (!canView(user, b)) throw notFound();
@@ -594,7 +596,16 @@ router.post('/api/webhooks/whatsapp', async ({ raw, req }: Ctx) => {
     try {
       await clinicDecision(billId, decision, null);
       console.log(`[whatsapp] ${bill.ref} ${decision === 'confirm' ? 'confirmed' : 'rejected'} by ${clinic.name}`);
-    } catch (e) { console.warn(`[whatsapp] ${decision} tap on ${bill.ref}: ${(e as Error).message}`); }
+    } catch (e) {
+      console.warn(`[whatsapp] ${decision} tap on ${bill.ref}: ${(e as Error).message}`);
+      // Already answered (often in the app a moment before): tell the hospital, so the tap isn't left unanswered.
+      if (e instanceof HttpError && e.code === 'not_awaiting_clinic') {
+        const now = (await getBill(billId))!;
+        const state = now.status === 'rejected' ? 'rejetée' : 'confirmée';
+        await send({ to: clinic.whatsapp_phone, kind: 'clinic_already',
+          text: `La facture ${now.bill_number || now.ref} (${now.patient_name}) a déjà été ${state}. Rien d'autre à faire.` }).catch(() => {});
+      }
+    }
     }
   }
   return { ok: true };

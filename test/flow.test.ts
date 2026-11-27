@@ -951,3 +951,31 @@ test('wrong hospital: a bill whose photo names another network hospital is held,
   assert.equal((await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'card' })).status, 200);
   assert.equal((await adm('POST', `/api/bills/${bill.id}/clinic`, { clinicId: espoir.id })).status, 409);
 });
+
+test('live updates: the bills fingerprint changes when a bill changes, and only for those who see it', async () => {
+  const payer = client(), fam = client(), staff = client(), other = client();
+  await login(payer, '+15550002901', { name: 'Live Payer', role: 'payer' });
+  await login(fam, '+243898920901', { name: 'Live Family', role: 'family' });
+  await login(other, '+15550002902', { name: 'Other Payer', role: 'payer' });
+  await fam('POST', '/api/invites/accept', { code: (await payer('POST', '/api/invites', { relation: 'Aunt' })).data.code });
+  const payerId = (await fam('GET', '/api/payers')).data.payers[0].id;
+  const { data: { clinics } } = await fam('GET', '/api/clinics');
+  const espoir = clinics.find((c: { name: string }) => c.name === 'Centre Médical Espoir');
+  await login(staff, '+243810000001');
+  const stamp = async (api: Api) => (await api('GET', '/api/bills/stamp')).data.stamp as string;
+  const [s0, o0] = [await stamp(staff), await stamp(other)];
+  const { data: { bill } } = await fam('POST', '/api/bills', { draftId: await photo(fam), payerId, clinicId: espoir.id, patientName: 'Live Patient', currency: 'USD', items: [{ d: 'Consultation', q: 1, p: 9 }], total: 9 });
+  const s1 = await stamp(staff);
+  assert.notEqual(s1, s0); // a new bill for this hospital
+  const p1 = await stamp(payer);
+  // Confirmed elsewhere (as if ✅ on WhatsApp): the hospital's and the payer's pages see the change.
+  const { clinicDecision } = await import('../server/bills.js');
+  await clinicDecision(bill.id, 'confirm', null);
+  assert.notEqual(await stamp(staff), s1);
+  assert.notEqual(await stamp(payer), p1);
+  assert.equal(await stamp(other), o0); // someone else's bills: nothing to reload
+  // Confirming again from the page is refused politely (already answered).
+  const again = await staff('POST', `/api/bills/${bill.id}/confirm`, {});
+  assert.equal(again.status, 409);
+  assert.equal(again.data.error, 'not_awaiting_clinic');
+});

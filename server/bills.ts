@@ -379,6 +379,24 @@ export async function listBillsFor(user: UserRow) {
   return Promise.all(bills.map((b) => view(b, user)));
 }
 
+/**
+ * A short fingerprint of the bills this person sees: it changes as soon as one of them changes (a status,
+ * a new history line, a bill added or moved away). Open pages ask for it every few seconds and reload
+ * only when it changed, so a confirmation on WhatsApp shows in the hospital's page at once.
+ */
+export async function billsStamp(user: UserRow): Promise<string> {
+  const scope: Record<UserRow['role'], [string, unknown[]]> = {
+    admin: ['TRUE', []],
+    payer: ['b.payer_id = $1', [user.id]],
+    family: ['b.family_id = $1', [user.id]],
+    clinic: ["b.clinic_id = $1 AND b.status != 'review'", [user.clinic_id]],
+  };
+  const [where, params] = scope[user.role];
+  const r = await one<{ n: number; at: string | null; ev: number | null }>(`SELECT COUNT(DISTINCT b.id) n, MAX(b.updated_at)::text at, MAX(e.id) ev
+    FROM bills b LEFT JOIN bill_events e ON e.bill_id = b.id WHERE ${where}`, ...params);
+  return `${r?.n || 0}.${r?.ev || 0}.${r?.at || ''}`;
+}
+
 /** Admin list of every bill, one page at a time. */
 export async function listAllBills(user: UserRow, { q, status, limit, offset }: { q: string; status: string; limit: number; offset: number }) {
   const like = '%' + q.replace(/[%_\\]/g, '') + '%';

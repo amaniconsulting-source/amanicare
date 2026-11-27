@@ -368,7 +368,7 @@ async function showBill(id: string): Promise<void> {
   const { bill: b } = await api<{ bill: Bill }>('GET', `/api/bills/${id}`);
   const items = b.items.map((i) => `<tr><td>${esc(i.d)}</td><td class="num">${i.q}</td><td class="num">${b.currency === 'CDF' ? cdf(i.p) : usd(i.p)}</td></tr>`).join('');
   openModal(`
-    <div class="row between"><h2>${esc(b.patientName)}</h2><button class="link" data-close>✕</button></div>
+    <div class="row between" data-bill-sheet="${b.id}"><h2>${esc(b.patientName)}</h2><button class="link" data-close>✕</button></div>
     <p class="muted small">${esc(b.clinic?.name || '')} · ${t('billNo')} ${esc(b.billNumber || '—')} · ${t('ref')} ${esc(b.ref)}</p>
     <div class="row">${riskPill(b.risk)}<span class="pill st">${t('status.' + b.status)}</span></div>
     ${steps(b.status)}
@@ -944,7 +944,7 @@ async function renderPayer(): Promise<void> {
   $$('[data-decline]').forEach((b) => (b.onclick = async () => {
     if (!(await confirmDialog(t('payer.declineConfirm'), t('payer.decline'), true))) return;
     try { await api('POST', `/api/bills/${b.dataset.decline}/decline`, {}); renderPayer(); } catch (e) { reportUnexpected(e); toast(errText(e)); }
-  }));
+  }));  keepLive(renderPayer);
 }
 
 interface SentInvite { code: string; link: string; relation: string; phone: string | null; expiresAt: number; expired: boolean; sent?: boolean }
@@ -1068,6 +1068,7 @@ async function renderFamily(): Promise<void> {
   $$('[data-invite]').forEach((b) => (b.onclick = inviteFlow));
   $$('[data-have-code]').forEach((b) => (b.onclick = () => { $('#linkCard').classList.remove('hidden'); $('#code').focus(); }));
   if (canSend) $('#newBill').onclick = () => newBillFlow(payers, invites);
+  keepLive(renderFamily);
 }
 
 async function compressImage(file: File, max = 1600, quality = 0.82): Promise<{ b64: string; url: string }> {
@@ -1213,15 +1214,19 @@ async function renderClinic(): Promise<void> {
     ${helpLink()}`;
   wireDetails(app);
   wireHelpLinks(app);
+  // Already answered elsewhere (e.g. ✅ on WhatsApp a moment ago)? Say so and show the current state.
   $$('[data-ok]').forEach((b) => (b.onclick = async () => {
     if (!(await confirmDialog(t('clinic.confirmQ'), t('clinic.confirm')))) return;
-    try { await api('POST', `/api/bills/${b.dataset.ok}/confirm`, {}); toast(t('clinic.confirmed')); renderClinic(); } catch (e) { reportUnexpected(e); toast(errText(e)); }
+    try { await api('POST', `/api/bills/${b.dataset.ok}/confirm`, {}); toast(t('clinic.confirmed')); } catch (e) { reportUnexpected(e); toast(errText(e)); }
+    renderClinic();
   }));
   $$('[data-no]').forEach((b) => (b.onclick = async () => {
     const why = await rejectDialog(HOSPITAL_REASONS);
     if (!why) return;
-    try { await api('POST', `/api/bills/${b.dataset.no}/reject`, why); renderClinic(); } catch (e) { reportUnexpected(e); toast(errText(e)); }
+    try { await api('POST', `/api/bills/${b.dataset.no}/reject`, why); } catch (e) { reportUnexpected(e); toast(errText(e)); }
+    renderClinic();
   }));
+  keepLive(renderClinic);
 }
 
 // ---------- admin ----------
@@ -1245,7 +1250,8 @@ async function renderAdmin(): Promise<void> {
     if (navBadges.support !== counts.open) { navBadges.support = counts.open || 0; renderTabbar(); }
   }).catch(() => {});
   const body = $('#adminBody');
-  try { await ADMIN[state.adminTab](body); } catch (e) { reportUnexpected(e); body.innerHTML = `<p class="notice">${esc(errText(e))}</p>`; }
+  try { await ADMIN[state.adminTab](body); } catch (e) { reportUnexpected(e); body.innerHTML = `<p class="notice">${esc(errText(e))}</p>`; }  // The overview (review queue and counts) stays current; lists with search and paging are refreshed by hand.
+  if (state.adminTab === 'overview') keepLive(renderAdmin);
 }
 
 const BILL_STATUSES = ['review', 'awaiting_clinic', 'awaiting_payer', 'payment_pending', 'paying_out', 'paid', 'payment_failed', 'payout_failed', 'rejected', 'declined'];
@@ -1747,6 +1753,46 @@ function openAccount(): void {
     sheet.querySelector<HTMLButtonElement>('[data-install-now]')?.addEventListener('click', () => { closeModal(); installApp(); });
     $('#accLogout', sheet).onclick = () => { closeModal(); document.getElementById('logoutBtn')!.click(); };
   });
+}
+
+// ---------- live updates ----------
+// Pages that list bills stay in step with what happens elsewhere (a hospital tapping ✅ on WhatsApp, a payment
+// arriving, an admin moving a bill): every few seconds while the page is visible, the app asks the server for a
+// fingerprint of the bills this person sees, and redraws only when it changed. Never while a form or a dialog
+// is in use; an open bill detail is refreshed in place.
+let live: { redraw: () => Promise<void> | void; root: Element | null; stamp: string } | null = null;
+let liveTimer: ReturnType<typeof setInterval> | undefined;
+async function liveStamp(): Promise<string> { return (await api<{ stamp: string }>('GET', '/api/bills/stamp')).stamp; }
+/** Called by a bill list once drawn: keeps it up to date while it stays on screen. */
+function keepLive(redraw: () => Promise<void> | void): void {
+  const root = app.firstElementChild;
+  live = { redraw, root, stamp: live?.stamp || '' };
+  liveStamp().then((st) => { if (live?.root === root) live.stamp = st; }).catch(() => {});
+  if (!liveTimer) {
+    liveTimer = setInterval(liveTick, 6000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) liveTick(); });
+  }
+}
+let liveBusy = false;
+async function liveTick(): Promise<void> {
+  if (!live || !state.me || document.hidden || liveBusy) return;
+  if (!live.root?.isConnected) { live = null; return; } // another page is shown now
+  liveBusy = true;
+  try {
+    const st = await liveStamp();
+    if (!st || st === live.stamp) return;
+    if (!live.stamp) { live.stamp = st; return; } // first answer: nothing to compare with yet
+    const sheet = document.getElementById('sheet')!;
+    const modalOpen = !document.getElementById('modal')!.classList.contains('hidden');
+    const typing = document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+    if (typing) return; // try again on the next tick
+    const billOpen = sheet.querySelector<HTMLElement>('[data-bill-sheet]')?.dataset.billSheet;
+    if (modalOpen && !billOpen) return; // a dialog (confirm, reject…) is in use
+    live.stamp = st;
+    const redraw = live.redraw;
+    await redraw();
+    if (billOpen) await showBill(billOpen);
+  } catch { /* offline for a moment: next tick */ } finally { liveBusy = false; }
 }
 
 function route(): void {

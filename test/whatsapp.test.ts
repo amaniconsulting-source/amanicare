@@ -142,6 +142,10 @@ test('WhatsApp: templates out, button replies and receipts in', async () => {
   assert.equal((await webhook(tap('243810000001'))).status, 200);
   assert.equal((await payer('GET', `/api/bills/${bill.id}`)).data.bill.status, 'awaiting_payer');
   assert.equal(lastTo('+12145550800')!.template.name, 'amanicare_bill_confirmed');
+  // A second tap (already answered, e.g. in the app just before): the hospital is told, nothing changes.
+  assert.equal((await webhook(tap('243810000001'))).status, 200);
+  assert.match((lastTo('+243810000001') as any).text.body, /déjà été confirmée/);
+  assert.equal((await payer('GET', `/api/bills/${bill.id}`)).data.bill.status, 'awaiting_payer');
 
   // Delivery receipts update the outbox, and never go backwards.
   const msg = (await one<{ provider_id: string }>("SELECT provider_id FROM messages WHERE to_phone = '+243810000001' AND provider_id IS NOT NULL ORDER BY id DESC LIMIT 1"))!;
