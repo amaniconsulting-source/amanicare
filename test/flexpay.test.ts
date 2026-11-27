@@ -169,7 +169,7 @@ test('FlexPay through AmaniCare: card payment, then payout to the hospital\'s wa
   const req = calls.at(-1)!;
   assert.equal(req.url, 'https://test.flexpaie.com/api/rest/v1/paymentService'); // cards use the same service, type 2
   assert.equal(req.body.type, '2');
-  for (const k of ['approve_url', 'cancel_url', 'decline_url']) assert.equal(req.body[k], `${config.baseUrl}/`);
+  for (const [k, r] of [['approve_url', 'approve'], ['cancel_url', 'cancel'], ['decline_url', 'decline']]) assert.equal(req.body[k], `${config.baseUrl}/?bill=${bill.id}&pay=${r}`);
   assert.equal(req.body.phone, undefined);
   assert.equal(req.body.merchant, 'AMANICARE');
   assert.equal(req.body.callback_url, `${config.baseUrl}/api/webhooks/payments/flexpay`);
@@ -239,4 +239,35 @@ test('FlexPaie: a refunded or cancelled payment counts as not paid', async () =>
   await waitFor(payer, bill.id, 'payment_failed');
   const p = await one<{ failure_reason: string }>('SELECT failure_reason FROM payments WHERE id = $1', pay.data.paymentId);
   assert.match(p!.failure_reason, /refunded/);
+});
+
+test('FlexPaie card: back through "cancel", the attempt ends; a late confirmation still counts', async () => {
+  const { bill } = await confirmedBill('Centre Médical Espoir', '+243810000001', 7);
+  const pay = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'card' });
+  assert.equal(pay.status, 200);
+  // FlexPaie still says pending (no callback came): back through "approve", nothing changes yet.
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'approve' })).data.bill.status, 'payment_pending');
+  // Someone else can't touch it.
+  const stranger = client(); await login(stranger, '+15550003301', { name: 'Stranger', role: 'payer' });
+  assert.equal((await stranger('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'cancel' })).status, 404);
+  // Back through "cancel": the attempt ends, the payer can try again.
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'cancel' })).data.bill.status, 'payment_failed');
+  const p = await one<{ failure_reason: string; status: string }>('SELECT failure_reason, status FROM payments WHERE id = $1', pay.data.paymentId);
+  assert.equal(p!.status, 'failed');
+  assert.match(p!.failure_reason, /cancelled/);
+  // FlexPaie then says it was paid after all: the money counts, the bill goes on to the hospital.
+  const order = [...txs.entries()].find(([, t]) => t.reference === pay.data.paymentId)![0];
+  txs.get(order)!.status = '0';
+  await callback({ code: '0', reference: pay.data.paymentId, orderNumber: order });
+  await waitFor(payer, bill.id, 'paid');
+});
+
+test('FlexPaie: a pending payment is settled when the payer\'s page asks again', async () => {
+  const { bill } = await confirmedBill('Centre Médical Espoir', '+243810000001', 8);
+  const pay = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'mpesa', walletPhone: '+243815550166' });
+  const order = [...txs.entries()].find(([, t]) => t.reference === pay.data.paymentId)![0];
+  txs.get(order)!.status = '0'; // paid, but FlexPaie's callback never came
+  const r = await payer('POST', `/api/bills/${bill.id}/payment/refresh`, {});
+  assert.notEqual(r.data.bill.status, 'payment_pending');
+  await waitFor(payer, bill.id, 'paid');
 });

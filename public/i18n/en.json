@@ -619,5 +619,9 @@
  "move.autoNote": "hospital name read on the bill",
  "move.done": "Bill sent to the new hospital",
  "err.cannot_change_clinic": "The hospital can no longer be changed: a payment has already started for this bill.",
- "err.same_clinic": "The bill is already with this hospital."
+ "err.same_clinic": "The bill is already with this hospital.",
+ "pay.back.cancelled": "Payment cancelled: nothing was charged. You can try again.",
+ "pay.back.declined": "The card was declined: nothing was charged. Try another card or mobile money.",
+ "pay.back.pending": "Confirming the payment…",
+ "pay.back.paid": "Payment received. Thank you!"
 }

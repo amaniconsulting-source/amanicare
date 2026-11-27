@@ -888,6 +888,7 @@ async function signedIn(user: Me): Promise<void> {
   if (user.lang && user.lang !== state.lang && LANGS.includes(user.lang)) await loadLang(user.lang);
   document.getElementById('logoutBtn')!.classList.remove('hidden');
   await acceptPendingInvite();
+  await checkPayReturn();
   route();
   checkSupportUnread();
 }
@@ -945,6 +946,8 @@ async function renderPayer(): Promise<void> {
     if (!(await confirmDialog(t('payer.declineConfirm'), t('payer.decline'), true))) return;
     try { await api('POST', `/api/bills/${b.dataset.decline}/decline`, {}); renderPayer(); } catch (e) { reportUnexpected(e); toast(errText(e)); }
   }));  keepLive(renderPayer);
+  payerPending = bills;
+  checkPendingPayments(bills);
 }
 
 interface SentInvite { code: string; link: string; relation: string; phone: string | null; expiresAt: number; expired: boolean; sent?: boolean }
@@ -1774,8 +1777,10 @@ function keepLive(redraw: () => Promise<void> | void): void {
   }
 }
 let liveBusy = false;
+let payerPending: Bill[] = [];
 async function liveTick(): Promise<void> {
   if (!live || !state.me || document.hidden || liveBusy) return;
+  if (state.me.role === 'payer') checkPendingPayments(payerPending);
   if (!live.root?.isConnected) { live = null; return; } // another page is shown now
   liveBusy = true;
   try {
@@ -1837,6 +1842,36 @@ async function acceptPendingInvite(): Promise<void> {
     const r = await api<{ linkedWith: { name: string } }>('POST', '/api/invites/accept', { code });
     toast(t('family.linked', { name: r.linkedWith.name }));
   } catch (e) { toast(errText(e)); }
+}
+
+// Back from the card payment page (?bill=…&pay=approve|cancel|decline): checked with the partner once signed in.
+let payReturn: { bill: string; result: string } | null = null;
+{
+  const q = new URLSearchParams(location.search);
+  const bill = q.get('bill'), result = q.get('pay');
+  if (bill && result && ['approve', 'cancel', 'decline'].includes(result)) {
+    payReturn = { bill, result };
+    history.replaceState(null, '', location.pathname);
+  }
+}
+async function checkPayReturn(): Promise<void> {
+  if (!payReturn || state.me?.role !== 'payer') return;
+  const { bill, result } = payReturn; payReturn = null;
+  try {
+    const r = await api<{ bill: Bill }>('POST', `/api/bills/${bill}/payment/refresh`, { result });
+    const st = r.bill.status;
+    toast(t(st === 'payment_failed' ? (result === 'decline' ? 'pay.back.declined' : 'pay.back.cancelled') : st === 'payment_pending' ? 'pay.back.pending' : 'pay.back.paid'));
+  } catch (e) { reportUnexpected(e); }
+}
+/** Payments still pending (e.g. the partner's confirmation is late): asked about now and then while the payer looks. */
+const pendingChecked = new Map<string, number>();
+function checkPendingPayments(bills: Bill[]): void {
+  const now = Date.now();
+  bills.filter((b) => b.status === 'payment_pending').forEach((b) => {
+    if (now - (pendingChecked.get(b.id) || 0) < 15000) return;
+    pendingChecked.set(b.id, now);
+    api('POST', `/api/bills/${b.id}/payment/refresh`, {}).catch(() => {});
+  });
 }
 
 (async function init() {

@@ -111,8 +111,9 @@ export const flexpayPartner: PaymentPartner = {
       return { partnerRef: String(r.orderNumber), status: 'pending' };
     }
     // Card: FlexPaie's hosted card page (AmaniCare never sees card details). The payer comes back to the app.
-    const back = `${config.baseUrl}/`;
-    const r = await post(paymentUrl(), { ...common, type: '2', approve_url: back, cancel_url: back, decline_url: back });
+    // The payer comes back to the app, which then asks FlexPaie for the real state (see refreshPayment).
+    const back = (result: string) => `${config.baseUrl}/?bill=${encodeURIComponent(payment.bill_id)}&pay=${result}`;
+    const r = await post(paymentUrl(), { ...common, type: '2', approve_url: back('approve'), cancel_url: back('cancel'), decline_url: back('decline') });
     if (String(r?.code) !== '0' || !r?.url || !r?.orderNumber) throw new Error(`FlexPaie refused the card payment: ${why(r)}`);
     return { partnerRef: String(r.orderNumber), status: 'pending', checkoutUrl: String(r.url) };
   },

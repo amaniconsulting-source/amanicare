@@ -91,6 +91,9 @@ export async function applyPaymentUpdate({ paymentId, partnerRef, status, reason
     ? await one<PaymentRow>('SELECT * FROM payments WHERE id = $1', paymentId)
     : await one<PaymentRow>('SELECT * FROM payments WHERE partner_ref = $1', partnerRef);
   if (!payment) throw notFound();
+  // A card payment marked failed (the payer came back through "cancel") that FlexPaie later confirms as paid:
+  // the money is real, so it counts. If the bill was paid another way meanwhile, an admin refunds one of them.
+  if (payment.kind === 'collection' && payment.status === 'failed' && status === 'succeeded') return lateSuccess(payment);
   if (payment.status !== 'pending' || status === 'pending') return payment; // already final, or no change
   const res = await run("UPDATE payments SET status = $1, failure_reason = $2, updated_at = now() WHERE id = $3 AND status = 'pending'",
     status, reason || null, payment.id);
@@ -132,5 +135,40 @@ export async function retryPayout(billId: string, admin: UserRow): Promise<BillR
   if (bill.status !== 'payout_failed') throw new HttpError(409, 'not_payout_failed');
   await audit(admin.id, 'payout_retry', bill.ref);
   await startPayout(bill.id, admin.id);
+  return (await getBill(bill.id))!;
+}
+
+async function lateSuccess(payment: PaymentRow): Promise<PaymentRow> {
+  const res = await run("UPDATE payments SET status = 'succeeded', failure_reason = NULL, updated_at = now() WHERE id = $1 AND status = 'failed'", payment.id);
+  if (res.changes === 0) return payment;
+  const bill = (await getBill(payment.bill_id))!;
+  const other = await one("SELECT 1 FROM payments WHERE bill_id = $1 AND kind = 'collection' AND id <> $2 AND status IN ('pending','succeeded')", bill.id, payment.id);
+  if (bill.status === 'payment_failed' && !other) {
+    await event(bill.id, null, 'payment_received', payment.partner_ref || '');
+    await startPayout(bill.id);
+  } else {
+    await audit(null, 'late_payment_refund', `${bill.ref}: ${payment.partner_ref} confirmed after the bill moved on (${bill.status}); refund one payment`);
+    Sentry.captureMessage(`Late payment on ${bill.ref}: refund needed`, { level: 'error', tags: { area: 'payments' } });
+  }
+  return (await one<PaymentRow>('SELECT * FROM payments WHERE id = $1', payment.id))!;
+}
+
+/**
+ * The payer is back from the partner's page (or the app checks a payment still pending): ask the partner
+ * for the real state. Back through "cancel" or "declined" on the card page while the partner still says
+ * pending: nothing was charged, so the attempt ends and the payer can try again (a late confirmation
+ * would still count, see lateSuccess).
+ */
+export async function refreshPayment(billId: string, payer: UserRow, result: unknown): Promise<BillRow> {
+  const bill = await getBill(billId);
+  if (!bill || bill.payer_id !== payer.id) throw notFound();
+  const p = await one<PaymentRow>("SELECT * FROM payments WHERE bill_id = $1 AND kind = 'collection' AND status = 'pending' ORDER BY created_at DESC LIMIT 1", bill.id);
+  const partner = getPartner();
+  if (!p || p.partner !== partner.name || !partner.confirm) return bill;
+  const update = await partner.confirm(p, { paymentId: p.id, status: 'pending' });
+  if (update.status !== 'pending') await applyPaymentUpdate({ ...update, paymentId: p.id });
+  else if (p.method === 'card' && (result === 'cancel' || result === 'decline')) {
+    await applyPaymentUpdate({ paymentId: p.id, status: 'failed', reason: result === 'cancel' ? 'Card payment cancelled on the payment page' : 'Card declined on the payment page' });
+  }
   return (await getBill(bill.id))!;
 }

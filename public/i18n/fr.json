@@ -619,5 +619,9 @@
  "move.autoNote": "nom de l'hôpital lu sur la facture",
  "move.done": "Facture envoyée au nouvel hôpital",
  "err.cannot_change_clinic": "On ne peut plus changer d'hôpital : un paiement a déjà été lancé pour cette facture.",
- "err.same_clinic": "La facture est déjà chez cet hôpital."
+ "err.same_clinic": "La facture est déjà chez cet hôpital.",
+ "pay.back.cancelled": "Paiement annulé : rien n'a été débité. Vous pouvez réessayer.",
+ "pay.back.declined": "La carte a été refusée : rien n'a été débité. Essayez une autre carte ou le mobile money.",
+ "pay.back.pending": "Paiement en cours de confirmation…",
+ "pay.back.paid": "Paiement reçu. Merci !"
 }

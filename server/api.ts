@@ -8,7 +8,7 @@ import { one, all, run, tx, audit, setSetting } from './db.js';
 import { Router, HttpError, bad, notFound, forbidden, str, num, oneOf, phone, pageOf, type AuthCtx, type Body, type Ctx } from './http.js';
 import { requestOtp, verifyOtp, createSession, sessionCookie, destroySession, findOrCreateUser, requireRole } from './auth.js';
 import { createDraft, createBill, clinicDecision, reviewDecision, changeClinic, payerDecline, resendToClinic, hospitalReason, listBillsFor, listAllBills, billsStamp, view, canView, getBill, settings, prices, STATUSES, attachWaitingBills, notifyPayerOf } from './bills.js';
-import { startPayment, applyPaymentUpdate, retryPayout } from './payments/flow.js';
+import { startPayment, applyPaymentUpdate, retryPayout, refreshPayment } from './payments/flow.js';
 import { getPartner, hasPartner } from './payments/partners.js';
 import { DEFAULT_SETTINGS } from './screening.js';
 import { notify, send, updateDelivery } from './messaging/index.js';
@@ -238,6 +238,9 @@ router.post('/api/bills/:id/clinic', requireRole('admin'), async ({ user, params
   ({ bill: await view(await changeClinic(params.id, body.clinicId, user, body.note), user) }));
 router.post('/api/bills/:id/resend-clinic', requireRole('family', 'payer', 'admin'), async ({ user, params }: AuthCtx) =>
   resendToClinic(params.id, user));
+// Back from the payment page, or a payment still pending: ask the partner for the real state.
+router.post('/api/bills/:id/payment/refresh', requireRole('payer'), async ({ user, params, body }: AuthCtx) =>
+  ({ bill: await view(await refreshPayment(params.id, user, body.result), user) }));
 router.post('/api/bills/:id/pay', requireRole('payer'), async ({ user, params, body }: AuthCtx) => {
   // Bank card (default) or mobile money: M-Pesa, Orange Money or Airtel Money, from a wallet number.
   const method = oneOf(body.method ?? 'card', PAY_METHODS, 'pay_method');

@@ -620,5 +620,9 @@
  "move.autoNote": "nkombo ya lopitalo etangami na fakture",
  "move.done": "Fakture etindami na lopitalo ya sika",
  "err.cannot_change_clinic": "Tokoki lisusu kobongola lopitalo te : kofuta ebandi kala mpo na fakture oyo.",
- "err.same_clinic": "Fakture esi ezali na lopitalo oyo."
+ "err.same_clinic": "Fakture esi ezali na lopitalo oyo.",
+ "pay.back.cancelled": "Kofuta eboyami : mbongo ebimi te. Okoki komeka lisusu.",
+ "pay.back.declined": "Karte eboyami : mbongo ebimi te. Meka karte mosusu to mobile money.",
+ "pay.back.pending": "Tozali kondimisa kofuta…",
+ "pay.back.paid": "Kofuta ekoti. Matondi !"
 }
