@@ -2,7 +2,7 @@
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { config } from './config.js';
 import { one, all, run, tx, getSetting, audit } from './db.js';
-import { screenBill, wasEdited, mustReview, DEFAULT_SETTINGS, feeFor, round2, type ScreeningSettings, type Reason } from './screening.js';
+import { screenBill, wasEdited, mustReview, bestClinicMatch, DEFAULT_SETTINGS, feeFor, round2, type ScreeningSettings, type Reason, type ScreenInput, type ScreenResult } from './screening.js';
 import { extractBill } from './ai.js';
 import { notify, send } from './messaging/index.js';
 import { bad, forbidden, notFound, HttpError, str, num, oneOf, type Body } from './http.js';
@@ -56,7 +56,36 @@ export async function createDraft(family: UserRow, imageBase64: string, mediaTyp
   const sha = createHash('sha256').update(buf).digest('hex');
   await run('INSERT INTO bill_drafts(id, family_id, photo_path, ai, photo_sha256) VALUES($1,$2,$3,$4,$5)',
     id, family.id, path, ai ? JSON.stringify(ai) : null, sha);
-  return { draftId: id, ai, aiAvailable: Boolean(config.anthropicKey) };
+  // The hospital named on the photo, if it clearly is one of the network: the form preselects it.
+  // No clear match: nothing is preselected and the family picks (never a default hospital).
+  const suggested = bestClinicMatch(ai?.clinic_name, await networkClinics());
+  return { draftId: id, ai, aiAvailable: Boolean(config.anthropicKey), suggestedClinicId: suggested?.id ?? null };
+}
+
+const networkClinics = () => all<{ id: string; name: string }>('SELECT id, name FROM clinics WHERE active = 1');
+
+/**
+ * Screen a bill for a hospital. Bills have no common format, so numbers and names are compared through
+ * tolerant keys (see migrations/003): "N° 0457" = "FAC-0457" = "457"; "Débora BUDIAYI" = "Budiayi Debora".
+ * The bill number is optional: many bills have none. `exceptBillId`: re-screening an existing bill
+ * (moved to another hospital), which must not count as its own duplicate.
+ */
+async function screenFor(bill: ScreenInput & { billNumber: string; patientName: string }, clinic: ClinicRow, s: ScreeningSettings,
+  photoSha: string | null, exceptBillId = ''): Promise<ScreenResult> {
+  const others = "status NOT IN ('rejected','declined') AND id <> $9";
+  const duplicates = (await one<{ n: number }>(`SELECT COUNT(*) n FROM bills WHERE clinic_id = $1 AND amc_bill_key($2) <> ''
+      AND bill_number_key = amc_bill_key($2) AND ${others.replace('$9', '$3')}`, clinic.id, bill.billNumber, exceptBillId))!.n;
+  const recentForPatient = (await one<{ n: number }>("SELECT COUNT(*) n FROM bills WHERE patient_key = amc_name_key($1) AND created_at >= now() - interval '30 days' AND id <> $2",
+    bill.patientName, exceptBillId))!.n;
+  const duplicatePhotos = photoSha
+    ? (await one<{ n: number }>(`SELECT COUNT(*) n FROM bills WHERE photo_sha256 = $1 AND ${others.replace('$9', '$2')}`, photoSha, exceptBillId))!.n
+    : 0;
+  // Same clinic, same patient, amount within 1 % (handwritten totals vary): probably the same bill.
+  const similarRecent = (await one<{ n: number }>(`SELECT COUNT(*) n FROM bills WHERE clinic_id = $1 AND patient_key = amc_name_key($2)
+      AND abs(total - $3) <= greatest(0.01, $3 * 0.01) AND currency = $4 AND ${others.replace('$9', '$5')}
+      AND created_at >= now() - interval '30 days'`,
+  clinic.id, bill.patientName, bill.total, bill.currency, exceptBillId))!.n;
+  return screenBill(bill, { clinic, network: await networkClinics(), prices: await pricesFor(clinic), settings: s, duplicates, recentForPatient, duplicatePhotos, similarRecent });
 }
 
 // ---------- Create & screen ----------
@@ -108,22 +137,7 @@ export async function createBill(family: UserRow, input: Body): Promise<BillRow>
     edited: wasEdited(ai, { items, total }),
   };
 
-  // Bills have no common format, so numbers and names are compared through tolerant keys
-  // (see migrations/003): "N° 0457" = "FAC-0457" = "457"; "Débora BUDIAYI" = "Budiayi Debora".
-  // The bill number is optional: many bills have none.
-  const duplicates = (await one<{ n: number }>(`SELECT COUNT(*) n FROM bills WHERE clinic_id = $1 AND amc_bill_key($2) <> ''
-      AND bill_number_key = amc_bill_key($2) AND status NOT IN ('rejected','declined')`, clinic.id, bill.billNumber))!.n;
-  const recentForPatient = (await one<{ n: number }>("SELECT COUNT(*) n FROM bills WHERE patient_key = amc_name_key($1) AND created_at >= now() - interval '30 days'",
-    bill.patientName))!.n;
-  const duplicatePhotos = draft?.photo_sha256
-    ? (await one<{ n: number }>("SELECT COUNT(*) n FROM bills WHERE photo_sha256 = $1 AND status NOT IN ('rejected','declined')", draft.photo_sha256))!.n
-    : 0;
-  // Same clinic, same patient, amount within 1 % (handwritten totals vary): probably the same bill.
-  const similarRecent = (await one<{ n: number }>(`SELECT COUNT(*) n FROM bills WHERE clinic_id = $1 AND patient_key = amc_name_key($2)
-      AND abs(total - $3) <= greatest(0.01, $3 * 0.01) AND currency = $4 AND status NOT IN ('rejected','declined')
-      AND created_at >= now() - interval '30 days'`,
-  clinic.id, bill.patientName, total, currency))!.n;
-  const result = screenBill(bill, { clinic, prices: await pricesFor(clinic), settings: s, duplicates, recentForPatient, duplicatePhotos, similarRecent });
+  const result = await screenFor(bill, clinic, s, draft?.photo_sha256 || null);
 
   const id = randomUUID();
   const ref = 'AMC-' + randomBytes(3).toString('hex').toUpperCase();
@@ -284,6 +298,41 @@ export async function reviewDecision(billId: string, approve: boolean, admin: Us
   else await notifyFamily(bill, 'rejected');
   await audit(admin.id, approve ? 'review_approve' : 'review_reject', bill.ref);
   return (await getBill(bill.id))!;
+}
+
+/**
+ * Move a bill to another hospital (admin, e.g. when the family picked the wrong one, or the hospital
+ * answered "not our bill"). Only before any money moves. The bill is screened again for the new hospital
+ * and sent to it for confirmation; the first hospital no longer sees it.
+ */
+export const MOVABLE_STATUSES: BillStatus[] = ['review', 'awaiting_clinic', 'awaiting_payer', 'payment_failed', 'rejected'];
+export async function changeClinic(billId: string, clinicId: unknown, admin: UserRow, note: unknown): Promise<BillRow> {
+  const target = await one<ClinicRow>('SELECT * FROM clinics WHERE id = $1', str(clinicId, { min: 1, name: 'clinic' }));
+  if (!target || !target.active) throw bad('clinic_not_registered');
+  const s = await settings();
+  const moved = await tx(async () => {
+    const b = await lockBill(billId);
+    if (!b) throw notFound();
+    if (!MOVABLE_STATUSES.includes(b.status)) throw new HttpError(409, 'cannot_change_clinic');
+    if (b.clinic_id === target.id) throw bad('same_clinic');
+    if (await one("SELECT 1 FROM payments WHERE bill_id = $1 AND status IN ('pending','succeeded')", b.id)) throw new HttpError(409, 'cannot_change_clinic');
+    const from = await getClinic(b.clinic_id);
+    const result = await screenFor({
+      clinicId: target.id, billNumber: b.bill_number, patientName: b.patient_name, billDate: b.bill_date, currency: b.currency,
+      items: JSON.parse(b.items), total: b.total, ai: b.ai ? JSON.parse(b.ai) : null, edited: Boolean(b.edited),
+    } as Parameters<typeof screenFor>[0], target, s, b.photo_sha256, b.id);
+    await run(`UPDATE bills SET clinic_id = $2, risk_score = $3, risk_level = $4, risk_reasons = $5, expected_usd = $6,
+        rejected_by = NULL, reject_reason = NULL, reject_note = '', updated_at = now() WHERE id = $1`,
+    b.id, target.id, result.score, result.level, JSON.stringify(result.reasons), result.expectedUsd);
+    await setStatus(b.id, 'awaiting_clinic');
+    const why = cleanNote(note);
+    await event(b.id, admin.id, 'clinic_changed', `${from?.name || '?'} → ${target.name}${why ? ` · ${why}` : ''}`);
+    await event(b.id, null, 'sent_to_clinic');
+    return b;
+  });
+  await audit(admin.id, 'bill_clinic_change', `${moved.ref} → ${target.name}`);
+  await notifyClinic((await getBill(moved.id))!);
+  return (await getBill(moved.id))!;
 }
 
 export async function payerDecline(billId: string, payer: UserRow): Promise<BillRow> {

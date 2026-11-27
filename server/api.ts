@@ -7,7 +7,7 @@ import { config } from './config.js';
 import { one, all, run, tx, audit, setSetting } from './db.js';
 import { Router, HttpError, bad, notFound, forbidden, str, num, oneOf, phone, pageOf, type AuthCtx, type Body, type Ctx } from './http.js';
 import { requestOtp, verifyOtp, createSession, sessionCookie, destroySession, findOrCreateUser, requireRole } from './auth.js';
-import { createDraft, createBill, clinicDecision, reviewDecision, payerDecline, resendToClinic, hospitalReason, listBillsFor, listAllBills, view, canView, getBill, settings, prices, STATUSES, attachWaitingBills, notifyPayerOf } from './bills.js';
+import { createDraft, createBill, clinicDecision, reviewDecision, changeClinic, payerDecline, resendToClinic, hospitalReason, listBillsFor, listAllBills, view, canView, getBill, settings, prices, STATUSES, attachWaitingBills, notifyPayerOf } from './bills.js';
 import { startPayment, applyPaymentUpdate, retryPayout } from './payments/flow.js';
 import { getPartner, hasPartner } from './payments/partners.js';
 import { DEFAULT_SETTINGS } from './screening.js';
@@ -231,6 +231,9 @@ router.post('/api/bills/:id/reject', requireRole('clinic', 'admin'), async ({ us
   ({ bill: await view(await clinicDecision(params.id, 'reject', user, body), user) }));
 router.post('/api/bills/:id/review', requireRole('admin'), async ({ user, params, body }: AuthCtx) =>
   ({ bill: await view(await reviewDecision(params.id, body.approve === true, user, body), user) }));
+// Admin moves a bill to another hospital (wrong hospital picked, or "not our bill"), before any payment.
+router.post('/api/bills/:id/clinic', requireRole('admin'), async ({ user, params, body }: AuthCtx) =>
+  ({ bill: await view(await changeClinic(params.id, body.clinicId, user, body.note), user) }));
 router.post('/api/bills/:id/resend-clinic', requireRole('family', 'payer', 'admin'), async ({ user, params }: AuthCtx) =>
   resendToClinic(params.id, user));
 router.post('/api/bills/:id/pay', requireRole('payer'), async ({ user, params, body }: AuthCtx) => {

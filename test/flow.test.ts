@@ -910,3 +910,44 @@ test('security: a file that is not really an image is refused, even labelled as 
   assert.equal((await fam('POST', '/api/bills/extract', { image: fakeJpeg(2000, 3), mediaType: 'image/png' })).data.error, 'unsupported_image');
   assert.ok((await fam('POST', '/api/bills/extract', { image: fakeJpeg(2000, 3), mediaType: 'image/jpeg' })).data.draftId);
 });
+
+test('wrong hospital: a bill whose photo names another network hospital is held, and an admin moves it', async () => {
+  const adm = client(), payer = client(), fam = client(), espoirStaff = client(), graceStaff = client();
+  await login(adm, '+15550000001');
+  await login(payer, '+15550002801', { name: 'Kabila Payer', role: 'payer' });
+  await login(fam, '+243898920801', { name: 'Nsimba', role: 'family' });
+  await fam('POST', '/api/invites/accept', { code: (await payer('POST', '/api/invites', { relation: 'Cousin' })).data.code });
+  const payerId = (await fam('GET', '/api/payers')).data.payers[0].id;
+  const { data: { clinics } } = await fam('GET', '/api/clinics');
+  const espoir = clinics.find((c: { name: string }) => c.name === 'Centre Médical Espoir');
+  const grace = clinics.find((c: { name: string }) => c.name === 'Polyclinique La Grâce');
+
+  // The photo says "Polyclinique La Grâce" (as read by the app), but the family picks Espoir.
+  const draftId = await photo(fam);
+  await run('UPDATE bill_drafts SET ai = $2 WHERE id = $1', draftId, JSON.stringify({ clinic_name: 'POLYCLINIQUE LA GRACE', items: [], total: 0, tamper_flags: [] }));
+  const { data: { bill } } = await fam('POST', '/api/bills', { draftId, payerId, clinicId: espoir.id, patientName: 'Wrong Hospital', currency: 'USD', items: [{ d: 'Consultation', q: 1, p: 12 }], total: 12 });
+  assert.equal(bill.status, 'review'); // held: nothing reaches Espoir
+  const hint = (await adm('GET', `/api/bills/${bill.id}`)).data.bill.risk.reasons.find((r: { code: string }) => r.code === 'clinic_other_match');
+  assert.equal(hint.params.suggestedId, grace.id);
+
+  // Only an admin can move it; not to the same hospital.
+  assert.equal((await fam('POST', `/api/bills/${bill.id}/clinic`, { clinicId: grace.id })).status, 403);
+  assert.equal((await adm('POST', `/api/bills/${bill.id}/clinic`, { clinicId: espoir.id })).status, 400);
+  const moved = await adm('POST', `/api/bills/${bill.id}/clinic`, { clinicId: grace.id, note: 'demande de la famille' });
+  assert.equal(moved.status, 200, JSON.stringify(moved.data));
+  assert.equal(moved.data.bill.status, 'awaiting_clinic');
+  assert.equal(moved.data.bill.clinic.id, grace.id);
+  assert.ok(!moved.data.bill.risk.reasons.some((r: { code: string }) => r.code === 'clinic_other_match'));
+  const ev = moved.data.bill.events.find((e: { type: string }) => e.type === 'clinic_changed');
+  assert.match(ev.note, /Centre Médical Espoir → Polyclinique La Grâce · demande de la famille/);
+
+  // The first hospital no longer sees it; the new one confirms it.
+  await login(espoirStaff, '+243810000001');
+  assert.notEqual((await espoirStaff('GET', `/api/bills/${bill.id}`)).status, 200);
+  await login(graceStaff, '+243810000003');
+  assert.equal((await graceStaff('POST', `/api/bills/${bill.id}/confirm`, {})).data.bill.status, 'awaiting_payer');
+
+  // Once a payment has started, the hospital can't change any more.
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'card' })).status, 200);
+  assert.equal((await adm('POST', `/api/bills/${bill.id}/clinic`, { clinicId: espoir.id })).status, 409);
+});

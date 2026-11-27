@@ -606,5 +606,19 @@
  "nav.bills": "Ba facture",
  "nav.admin": "Tableau",
  "nav.language": "Lokota",
- "legal.country": "RDC"
+ "legal.country": "RDC",
+ "reason.clinic_other_match": "Foto emonisi « {onPhoto} » : ekoki kozala {suggested}, kasi {selected} te",
+ "event.clinic_changed": "Etindami na lopitalo mosusu",
+ "move.title": "Kobongola lopitalo",
+ "move.hint": "Soki libota liponaki lopitalo ya mabe, to lopitalo eyanolaki « ezali fakture na biso te ». Fakture etalelami lisusu mpe etindami na lopitalo ya sika ; oyo ya liboso ekomona yango lisusu te. Ekoki te soki kofuta ebandi.",
+ "move.to": "Lopitalo ya sika",
+ "move.note": "Ntina (ekomonana na lisolo)",
+ "move.notePh": "ndakisa : libota esengaki",
+ "move.button": "Tinda na lopitalo oyo",
+ "move.suggest": "Foto emonisi « {onPhoto} », oyo ekokani na {suggested}.",
+ "move.useSuggested": "Tinda na {name}",
+ "move.autoNote": "nkombo ya lopitalo etangami na fakture",
+ "move.done": "Fakture etindami na lopitalo ya sika",
+ "err.cannot_change_clinic": "Tokoki lisusu kobongola lopitalo te : kofuta ebandi kala mpo na fakture oyo.",
+ "err.same_clinic": "Fakture esi ezali na lopitalo oyo."
 }

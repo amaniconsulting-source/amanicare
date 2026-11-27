@@ -605,5 +605,19 @@
  "nav.bills": "Bills",
  "nav.admin": "Dashboard",
  "nav.language": "Language",
- "legal.country": "DR Congo"
+ "legal.country": "DR Congo",
+ "reason.clinic_other_match": "The photo shows “{onPhoto}”: probably {suggested}, not {selected}",
+ "event.clinic_changed": "Moved to another hospital",
+ "move.title": "Change hospital",
+ "move.hint": "When the family picked the wrong hospital, or the hospital answered “not our bill”. The bill is checked again and sent to the new hospital; the first one no longer sees it. Not possible once a payment has started.",
+ "move.to": "New hospital",
+ "move.note": "Reason (shown in the history)",
+ "move.notePh": "e.g. the family asked",
+ "move.button": "Send to this hospital",
+ "move.suggest": "The photo shows “{onPhoto}”, which matches {suggested}.",
+ "move.useSuggested": "Send to {name}",
+ "move.autoNote": "hospital name read on the bill",
+ "move.done": "Bill sent to the new hospital",
+ "err.cannot_change_clinic": "The hospital can no longer be changed: a payment has already started for this bill.",
+ "err.same_clinic": "The bill is already with this hospital."
 }

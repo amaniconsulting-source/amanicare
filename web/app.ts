@@ -271,6 +271,42 @@ function resendHtml(b: Bill): string {
   if (b.status !== 'awaiting_clinic' || !['family', 'payer', 'admin'].includes(role || '')) return '';
   return `<button class="secondary small" data-resend="${b.id}">📲 ${t('resend.button')}</button>`;
 }
+// Admin: move a bill to another hospital (wrong one picked, or "not our bill"), before any money moves.
+const MOVABLE = ['review', 'awaiting_clinic', 'awaiting_payer', 'payment_failed', 'rejected'];
+function moveClinicHtml(b: Bill): string {
+  if (state.me?.role !== 'admin' || !MOVABLE.includes(b.status)) return '';
+  const hint = b.risk?.reasons?.find((r) => r.code === 'clinic_other_match');
+  const sug = hint?.params as { suggested?: string; suggestedId?: string } | undefined;
+  return `<div class="card move-clinic" data-move>
+    ${sug?.suggestedId ? `<p class="notice">${t('move.suggest', { onPhoto: esc(String((hint!.params as { onPhoto?: string }).onPhoto || '')), suggested: esc(sug.suggested || '') })}</p>
+      <button class="block small" data-move-to="${esc(sug.suggestedId)}">${t('move.useSuggested', { name: esc(sug.suggested || '') })}</button>` : ''}
+    <details><summary>${t('move.title')}</summary>
+      <p class="muted small">${t('move.hint')}</p>
+      <label for="moveClinic">${t('move.to')}</label><select id="moveClinic"><option value="">${t('family.pickClinic')}</option></select>
+      <label for="moveNote">${t('move.note')}</label><input id="moveNote" maxlength="300" placeholder="${t('move.notePh')}">
+      <button class="block small" data-move-go>${t('move.button')}</button>
+    </details></div>`;
+}
+function wireMoveClinic(root: ParentNode, b: Bill): void {
+  const box = root.querySelector<HTMLElement>('[data-move]');
+  if (!box) return;
+  const go = async (clinicId: string, note: string, el: HTMLButtonElement) => busy(el, async () => {
+    if (!clinicId) { toast(t('family.pickClinic')); return; }
+    await api('POST', `/api/bills/${b.id}/clinic`, { clinicId, note });
+    toast(t('move.done'));
+    closeModal(); showBill(b.id); if (state.me?.role === 'admin') renderAdmin();
+  });
+  box.querySelector<HTMLButtonElement>('[data-move-to]')?.addEventListener('click', (e) => go((e.currentTarget as HTMLButtonElement).dataset.moveTo!, t('move.autoNote'), e.currentTarget as HTMLButtonElement));
+  const sel = box.querySelector<HTMLSelectElement>('#moveClinic')!;
+  box.querySelector('details')!.addEventListener('toggle', async () => {
+    if (sel.options.length > 1) return;
+    const { clinics } = await api<{ clinics: Clinic[] }>('GET', '/api/clinics');
+    sel.insertAdjacentHTML('beforeend', clinics.filter((c) => c.id !== b.clinic?.id)
+      .map((c) => `<option value="${c.id}">${esc(c.name)} – ${esc(c.commune)}</option>`).join(''));
+  }, { once: true });
+  box.querySelector<HTMLButtonElement>('[data-move-go]')!.addEventListener('click', (e) =>
+    go(sel.value, box.querySelector<HTMLInputElement>('#moveNote')!.value, e.currentTarget as HTMLButtonElement));
+}
 function wireResend(root: ParentNode): void {
   $$<HTMLButtonElement>('[data-resend]', root).forEach((b) => (b.onclick = (e) => busy(btn(e), async () => {
     await api('POST', `/api/bills/${b.dataset.resend}/resend-clinic`, {});
@@ -339,15 +375,16 @@ async function showBill(id: string): Promise<void> {
     ${rejectionHtml(b)}
     ${nextStep(b)}
     ${resendHtml(b)}
+    ${moveClinicHtml(b)}
     <div class="scroll"><table><thead><tr><th>${t('item')}</th><th class="num">${t('qty')}</th><th class="num">${t('unitPrice')}</th></tr></thead><tbody>${items}</tbody></table></div>
     <p class="row between"><b>${t('total')}</b><b>${b.currency === 'CDF' ? cdf(b.total) + ' · ' : ''}${usd(b.totalUsd)}</b></p>
     ${b.expectedUsd !== undefined ? `<p class="muted small">${t('expectedCost', { amount: usd(b.expectedUsd) })}</p>` : ''}
     ${b.risk?.reasons?.length ? `<ul class="reasons">${b.risk.reasons.map((r) => `<li>${esc(reasonText(r))}</li>`).join('')}</ul>` : ''}
     ${b.payout ? `<p class="notice info">${t('payoutSent', { ref: esc(b.payout.ref), account: esc(b.payout.account || '') })}</p>` : ''}
-    <ul class="timeline">${b.events.map((e) => `<li>${fmtDate(e.at)} · ${esc(eventText(e.type, b))}</li>`).join('')}</ul>
+    <ul class="timeline">${b.events.map((e) => `<li>${fmtDate(e.at)} · ${esc(eventText(e.type, b))}${e.type === 'clinic_changed' && e.note && state.me?.role !== 'clinic' ? ` <span class="muted">(${esc(e.note)})</span>` : ''}</li>`).join('')}</ul>
     ${b.hasPhoto ? `<img class="photo-full" src="/api/bills/${b.id}/photo" alt="${t('billPhoto')}">` : ''}
     ${state.me?.role !== 'admin' ? `<button class="secondary block" data-bill-help>💬 ${t('chat.billHelp')}</button>` : ''}
-  `, (sheet) => { wireResend(sheet); sheet.querySelector<HTMLButtonElement>('[data-bill-help]')?.addEventListener('click', () => openSupport({ billId: b.id, billRef: b.ref })); });
+  `, (sheet) => { wireResend(sheet); wireMoveClinic(sheet, b); sheet.querySelector<HTMLButtonElement>('[data-bill-help]')?.addEventListener('click', () => openSupport({ billId: b.id, billRef: b.ref })); });
 }
 
 // ---------- how it works, help, next steps ----------
@@ -1057,7 +1094,7 @@ async function newBillFlow(payers: Payer[], invites: SentInvite[] = []): Promise
     ? payers.map((p) => ({ value: 'p:' + p.id, label: `${p.name}${p.relation ? ` (${p.relation})` : ''}` }))
     : invites.map((i) => ({ value: 'i:' + i.code, label: `${i.relation || i.phone || i.code} · ${t('family.notJoinedYet')}` }));
   const { clinics } = await api<{ clinics: Clinic[] }>('GET', '/api/clinics');
-  const f: { draftId: string | null; ai: AiRead | null; aiAvailable?: boolean; items: ItemDraft[]; photoUrl: string | null } =
+  const f: { draftId: string | null; ai: AiRead | null; aiAvailable?: boolean; suggestedClinicId?: string | null; items: ItemDraft[]; photoUrl: string | null } =
     { draftId: null, ai: null, items: [{ d: '', q: 1, p: '' }], photoUrl: null };
   const drawPhoto = (): void => {
     app.innerHTML = `
@@ -1082,8 +1119,8 @@ async function newBillFlow(payers: Payer[], invites: SentInvite[] = []): Promise
       try {
         const img = await compressImage(file);
         f.photoUrl = img.url;
-        const r = await api<{ draftId: string; ai: AiRead | null; aiAvailable: boolean }>('POST', '/api/bills/extract', { image: img.b64, mediaType: 'image/jpeg' });
-        f.draftId = r.draftId; f.ai = r.ai; f.aiAvailable = r.aiAvailable;
+        const r = await api<{ draftId: string; ai: AiRead | null; aiAvailable: boolean; suggestedClinicId: string | null }>('POST', '/api/bills/extract', { image: img.b64, mediaType: 'image/jpeg' });
+        f.draftId = r.draftId; f.ai = r.ai; f.aiAvailable = r.aiAvailable; f.suggestedClinicId = r.suggestedClinicId;
         if (r.ai?.items?.length) f.items = r.ai.items.map((i) => ({ d: i.description, q: i.qty, p: i.unit_price }));
         drawForm();
       } catch (err) { $('#reading').innerHTML = ''; reportUnexpected(err); toast(errText(err)); }
@@ -1091,7 +1128,10 @@ async function newBillFlow(payers: Payer[], invites: SentInvite[] = []): Promise
   };
   const drawForm = (): void => {
     const ai: Partial<AiRead> = f.ai || {};
-    const guessClinic = clinics.find((c) => ai.clinic_name && ai.clinic_name.toLowerCase().includes(c.name.toLowerCase().split(' ').pop()!));
+    // Preselected only when the name on the photo clearly matches a network hospital (decided by the server).
+    // Otherwise nothing is selected: the family must pick, so a bill never goes to a default hospital.
+    const keep = document.querySelector<HTMLSelectElement>('#clinic')?.value;
+    const guessClinic = clinics.find((c) => c.id === (keep || f.suggestedClinicId));
     app.innerHTML = `
       <button class="link" id="cancel">← ${t('back')}</button>
       <h1>${t('family.checkDetails')}</h1>

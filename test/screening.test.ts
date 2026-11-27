@@ -94,3 +94,25 @@ test('tamper notes from the photo are kept in French too, for the French screens
   const flag = r.reasons.find((x) => x.code === 'ai_tamper_flag');
   assert.deepEqual(flag?.params, { flag: 'total written over', flag_fr: 'total réécrit' });
 });
+
+test('hospital names: the best network match wins, and a shared word alone is not enough', async () => {
+  const { clinicMatchScore, bestClinicMatch } = await import('../server/screening.js');
+  const net = [{ id: 'a', name: 'Clinique Test' }, { id: 'b', name: 'Hôpital Test AmaniCare' }, { id: 'c', name: 'Centre Médical Espoir' }];
+  assert.equal(clinicMatchScore('HOPITAL TEST AMANICARE', 'Hôpital Test AmaniCare'), 1);
+  assert.equal(clinicMatchScore('Hôpital Test AmaniCare', 'Clinique Test'), 0.5);
+  assert.equal(bestClinicMatch('Hôpital Test AmaniCare · Gombe', net)?.id, 'b');
+  assert.equal(bestClinicMatch('Centre Medical Espwar', net), null); // two letters off: not the same name
+  assert.equal(bestClinicMatch('Centre Médical Espoire', net)?.id, 'c'); // one letter off: same name
+  assert.equal(bestClinicMatch('Pharmacie du Marché', net), null); // not in the network: no guess
+  assert.equal(bestClinicMatch('', net), null);
+  // Chosen "Clinique Test" while the photo names "Hôpital Test AmaniCare": flagged and held.
+  const r = screenBill({ ...base, items: [{ d: 'Consultation', q: 1, p: 10 }], total: 10, ai: { clinic_name: 'Hôpital Test AmaniCare' } },
+    { ...ctx, clinic: { id: 'a', name: 'Clinique Test', active: 1 } as never, network: net });
+  assert.ok(r.reasons.some((x) => x.code === 'clinic_other_match' && x.params.suggestedId === 'b'));
+  const { mustReview } = await import('../server/screening.js');
+  assert.equal(mustReview(r), true);
+  // The right hospital chosen: nothing flagged.
+  const ok = screenBill({ ...base, items: [{ d: 'Consultation', q: 1, p: 10 }], total: 10, ai: { clinic_name: 'Hôpital Test AmaniCare' } },
+    { ...ctx, clinic: { id: 'b', name: 'Hôpital Test AmaniCare', active: 1 } as never, network: net });
+  assert.ok(!ok.reasons.some((x) => x.code.startsWith('clinic_')));
+});

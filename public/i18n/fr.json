@@ -605,5 +605,19 @@
  "nav.bills": "Factures",
  "nav.admin": "Tableau",
  "nav.language": "Langue",
- "legal.country": "RDC"
+ "legal.country": "RDC",
+ "reason.clinic_other_match": "La photo montre « {onPhoto} » : c'est sans doute {suggested}, pas {selected}",
+ "event.clinic_changed": "Transférée vers un autre hôpital",
+ "move.title": "Changer d'hôpital",
+ "move.hint": "Si la famille a choisi le mauvais hôpital, ou si l'hôpital a répondu « pas notre facture ». La facture est vérifiée à nouveau et envoyée au nouvel hôpital ; l'ancien ne la voit plus. Impossible une fois le paiement lancé.",
+ "move.to": "Nouvel hôpital",
+ "move.note": "Raison (visible dans l'historique)",
+ "move.notePh": "ex. demande de la famille",
+ "move.button": "Envoyer à cet hôpital",
+ "move.suggest": "La photo montre « {onPhoto} », qui correspond à {suggested}.",
+ "move.useSuggested": "Envoyer à {name}",
+ "move.autoNote": "nom de l'hôpital lu sur la facture",
+ "move.done": "Facture envoyée au nouvel hôpital",
+ "err.cannot_change_clinic": "On ne peut plus changer d'hôpital : un paiement a déjà été lancé pour cette facture.",
+ "err.same_clinic": "La facture est déjà chez cet hôpital."
 }

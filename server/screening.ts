@@ -1,6 +1,7 @@
 // Deterministic bill screening. Pure functions: easy to test and to explain to partners.
 // The AI only reads the photo; every decision here is a rule with a fixed number of points.
 import type { AiBill, BillItem, ClinicRow, Currency, Price, RiskLevel } from './types.js';
+import { distance } from './communes.js';
 
 export interface ScreeningSettings {
   cdfPerUsd: number;
@@ -54,7 +55,9 @@ export interface ScreenInput {
   ai: Partial<Pick<AiBill, 'clinic_name' | 'tamper_flags' | 'tamper_flags_fr'>> | null;
 }
 export interface ScreenContext {
-  clinic: Pick<ClinicRow, 'name' | 'active'> | null | undefined;
+  clinic: Pick<ClinicRow, 'name' | 'active'> & { id?: string } | null | undefined;
+  /** The other active hospitals in the network, to notice when the photo names one of them instead. */
+  network?: { id: string; name: string }[];
   prices?: PriceRef[];
   settings?: Partial<ScreeningSettings>;
   duplicates: number;
@@ -97,8 +100,16 @@ export function screenBill(bill: ScreenInput, ctx: ScreenContext): ScreenResult 
   }
 
   const aiClinic = bill.ai?.clinic_name;
-  if (aiClinic && ctx.clinic && !clinicNamesMatch(aiClinic, ctx.clinic.name)) {
-    add('clinic_name_mismatch', 15, { onPhoto: aiClinic, selected: ctx.clinic.name });
+  if (aiClinic && ctx.clinic) {
+    // The photo names another hospital of the network better than the one chosen: most likely the wrong
+    // hospital was picked. A person checks it (and can move the bill) before anything is sent.
+    const chosen = clinicMatchScore(aiClinic, ctx.clinic.name);
+    const other = bestClinicMatch(aiClinic, (ctx.network || []).filter((c) => c.id !== ctx.clinic!.id && c.name !== ctx.clinic!.name));
+    if (other && other.score > chosen) {
+      add('clinic_other_match', 30, { onPhoto: aiClinic, selected: ctx.clinic.name, suggested: other.name, suggestedId: other.id });
+    } else if (!clinicNamesMatch(aiClinic, ctx.clinic.name)) {
+      add('clinic_name_mismatch', 15, { onPhoto: aiClinic, selected: ctx.clinic.name });
+    }
   }
   if (bill.edited) add('edited_after_ai', 10);
   // The AI's observations add up to 20 points at most: they prompt a check, they don't decide alone.
@@ -118,15 +129,42 @@ export function screenBill(bill: ScreenInput, ctx: ScreenContext): ScreenResult 
 const GENERIC = new Set(['centre', 'center', 'clinique', 'clinic', 'hopital', 'hospital', 'medical', 'de', 'du', 'la', 'le', 'des', 'sante', 'polyclinique', 'cabinet', 'general', 'et']);
 // A possible duplicate is never sent straight to the clinic: a person checks it first.
 export const DUPLICATE_CODES = ['duplicate_bill_number', 'duplicate_photo', 'similar_recent_bill'];
+// The photo names another network hospital: checked by a person, so the bill doesn't reach the wrong hospital.
+export const HOLD_CODES = [...DUPLICATE_CODES, 'clinic_other_match'];
 export const mustReview = (r: Pick<ScreenResult, 'level' | 'reasons'>): boolean =>
-  r.level === 'high' || r.reasons.some((x) => DUPLICATE_CODES.includes(x.code));
+  r.level === 'high' || r.reasons.some((x) => HOLD_CODES.includes(x.code));
+
+const distinctive = (s: string) => [...new Set(normalize(s).split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !GENERIC.has(w)))];
+// Two words are the same if equal, or one spelling slip apart for longer words ("Bondeko" / "Bondeco").
+const sameWord = (a: string, b: string) => a === b || (Math.min(a.length, b.length) >= 5 && distance(a, b) <= 1);
 
 export function clinicNamesMatch(a: string, b: string): boolean {
-  const words = (s: string) => normalize(s).split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !GENERIC.has(w));
-  const wa = new Set(words(a));
-  const wb = words(b);
-  if (!wa.size || !wb.length) return true; // nothing distinctive to compare: don't penalize
-  return wb.some((w) => wa.has(w));
+  const wa = distinctive(a);
+  const wb = distinctive(b);
+  if (!wa.length || !wb.length) return true; // nothing distinctive to compare: don't penalize
+  return wb.some((w) => wa.some((x) => sameWord(w, x)));
+}
+
+/**
+ * How well a hospital's name matches the name read on the photo, from 0 to 1: the share of distinctive
+ * words they have in common, out of the longer of the two names. "Hôpital Test AmaniCare" on the photo
+ * scores 1 for "Hôpital Test AmaniCare" and 0.5 for "Clinique Test".
+ */
+export function clinicMatchScore(onPhoto: string, clinicName: string): number {
+  const wa = distinctive(onPhoto);
+  const wb = distinctive(clinicName);
+  if (!wa.length || !wb.length) return normalize(onPhoto) === normalize(clinicName) ? 1 : 0;
+  const shared = wb.filter((w) => wa.some((x) => sameWord(w, x))).length;
+  return shared / Math.max(wa.length, wb.length);
+}
+
+/** The network hospital whose name best matches the photo, if the match is clear (at least half, and no tie). */
+export function bestClinicMatch<C extends { id: string; name: string }>(onPhoto: string | undefined | null, clinics: C[]): (C & { score: number }) | null {
+  if (!onPhoto || !onPhoto.trim()) return null;
+  const scored = clinics.map((c) => ({ ...c, score: clinicMatchScore(onPhoto, c.name) })).sort((x, y) => y.score - x.score);
+  const [first, second] = scored;
+  if (!first || first.score < 0.5 || (second && second.score === first.score)) return null;
+  return first;
 }
 
 // Detects whether the family changed what the AI read (compared item by item and on the total).
