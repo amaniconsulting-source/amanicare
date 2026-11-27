@@ -58,6 +58,9 @@ const merchantFor = (clinic: ClinicRow): { code: string; direct: boolean } =>
 
 const callbackUrl = () => `${config.baseUrl}/api/webhooks/payments/flexpay`;
 
+/** FlexPaie's own words when it refuses, or (no message) what it actually answered, for the logs. */
+const why = (r: any): string => r?.message || r?.Message || r?.error || `unexpected answer ${JSON.stringify(r ?? null).slice(0, 300)}`;
+
 async function post(url: string, body: Record<string, unknown>): Promise<any> {
   const res = await fetch(url, {
     method: 'POST',
@@ -65,8 +68,10 @@ async function post(url: string, body: Record<string, unknown>): Promise<any> {
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(30_000),
   });
-  const data: any = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`FlexPaie ${res.status}: ${data?.message || 'error'}`);
+  const text = await res.text();
+  let data: any;
+  try { data = JSON.parse(text); } catch { data = { raw: text.slice(0, 300) }; }
+  if (!res.ok) throw new Error(`FlexPaie ${res.status}: ${data?.message || text.slice(0, 300) || 'error'}`);
   return data;
 }
 
@@ -99,13 +104,13 @@ export const flexpayPartner: PaymentPartner = {
       // Mobile money: FlexPaie pushes a request to the payer's wallet; they approve with their PIN.
       // TODO(flexpay): AmaniCare's commission when paying a hospital's own merchant account (to agree with FlexPaie).
       const r = await post(paymentUrl(), { ...common, type: '1', phone: flexpayPhone(payment.wallet_phone || '') });
-      if (String(r?.code) !== '0' || !r?.orderNumber) throw new Error(`FlexPaie refused the request: ${r?.message || 'unknown error'}`);
+      if (String(r?.code) !== '0' || !r?.orderNumber) throw new Error(`FlexPaie refused the request: ${why(r)}`);
       return { partnerRef: String(r.orderNumber), status: 'pending' };
     }
     // Card: FlexPaie's hosted card page (AmaniCare never sees card details). The payer comes back to the app.
     const back = `${config.baseUrl}/`;
     const r = await post(paymentUrl(), { ...common, type: '2', approve_url: back, cancel_url: back, decline_url: back });
-    if (String(r?.code) !== '0' || !r?.url || !r?.orderNumber) throw new Error(`FlexPaie refused the card payment: ${r?.message || 'unknown error'}`);
+    if (String(r?.code) !== '0' || !r?.url || !r?.orderNumber) throw new Error(`FlexPaie refused the card payment: ${why(r)}`);
     return { partnerRef: String(r.orderNumber), status: 'pending', checkoutUrl: String(r.url) };
   },
 
@@ -125,7 +130,7 @@ export const flexpayPartner: PaymentPartner = {
       merchant: config.flexpay.merchant, type: '1', phone: flexpayPhone(clinic.payout_phone),
       reference: payment.id, amount: payment.amount_usd.toFixed(2), currency: 'USD', callback_url: callbackUrl(),
     });
-    if (String(r?.code) !== '0' || !r?.orderNumber) throw new Error(`FlexPaie refused the payout: ${r?.message || 'unknown error'}`);
+    if (String(r?.code) !== '0' || !r?.orderNumber) throw new Error(`FlexPaie refused the payout: ${why(r)}`);
     return { partnerRef: String(r.orderNumber), status: 'pending' };
   },
 
