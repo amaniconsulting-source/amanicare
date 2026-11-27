@@ -177,10 +177,11 @@ export async function refreshPayment(billId: string, payer: UserRow, result: unk
   if (update.status !== 'pending') await applyPaymentUpdate({ ...update, paymentId: p.id });
   else {
     const ageMin = Number((await one<{ m: number }>('SELECT EXTRACT(EPOCH FROM now() - created_at) / 60 m FROM payments WHERE id = $1', p.id))!.m);
-    // The payer left the card page through Cancel / Declined, or says it didn't go through ("retry", offered
+    // The payer left the card page through Cancel / Declined / the browser's Back button, or says it didn't go through ("retry", offered
     // after RETRY_AFTER_MIN), or nobody finished it in ABANDON_MIN: nothing was charged, the payer can pay again.
     // A confirmation that still arrives later counts (lateSuccess).
     const reason = p.method === 'card' && result === 'cancel' ? 'Card payment cancelled on the payment page'
+      : p.method === 'card' && result === 'back' ? 'Card payment page left with the Back button'
       : p.method === 'card' && result === 'decline' ? 'Card declined on the payment page'
       : result === 'retry' && ageMin >= RETRY_AFTER_MIN ? 'Not completed (the payer chose to try again)'
       : ageMin >= ABANDON_MIN ? `Not completed within ${ABANDON_MIN} minutes`

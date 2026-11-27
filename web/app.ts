@@ -945,7 +945,8 @@ async function renderPayer(): Promise<void> {
     const how = await payDialog(b.dataset.amount || '');
     if (!how) return;
     const r = await api<{ checkoutUrl: string | null; method: string }>('POST', `/api/bills/${b.dataset.pay}/pay`, how);
-    if (r.checkoutUrl) { location.href = r.checkoutUrl; return; }
+    // Remember the bill: if the payer comes back with the browser's Back button (no return link), we still know.
+    if (r.checkoutUrl) { try { sessionStorage.setItem(CARD_PAY_KEY, b.dataset.pay!); } catch {} location.href = r.checkoutUrl; return; }
     if (r.method !== 'card') toast(t('pay.approveOnPhone'));
     renderPayer();
   })));
@@ -1857,22 +1858,29 @@ async function acceptPendingInvite(): Promise<void> {
 }
 
 // Back from the card payment page (?bill=…&pay=approve|cancel|decline): checked with the partner once signed in.
+// Back with the browser's Back button instead: the bill was remembered just before leaving for the card page.
+const CARD_PAY_KEY = 'cardPayBill';
 let payReturn: { bill: string; result: string } | null = null;
-{
+function readPayReturn(): void {
   const q = new URLSearchParams(location.search);
   const bill = q.get('bill'), result = q.get('pay');
+  let left: string | null = null;
+  try { left = sessionStorage.getItem(CARD_PAY_KEY); sessionStorage.removeItem(CARD_PAY_KEY); } catch {}
   if (bill && result && ['approve', 'cancel', 'decline'].includes(result)) {
     payReturn = { bill, result };
     history.replaceState(null, '', location.pathname);
-  }
+  } else if (left) payReturn = { bill: left, result: 'back' };
 }
+readPayReturn();
+// Some browsers show the previous page from memory on Back, without reloading: check then too.
+window.addEventListener('pageshow', (e) => { if (e.persisted) { readPayReturn(); checkPayReturn().then(() => { if (payReturn === null && state.me) route(); }); } });
 async function checkPayReturn(): Promise<void> {
   if (!payReturn || state.me?.role !== 'payer') return;
   const { bill, result } = payReturn; payReturn = null;
   try {
     const r = await api<{ bill: Bill }>('POST', `/api/bills/${bill}/payment/refresh`, { result });
     const st = r.bill.status;
-    toast(t(st === 'payment_failed' ? (result === 'decline' ? 'pay.back.declined' : 'pay.back.cancelled') : st === 'payment_pending' ? 'pay.back.pending' : 'pay.back.paid'));
+    toast(t(st === 'payment_failed' ? (result === 'decline' ? 'pay.back.declined' : 'pay.back.cancelled') : st === 'payment_pending' ? 'pay.back.pending' : st === 'awaiting_payer' ? 'pay.back.cancelled' : 'pay.back.paid'));
   } catch (e) { reportUnexpected(e); }
 }
 /** Payments still pending (e.g. the partner's confirmation is late): asked about now and then while the payer looks. */

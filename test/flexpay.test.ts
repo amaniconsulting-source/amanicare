@@ -326,3 +326,16 @@ test('never charged twice: paying again first re-checks the attempt given up, an
   assert.equal((await one<{ n: number }>("SELECT COUNT(*) n FROM payments WHERE bill_id = $1 AND kind = 'payout'", second.bill.id))!.n, 1);
   assert.ok(await one("SELECT 1 FROM audit WHERE action = 'late_payment_refund' AND detail LIKE $1", `%${second.bill.ref || ''}%`));
 });
+
+test('FlexPaie card: back with the browser\'s Back button ends the attempt like Cancel', async () => {
+  const { bill } = await confirmedBill('Centre Médical Espoir', '+243810000001', 12);
+  const pay = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'card' });
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'back' })).data.bill.status, 'payment_failed');
+  const p = await one<{ failure_reason: string; ended_by_app: number }>('SELECT failure_reason, ended_by_app FROM payments WHERE id = $1', pay.data.paymentId);
+  assert.match(p!.failure_reason, /Back button/);
+  assert.equal(p!.ended_by_app, 1);
+  // Mobile money has no page to leave: "back" changes nothing there.
+  const mm = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'mpesa', walletPhone: '+243815550155' });
+  assert.equal(mm.status, 200);
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'back' })).data.bill.status, 'payment_pending');
+});
