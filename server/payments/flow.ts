@@ -173,7 +173,7 @@ export async function refreshPayment(billId: string, payer: UserRow, result: unk
   // The partner's status service can be slow or unreachable: then we simply don't know yet (pending).
   let update: PaymentUpdate = { paymentId: p.id, status: 'pending' };
   try { update = await partner.confirm(p, update); } catch (e) { console.warn(`[payments] status check for ${bill.ref} failed: ${(e as Error).message}`); }
-  console.log(`[payments] ${bill.ref}: payer back (${String(result || 'check')}), ${partner.name} says ${update.status}`);
+  if (result || update.status !== 'pending') console.log(`[payments] ${bill.ref}: payer back (${String(result || 'check')}), ${partner.name} says ${update.status}`);
   if (update.status !== 'pending') await applyPaymentUpdate({ ...update, paymentId: p.id });
   else {
     const ageMin = Number((await one<{ m: number }>('SELECT EXTRACT(EPOCH FROM now() - created_at) / 60 m FROM payments WHERE id = $1', p.id))!.m);

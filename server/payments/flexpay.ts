@@ -87,9 +87,14 @@ export async function flexpayCheck(orderNumber: string): Promise<FlexpayCheck> {
     headers: { authorization: `Bearer ${config.flexpay.token}` },
     signal: AbortSignal.timeout(30_000),
   });
-  const data: any = await res.json().catch(() => ({}));
+  const text = await res.text();
+  let data: any = {};
+  try { data = JSON.parse(text); } catch { /* not JSON: logged below */ }
   const t = data?.transaction;
-  if (!res.ok || String(data?.code) !== '0' || !t) return unknown;
+  if (!res.ok || String(data?.code) !== '0' || !t) {
+    console.warn(`[flexpay] check ${orderNumber}: HTTP ${res.status} ${text.slice(0, 300) || '(empty)'}`);
+    return unknown;
+  }
   return {
     status: flexpayStatus(t.status), code: String(t.status ?? ''), reference: String(t.reference ?? ''),
     amount: Number(t.amount), currency: String(t.currency ?? '').toUpperCase(), channel: String(t.channel ?? ''),
