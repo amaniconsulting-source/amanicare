@@ -165,7 +165,10 @@ export async function refreshPayment(billId: string, payer: UserRow, result: unk
   const p = await one<PaymentRow>("SELECT * FROM payments WHERE bill_id = $1 AND kind = 'collection' AND status = 'pending' ORDER BY created_at DESC LIMIT 1", bill.id);
   const partner = getPartner();
   if (!p || p.partner !== partner.name || !partner.confirm) return bill;
-  const update = await partner.confirm(p, { paymentId: p.id, status: 'pending' });
+  // The partner's status service can be slow or unreachable: then we simply don't know yet (pending).
+  let update: PaymentUpdate = { paymentId: p.id, status: 'pending' };
+  try { update = await partner.confirm(p, update); } catch (e) { console.warn(`[payments] status check for ${bill.ref} failed: ${(e as Error).message}`); }
+  console.log(`[payments] ${bill.ref}: payer back (${String(result || 'check')}), ${partner.name} says ${update.status}`);
   if (update.status !== 'pending') await applyPaymentUpdate({ ...update, paymentId: p.id });
   else if (p.method === 'card' && (result === 'cancel' || result === 'decline')) {
     await applyPaymentUpdate({ paymentId: p.id, status: 'failed', reason: result === 'cancel' ? 'Card payment cancelled on the payment page' : 'Card declined on the payment page' });
