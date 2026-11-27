@@ -64,3 +64,16 @@ Never paste the token in a chat, a document or the repository: Render and the lo
 - **Foreign cards** (diaspora payers in the US and Europe), USD settlement, limits per transaction.
 - Callback origin (IP addresses) and any signature, and the maximum length of `reference` (ours is a 36-character id).
 - Signing up hospitals as merchants, and how long it takes.
+
+## Never charged twice
+
+- One payment at a time per bill: the bill is locked while a payment starts, and a bill whose payment is
+  in progress can't be paid again.
+- A payment in progress ends only when FlexPaie says so, or when the app gives up on it: the payer came back
+  through Cancel/Declined, tapped "Le paiement n'a pas abouti ? Réessayer" (offered after 5 minutes), or
+  nothing happened for 15 minutes. FlexPaie is always asked first.
+- Before any new attempt, every attempt the app gave up on is asked about again. If one went through after
+  all, it counts (the bill goes on to the hospital) and the new attempt is refused (`already_paid`).
+- If two payments still succeed (a card page left open, approved much later), the hospital is paid once, the
+  bill shows "Paiement reçu deux fois", and an admin is alerted (audit `late_payment_refund`, Sentry) to
+  refund one of them from the FlexPaie dashboard.

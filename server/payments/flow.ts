@@ -3,7 +3,7 @@
 // payment are ignored, so retries and duplicate webhooks can't pay twice.
 import { randomUUID } from 'node:crypto';
 import * as Sentry from '@sentry/node';
-import { one, run, tx, audit } from '../db.js';
+import { one, all, run, tx, audit } from '../db.js';
 import { getPartner, type PaymentUpdate } from './partners.js';
 import { getBill, setStatus, event, notifyFamily } from '../bills.js';
 import { notify } from '../messaging/index.js';
@@ -28,6 +28,7 @@ export interface PayChoice { method: PayMethod; walletPhone: string | null }
 
 export async function startPayment(billId: string, payer: UserRow, how: PayChoice = { method: 'card', walletPhone: null }): Promise<{ paymentId: string; checkoutUrl: string | null; method: PayMethod }> {
   const partner = getPartner();
+  await noSecondCharge(billId, payer);
   // The bill row is locked while the payment is created, so a double tap can't start two collections.
   const { bill, payment, clinic } = await tx(async () => {
     const b = await lockBill(billId);
@@ -148,6 +149,7 @@ async function lateSuccess(payment: PaymentRow): Promise<PaymentRow> {
     await startPayout(bill.id);
   } else {
     await audit(null, 'late_payment_refund', `${bill.ref}: ${payment.partner_ref} confirmed after the bill moved on (${bill.status}); refund one payment`);
+    await event(bill.id, null, 'double_payment', `${round2(payment.amount_usd).toFixed(2)} USD · ${payment.partner_ref || ''}`);
     Sentry.captureMessage(`Late payment on ${bill.ref}: refund needed`, { level: 'error', tags: { area: 'payments' } });
   }
   return (await one<PaymentRow>('SELECT * FROM payments WHERE id = $1', payment.id))!;
@@ -160,7 +162,7 @@ async function lateSuccess(payment: PaymentRow): Promise<PaymentRow> {
  * would still count, see lateSuccess).
  */
 /** A pending payment can be given up by the payer after this long, and ends by itself after ABANDON_MIN. */
-export const RETRY_AFTER_MIN = 2;
+export const RETRY_AFTER_MIN = 5;
 export const ABANDON_MIN = 15;
 export async function refreshPayment(billId: string, payer: UserRow, result: unknown): Promise<BillRow> {
   const bill = await getBill(billId);
@@ -183,7 +185,32 @@ export async function refreshPayment(billId: string, payer: UserRow, result: unk
       : result === 'retry' && ageMin >= RETRY_AFTER_MIN ? 'Not completed (the payer chose to try again)'
       : ageMin >= ABANDON_MIN ? `Not completed within ${ABANDON_MIN} minutes`
       : null;
-    if (reason) await applyPaymentUpdate({ paymentId: p.id, status: 'failed', reason });
+    if (reason) {
+      await applyPaymentUpdate({ paymentId: p.id, status: 'failed', reason });
+      await run('UPDATE payments SET ended_by_app = 1 WHERE id = $1', p.id);
+    }
   }
   return (await getBill(bill.id))!;
+}
+
+/**
+ * Never charge twice. Before a new attempt, every earlier attempt the app gave up on itself (not one the partner
+ * refused) is asked about once more: if one went through after all, it counts, the bill goes on to the hospital,
+ * and the new attempt is refused. Attempts the partner still calls "pending" stay given up: card pages and
+ * mobile-money prompts expire, and a confirmation that arrives later is handled by lateSuccess.
+ */
+async function noSecondCharge(billId: string, payer: UserRow): Promise<void> {
+  const partner = getPartner();
+  const bill = await getBill(billId);
+  if (!bill || bill.payer_id !== payer.id || !partner.confirm) return;
+  const earlier = await all<PaymentRow>(`SELECT * FROM payments WHERE bill_id = $1 AND kind = 'collection' AND status = 'failed'
+    AND ended_by_app = 1 AND partner = $2 AND partner_ref IS NOT NULL ORDER BY created_at DESC LIMIT 5`, bill.id, partner.name);
+  for (const p of earlier) {
+    let r: PaymentUpdate = { paymentId: p.id, status: 'pending' };
+    try { r = await partner.confirm({ ...p, status: 'pending' }, r); } catch (e) { console.warn(`[payments] re-check of ${p.id} failed: ${(e as Error).message}`); }
+    if (r.status === 'succeeded') {
+      await applyPaymentUpdate({ paymentId: p.id, status: 'succeeded' });
+      throw new HttpError(409, 'already_paid');
+    }
+  }
 }

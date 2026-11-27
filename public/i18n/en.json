@@ -628,5 +628,8 @@
  "pay.retry.hintMobile": "Approve the request on your phone with your PIN.",
  "pay.retry.button": "Payment didn't go through? Try again",
  "pay.retry.wait": "The payment is still in progress. Wait a minute, then try again.",
- "pay.retry.ready": "Done: nothing was charged. You can pay again."
+ "pay.retry.ready": "Done: nothing was charged. You can pay again.",
+ "event.double_payment": "Payment received twice: AmaniCare refunds the second one",
+ "event.double_payment.payer": "You paid twice: we are refunding the second payment",
+ "err.already_paid": "Your earlier payment went through after all: no need to pay again."
 }

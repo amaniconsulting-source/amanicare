@@ -628,5 +628,8 @@
  "pay.retry.hintMobile": "Validez la demande sur votre téléphone avec votre code PIN.",
  "pay.retry.button": "Le paiement n'a pas abouti ? Réessayer",
  "pay.retry.wait": "Le paiement est encore en cours. Patientez une minute, puis réessayez.",
- "pay.retry.ready": "C'est réglé : rien n'a été débité. Vous pouvez payer à nouveau."
+ "pay.retry.ready": "C'est réglé : rien n'a été débité. Vous pouvez payer à nouveau.",
+ "event.double_payment": "Paiement reçu deux fois : AmaniCare rembourse le second",
+ "event.double_payment.payer": "Vous avez payé deux fois : nous vous remboursons le second paiement",
+ "err.already_paid": "Votre paiement précédent est finalement passé : inutile de payer à nouveau."
 }

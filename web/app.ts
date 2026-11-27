@@ -895,11 +895,11 @@ async function signedIn(user: Me): Promise<void> {
 }
 
 // ---------- payer ----------
-/** A payment that seems stuck (card page closed, PIN never entered): after a couple of minutes, offer to try again. */
+/** A payment that seems stuck (card page closed, PIN never entered): after 5 minutes, offer to try again (RETRY_AFTER_MIN). */
 function retryHtml(b: Bill): string {
   if (b.status !== 'payment_pending' || !b.pending) return '';
   const hint = b.pending.method === 'card' ? t('pay.retry.hintCard') : t('pay.retry.hintMobile');
-  return `<p class="muted small">${hint}</p>${b.pending.minutes >= 2 ? `<button class="secondary small block" data-retry="${b.id}">${t('pay.retry.button')}</button>` : ''}`;
+  return `<p class="muted small">${hint}</p>${b.pending.minutes >= 5 ? `<button class="secondary small block" data-retry="${b.id}">${t('pay.retry.button')}</button>` : ''}`;
 }
 async function renderPayer(): Promise<void> {
   app.innerHTML = `<p class="center"><span class="spinner"></span></p>`;

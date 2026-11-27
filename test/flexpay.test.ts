@@ -272,7 +272,7 @@ test('FlexPaie: a pending payment is settled when the payer\'s page asks again',
   await waitFor(payer, bill.id, 'paid');
 });
 
-test('FlexPaie: a stuck payment can be given up after 2 minutes, and ends by itself after 15', async () => {
+test('FlexPaie: a stuck payment can be given up after 5 minutes, and ends by itself after 15', async () => {
   const { run } = await import('../server/db.js');
   const { bill } = await confirmedBill('Centre Médical Espoir', '+243810000001', 9);
   const pay = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'card' });
@@ -280,7 +280,7 @@ test('FlexPaie: a stuck payment can be given up after 2 minutes, and ends by its
   assert.deepEqual(view.pending, { method: 'card', minutes: 0 });
   // Too early: "try again" waits (the payment may still be going through).
   assert.equal((await payer('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'retry' })).data.bill.status, 'payment_pending');
-  await run("UPDATE payments SET created_at = now() - interval '3 minutes' WHERE id = $1", pay.data.paymentId);
+  await run("UPDATE payments SET created_at = now() - interval '6 minutes' WHERE id = $1", pay.data.paymentId);
   assert.equal((await payer('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'retry' })).data.bill.status, 'payment_failed');
   // Paying again works; this time the payer just walks away, and the page's own check ends it after 15 minutes.
   const again = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'orange', walletPhone: '+243895550144' });
@@ -289,4 +289,40 @@ test('FlexPaie: a stuck payment can be given up after 2 minutes, and ends by its
   await run("UPDATE payments SET created_at = now() - interval '16 minutes' WHERE id = $1", again.data.paymentId);
   view = (await payer('POST', `/api/bills/${bill.id}/payment/refresh`, {})).data.bill;
   assert.equal(view.status, 'payment_failed');
+});
+
+test('never charged twice: paying again first re-checks the attempt given up, and a second success is flagged for refund', async () => {
+  // 1. The payer cancels on the card page, but the payment went through after all (no callback).
+  //    Paying again is refused and the first payment counts.
+  const first = await confirmedBill('Centre Médical Espoir', '+243810000001', 10);
+  const p1 = await payer('POST', `/api/bills/${first.bill.id}/pay`, { method: 'card' });
+  assert.equal((await payer('POST', `/api/bills/${first.bill.id}/payment/refresh`, { result: 'cancel' })).data.bill.status, 'payment_failed');
+  txs.get([...txs.entries()].find(([, t]) => t.reference === p1.data.paymentId)![0])!.status = '0';
+  const before = calls.length;
+  const again = await payer('POST', `/api/bills/${first.bill.id}/pay`, { method: 'card' });
+  assert.equal(again.status, 409);
+  assert.equal(again.data.error, 'already_paid');
+  assert.equal(calls.length, before); // nothing new was sent to FlexPaie
+  await waitFor(payer, first.bill.id, 'paid');
+
+  // 2. Cancelled, paid again successfully, then the first one turns out to have gone through too:
+  //    no second payout, the bill says so, and the admin is told to refund.
+  const second = await confirmedBill('Centre Médical Espoir', '+243810000001', 11);
+  const a = await payer('POST', `/api/bills/${second.bill.id}/pay`, { method: 'card' });
+  await payer('POST', `/api/bills/${second.bill.id}/payment/refresh`, { result: 'cancel' });
+  const b = await payer('POST', `/api/bills/${second.bill.id}/pay`, { method: 'card' });
+  assert.equal(b.status, 200);
+  const orderB = [...txs.entries()].find(([, t]) => t.reference === b.data.paymentId)![0];
+  txs.get(orderB)!.status = '0';
+  await callback({ code: '0', reference: b.data.paymentId, orderNumber: orderB });
+  await waitFor(payer, second.bill.id, 'paid');
+  const orderA = [...txs.entries()].find(([, t]) => t.reference === a.data.paymentId)![0];
+  txs.get(orderA)!.status = '0';
+  await callback({ code: '0', reference: a.data.paymentId, orderNumber: orderA });
+  await new Promise((r) => setTimeout(r, 100));
+  const view = (await payer('GET', `/api/bills/${second.bill.id}`)).data.bill;
+  assert.equal(view.status, 'paid');
+  assert.ok(view.events.some((e: { type: string }) => e.type === 'double_payment'));
+  assert.equal((await one<{ n: number }>("SELECT COUNT(*) n FROM payments WHERE bill_id = $1 AND kind = 'payout'", second.bill.id))!.n, 1);
+  assert.ok(await one("SELECT 1 FROM audit WHERE action = 'late_payment_refund' AND detail LIKE $1", `%${second.bill.ref || ''}%`));
 });
