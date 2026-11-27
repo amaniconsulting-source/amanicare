@@ -1,5 +1,6 @@
-// FlexPay (pilot payment partner), with the FlexPay API simulated: mobile money and card collections,
-// direct payment to a hospital's own merchant account, payouts, and callbacks re-checked with FlexPay.
+// FlexPaie (pilot payment partner), with FlexPaie's API simulated as documented (PAYIN Corporate v2.0 and
+// Check Status v2.0): mobile money and card collections, direct payment to a hospital's own merchant account,
+// payouts, and callbacks re-checked with the check API (reference, amount and currency).
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
@@ -13,11 +14,13 @@ process.env.SANDBOX_PAYOUT_DELAY_MS = '0';
 process.env.PAYMENT_PARTNER = 'flexpay';
 process.env.FLEXPAY_TOKEN = 'fx-test-token';
 process.env.FLEXPAY_MERCHANT = 'AMANICARE';
+process.env.FLEXPAY_BASE_URL = 'https://test.flexpaie.com/';
+process.env.FLEXPAY_PAYOUT_URL = 'https://test.flexpaie.com/api/rest/v1/merchantPayOutService';
 process.env.ANTHROPIC_API_KEY = '';
 process.env.MESSAGING = 'sandbox';
 
 // Simulated FlexPay API. Transactions stay pending until the test settles them.
-type Tx = { reference: string; status: string; merchant: string; kind: string; body: any };
+type Tx = { reference: string; status: string; merchant: string; kind: string; body: any; amount?: string; currency?: string };
 const txs = new Map<string, Tx>();
 const calls: { url: string; auth: string; body: any }[] = [];
 const realFetch = globalThis.fetch;
@@ -27,14 +30,16 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   const auth = String((init?.headers as Record<string, string>)?.authorization || '');
   if (url.includes('/check/')) {
     const t = txs.get(decodeURIComponent(url.split('/check/')[1]));
-    return Response.json(t ? { code: '0', transaction: { reference: t.reference, status: t.status } } : { code: '1', message: 'not found' });
+    return Response.json(t ? { code: '0', message: 'Une transaction trouvée', transaction: { orderNumber: 'x', reference: t.reference, status: t.status,
+      amount: t.amount ?? `${Number(t.body.amount ?? 0).toFixed(1)}`, amountCustomer: '0', currency: t.currency ?? t.body.currency, createdAt: '27-11-2026 10:00:00', channel: 'mpesa' } }
+      : { code: '1', message: 'Aucune transaction trouvée', transaction: null });
   }
   const body = JSON.parse(String(init?.body));
   calls.push({ url, auth, body });
   const orderNumber = `FX${calls.length}`;
-  const kind = url.includes('vpos') ? 'card' : url.includes('PayOut') ? 'payout' : 'mobile';
+  const kind = url.includes('PayOut') ? 'payout' : body.type === '2' ? 'card' : 'mobile';
   txs.set(orderNumber, { reference: body.reference, status: '2', merchant: body.merchant, kind, body });
-  return Response.json({ code: '0', message: 'ok', orderNumber, ...(kind === 'card' ? { url: `https://cardpayment.flexpay.cd/pay/${orderNumber}` } : {}) });
+  return Response.json({ code: '0', message: 'ok', orderNumber, ...(kind === 'card' ? { url: `https://test.flexpaie.com/gwvisa/${orderNumber}` } : {}) });
 }) as typeof fetch;
 
 const { config } = await import('../server/config.js');
@@ -119,8 +124,11 @@ test('FlexPay direct: mobile money straight into the hospital\'s own merchant ac
   assert.equal(pay.status, 200, JSON.stringify(pay.data));
   assert.equal(pay.data.checkoutUrl, null); // mobile money: approved on the phone, no page
   const req = calls.at(-1)!;
-  assert.match(req.url, /paymentService$/);
+  assert.equal(req.url, 'https://test.flexpaie.com/api/rest/v1/paymentService');
   assert.equal(req.auth, 'Bearer fx-test-token');
+  assert.equal(req.body.type, '1');
+  assert.equal(req.body.currency, 'USD');
+  assert.equal(req.body.callback_url, `${config.baseUrl}/api/webhooks/payments/flexpay`);
   assert.equal(req.body.merchant, 'CME001'); // the hospital's account, not AmaniCare's
   assert.equal(req.body.phone, '243895550101');
   assert.equal(req.body.amount, (bill.totalUsd + bill.feeUsd).toFixed(2));
@@ -157,9 +165,12 @@ test('FlexPay through AmaniCare: card payment, then payout to the hospital\'s wa
   const { bill, clinicId } = await confirmedBill('Polyclinique La Grâce', '+243810000003', 2);
   await adm('PATCH', `/api/admin/clinics/${clinicId}`, { payoutPhone: '+243 81 000 7710' });
   const pay = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'card' });
-  assert.match(pay.data.checkoutUrl, /^https:\/\/cardpayment\.flexpay\.cd\//);
+  assert.match(pay.data.checkoutUrl, /^https:\/\/test\.flexpaie\.com\/gwvisa\//);
   const req = calls.at(-1)!;
-  assert.match(req.url, /vpos\/ask$/);
+  assert.equal(req.url, 'https://test.flexpaie.com/api/rest/v1/paymentService'); // cards use the same service, type 2
+  assert.equal(req.body.type, '2');
+  for (const k of ['approve_url', 'cancel_url', 'decline_url']) assert.equal(req.body[k], `${config.baseUrl}/`);
+  assert.equal(req.body.phone, undefined);
   assert.equal(req.body.merchant, 'AMANICARE');
   assert.equal(req.body.callback_url, `${config.baseUrl}/api/webhooks/payments/flexpay`);
 
@@ -187,7 +198,7 @@ test('FlexPay: a bank-only hospital without a merchant code needs an operator', 
   await callback({ code: '0', reference: pay.data.paymentId, orderNumber: order });
   await waitFor(payer, bill.id, 'payout_failed');
   const p = await one<{ failure_reason: string }>("SELECT failure_reason FROM payments WHERE bill_id = $1 AND kind = 'payout'", bill.id);
-  assert.match(p!.failure_reason, /FlexPay dashboard/);
+  assert.match(p!.failure_reason, /FlexPaie dashboard/);
 });
 
 test('FlexPay: a refused mobile-money payment can be tried again', async () => {
@@ -198,4 +209,34 @@ test('FlexPay: a refused mobile-money payment can be tried again', async () => {
   await callback({ code: '1', reference: pay.data.paymentId, orderNumber: order, message: 'Solde insuffisant' });
   await waitFor(payer, bill.id, 'payment_failed');
   assert.equal((await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'card' })).status, 200);
+});
+
+test('FlexPaie: a success for a different amount does not settle the bill', async () => {
+  const { bill } = await confirmedBill('Centre Médical Espoir', '+243810000001', 5);
+  const pay = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'mpesa', walletPhone: '+243815550188' });
+  const order = [...txs.entries()].find(([, t]) => t.reference === pay.data.paymentId)![0];
+  Object.assign(txs.get(order)!, { status: '0', amount: '1.0' });
+  await callback({ code: '0', reference: pay.data.paymentId, orderNumber: order });
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(await billStatus(payer, bill.id), 'payment_pending');
+  const a = await one<{ detail: string }>("SELECT detail FROM audit WHERE action = 'flexpay_amount_mismatch' ORDER BY id DESC LIMIT 1");
+  assert.match(a!.detail, new RegExp(pay.data.paymentId));
+  // The same amount in another currency doesn't count either.
+  Object.assign(txs.get(order)!, { amount: undefined, currency: 'CDF' });
+  await callback({ code: '0', reference: pay.data.paymentId, orderNumber: order });
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(await billStatus(payer, bill.id), 'payment_pending');
+});
+
+test('FlexPaie: a refunded or cancelled payment counts as not paid', async () => {
+  const { flexpayStatus } = await import('../server/payments/flexpay.js');
+  assert.deepEqual(['0', '1', '2', '3', '4', '5', ''].map(flexpayStatus), ['succeeded', 'failed', 'pending', 'failed', 'failed', 'failed', 'pending']);
+  const { bill } = await confirmedBill('Centre Médical Espoir', '+243810000001', 6);
+  const pay = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'mpesa', walletPhone: '+243815550177' });
+  const order = [...txs.entries()].find(([, t]) => t.reference === pay.data.paymentId)![0];
+  txs.get(order)!.status = '4';
+  await callback({ code: '1', reference: pay.data.paymentId, orderNumber: order });
+  await waitFor(payer, bill.id, 'payment_failed');
+  const p = await one<{ failure_reason: string }>('SELECT failure_reason FROM payments WHERE id = $1', pay.data.paymentId);
+  assert.match(p!.failure_reason, /refunded/);
 });
