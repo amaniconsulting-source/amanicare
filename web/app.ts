@@ -1862,11 +1862,13 @@ async function acceptPendingInvite(): Promise<void> {
 const CARD_PAY_KEY = 'cardPayBill';
 let payReturn: { bill: string; result: string } | null = null;
 function readPayReturn(): void {
+  // Read loosely: a payment page may append its own parameters to our link (e.g. "pay=decline?orderNumber=…").
   const q = new URLSearchParams(location.search);
-  const bill = q.get('bill'), result = q.get('pay');
+  const bill = (q.get('bill') || '').match(/^[0-9a-f-]{36}/i)?.[0] || null;
+  const result = (q.get('pay') || '').match(/^(approve|cancel|decline)/i)?.[1]?.toLowerCase() || null;
   let left: string | null = null;
   try { left = sessionStorage.getItem(CARD_PAY_KEY); sessionStorage.removeItem(CARD_PAY_KEY); } catch {}
-  if (bill && result && ['approve', 'cancel', 'decline'].includes(result)) {
+  if (bill && result) {
     payReturn = { bill, result };
     history.replaceState(null, '', location.pathname);
   } else if (left) payReturn = { bill: left, result: 'back' };
