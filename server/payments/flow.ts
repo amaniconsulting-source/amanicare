@@ -159,6 +159,9 @@ async function lateSuccess(payment: PaymentRow): Promise<PaymentRow> {
  * pending: nothing was charged, so the attempt ends and the payer can try again (a late confirmation
  * would still count, see lateSuccess).
  */
+/** A pending payment can be given up by the payer after this long, and ends by itself after ABANDON_MIN. */
+export const RETRY_AFTER_MIN = 2;
+export const ABANDON_MIN = 15;
 export async function refreshPayment(billId: string, payer: UserRow, result: unknown): Promise<BillRow> {
   const bill = await getBill(billId);
   if (!bill || bill.payer_id !== payer.id) throw notFound();
@@ -170,8 +173,17 @@ export async function refreshPayment(billId: string, payer: UserRow, result: unk
   try { update = await partner.confirm(p, update); } catch (e) { console.warn(`[payments] status check for ${bill.ref} failed: ${(e as Error).message}`); }
   console.log(`[payments] ${bill.ref}: payer back (${String(result || 'check')}), ${partner.name} says ${update.status}`);
   if (update.status !== 'pending') await applyPaymentUpdate({ ...update, paymentId: p.id });
-  else if (p.method === 'card' && (result === 'cancel' || result === 'decline')) {
-    await applyPaymentUpdate({ paymentId: p.id, status: 'failed', reason: result === 'cancel' ? 'Card payment cancelled on the payment page' : 'Card declined on the payment page' });
+  else {
+    const ageMin = Number((await one<{ m: number }>('SELECT EXTRACT(EPOCH FROM now() - created_at) / 60 m FROM payments WHERE id = $1', p.id))!.m);
+    // The payer left the card page through Cancel / Declined, or says it didn't go through ("retry", offered
+    // after RETRY_AFTER_MIN), or nobody finished it in ABANDON_MIN: nothing was charged, the payer can pay again.
+    // A confirmation that still arrives later counts (lateSuccess).
+    const reason = p.method === 'card' && result === 'cancel' ? 'Card payment cancelled on the payment page'
+      : p.method === 'card' && result === 'decline' ? 'Card declined on the payment page'
+      : result === 'retry' && ageMin >= RETRY_AFTER_MIN ? 'Not completed (the payer chose to try again)'
+      : ageMin >= ABANDON_MIN ? `Not completed within ${ABANDON_MIN} minutes`
+      : null;
+    if (reason) await applyPaymentUpdate({ paymentId: p.id, status: 'failed', reason });
   }
   return (await getBill(bill.id))!;
 }

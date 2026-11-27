@@ -624,5 +624,10 @@
  "pay.back.cancelled": "Kofuta eboyami : mbongo ebimi te. Okoki komeka lisusu.",
  "pay.back.declined": "Karte eboyami : mbongo ebimi te. Meka karte mosusu to mobile money.",
  "pay.back.pending": "Tozali kondimisa kofuta…",
- "pay.back.paid": "Kofuta ekoti. Matondi !"
+ "pay.back.paid": "Kofuta ekoti. Matondi !",
+ "pay.retry.hintCard": "Okangaki lokasa ya kofuta ? Mbongo ekobima te soki osilisi te.",
+ "pay.retry.hintMobile": "Ndima bosenga na telefone na yo na code PIN.",
+ "pay.retry.button": "Kofuta esalemi te ? Meka lisusu",
+ "pay.retry.wait": "Kofuta ezali naino kosalema. Zela miniti moko, sima meka lisusu.",
+ "pay.retry.ready": "Esili : mbongo ebimi te. Okoki kofuta lisusu."
 }

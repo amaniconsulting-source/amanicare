@@ -271,3 +271,22 @@ test('FlexPaie: a pending payment is settled when the payer\'s page asks again',
   assert.notEqual(r.data.bill.status, 'payment_pending');
   await waitFor(payer, bill.id, 'paid');
 });
+
+test('FlexPaie: a stuck payment can be given up after 2 minutes, and ends by itself after 15', async () => {
+  const { run } = await import('../server/db.js');
+  const { bill } = await confirmedBill('Centre Médical Espoir', '+243810000001', 9);
+  const pay = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'card' });
+  let view = (await payer('GET', `/api/bills/${bill.id}`)).data.bill;
+  assert.deepEqual(view.pending, { method: 'card', minutes: 0 });
+  // Too early: "try again" waits (the payment may still be going through).
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'retry' })).data.bill.status, 'payment_pending');
+  await run("UPDATE payments SET created_at = now() - interval '3 minutes' WHERE id = $1", pay.data.paymentId);
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'retry' })).data.bill.status, 'payment_failed');
+  // Paying again works; this time the payer just walks away, and the page's own check ends it after 15 minutes.
+  const again = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'orange', walletPhone: '+243895550144' });
+  assert.equal(again.status, 200);
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/payment/refresh`, {})).data.bill.status, 'payment_pending');
+  await run("UPDATE payments SET created_at = now() - interval '16 minutes' WHERE id = $1", again.data.paymentId);
+  view = (await payer('POST', `/api/bills/${bill.id}/payment/refresh`, {})).data.bill;
+  assert.equal(view.status, 'payment_failed');
+});

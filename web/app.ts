@@ -23,6 +23,7 @@ interface Bill {
   family: { id: string; name: string } | null;
   risk: Risk; aiUsed: boolean; edited: boolean;
   events: { at: string; type: string; note: string }[];
+  pending?: { method: string; minutes: number };
   payout?: { ref: string | null; status: string; account?: string };
   rejection?: { by: 'hospital' | 'review'; reason: string | null; note: string };
 }
@@ -894,6 +895,12 @@ async function signedIn(user: Me): Promise<void> {
 }
 
 // ---------- payer ----------
+/** A payment that seems stuck (card page closed, PIN never entered): after a couple of minutes, offer to try again. */
+function retryHtml(b: Bill): string {
+  if (b.status !== 'payment_pending' || !b.pending) return '';
+  const hint = b.pending.method === 'card' ? t('pay.retry.hintCard') : t('pay.retry.hintMobile');
+  return `<p class="muted small">${hint}</p>${b.pending.minutes >= 2 ? `<button class="secondary small block" data-retry="${b.id}">${t('pay.retry.button')}</button>` : ''}`;
+}
 async function renderPayer(): Promise<void> {
   app.innerHTML = `<p class="center"><span class="spinner"></span></p>`;
   const [{ bills }, { members }, sentInvites] = await Promise.all([
@@ -918,7 +925,7 @@ async function renderPayer(): Promise<void> {
         <div class="row"><button class="grow" data-pay="${b.id}" data-amount="${usd(b.totalUsd + b.feeUsd)}">${t('payer.pay', { amount: usd(b.totalUsd + b.feeUsd) })}</button><button class="secondary small" data-decline="${b.id}">${t('payer.decline')}</button></div>
         <p class="muted small">${t('payer.feeNote', { fee: usd(b.feeUsd) })}</p>` })).join('') : `<p class="empty">${t('payer.nothingToApprove')}</p>`}
     </div>
-    ${moving.length ? `<div class="card"><h2>${t('inProgress')}</h2>${moving.map((b) => billCard(b, { showReasons: true })).join('')}</div>` : ''}
+    ${moving.length ? `<div class="card"><h2>${t('inProgress')}</h2>${moving.map((b) => billCard(b, { showReasons: true, actions: retryHtml(b) })).join('')}</div>` : ''}
     <div class="card"><div class="row between"><h2>${t('payer.family')}</h2><button class="small secondary" id="invite">${t('payer.invite')}</button></div>
       ${members.length ? `<table><tbody>${members.map((m) => `<tr><td><b>${esc(m.name)}</b><div class="muted small">${esc(m.relation)}</div></td><td class="num muted small">${esc(m.phone)}</td></tr>`).join('')}</tbody></table>` : `<p class="empty">${t('payer.noFamily')}</p>`}
       <button class="link" data-have-code>🔑 ${t('code.received')}</button>
@@ -945,7 +952,12 @@ async function renderPayer(): Promise<void> {
   $$('[data-decline]').forEach((b) => (b.onclick = async () => {
     if (!(await confirmDialog(t('payer.declineConfirm'), t('payer.decline'), true))) return;
     try { await api('POST', `/api/bills/${b.dataset.decline}/decline`, {}); renderPayer(); } catch (e) { reportUnexpected(e); toast(errText(e)); }
-  }));  keepLive(renderPayer);
+  }));  $$('[data-retry]').forEach((b) => (b.onclick = (e) => busy(btn(e), async () => {
+    const r = await api<{ bill: Bill }>('POST', `/api/bills/${b.dataset.retry}/payment/refresh`, { result: 'retry' });
+    toast(t(r.bill.status === 'payment_pending' ? 'pay.retry.wait' : r.bill.status === 'payment_failed' ? 'pay.retry.ready' : 'pay.back.paid'));
+    renderPayer();
+  })));
+  keepLive(renderPayer);
   payerPending = bills;
   checkPendingPayments(bills);
 }

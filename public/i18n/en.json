@@ -623,5 +623,10 @@
  "pay.back.cancelled": "Payment cancelled: nothing was charged. You can try again.",
  "pay.back.declined": "The card was declined: nothing was charged. Try another card or mobile money.",
  "pay.back.pending": "Confirming the payment…",
- "pay.back.paid": "Payment received. Thank you!"
+ "pay.back.paid": "Payment received. Thank you!",
+ "pay.retry.hintCard": "Closed the payment page? Nothing is charged until you complete it.",
+ "pay.retry.hintMobile": "Approve the request on your phone with your PIN.",
+ "pay.retry.button": "Payment didn't go through? Try again",
+ "pay.retry.wait": "The payment is still in progress. Wait a minute, then try again.",
+ "pay.retry.ready": "Done: nothing was charged. You can pay again."
 }

@@ -623,5 +623,10 @@
  "pay.back.cancelled": "Paiement annulé : rien n'a été débité. Vous pouvez réessayer.",
  "pay.back.declined": "La carte a été refusée : rien n'a été débité. Essayez une autre carte ou le mobile money.",
  "pay.back.pending": "Paiement en cours de confirmation…",
- "pay.back.paid": "Paiement reçu. Merci !"
+ "pay.back.paid": "Paiement reçu. Merci !",
+ "pay.retry.hintCard": "Vous avez fermé la page de paiement ? Rien n'est débité tant que vous n'avez pas validé.",
+ "pay.retry.hintMobile": "Validez la demande sur votre téléphone avec votre code PIN.",
+ "pay.retry.button": "Le paiement n'a pas abouti ? Réessayer",
+ "pay.retry.wait": "Le paiement est encore en cours. Patientez une minute, puis réessayez.",
+ "pay.retry.ready": "C'est réglé : rien n'a été débité. Vous pouvez payer à nouveau."
 }
