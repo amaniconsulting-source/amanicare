@@ -59,7 +59,8 @@ export const config = {
   // FlexPay (DRC aggregator: M-Pesa, Orange Money, Airtel Money, Afrimoney, Visa/Mastercard): pilot / POC.
   // FlexPay issues a merchant code and a token per merchant account (sandbox and live).
   flexpay: {
-    token: env.FLEXPAY_TOKEN || '',
+    // Just the token; "Bearer …" as copied from FlexPaie's email is accepted too (the app adds "Bearer" itself).
+    token: (env.FLEXPAY_TOKEN || '').trim().replace(/^bearer\s+/i, ''),
     merchant: env.FLEXPAY_MERCHANT || '', // AmaniCare's own merchant code (used when a hospital has none)
     // FlexPaie gives one base address per environment (test and live), e.g. https://<host>.
     // Payments go to <base>/api/rest/v1/paymentService, status checks to <checkBase>/api/rest/v1/check/{orderNumber}.

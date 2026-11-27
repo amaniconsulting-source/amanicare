@@ -47,7 +47,7 @@ written to the audit log (`flexpay_amount_mismatch`) for an admin. Status 1, 3, 
 1. From FlexPaie: AmaniCare's merchant code, token and **base address**, for test and for live.
 2. On Render, set:
    - `PAYMENT_PARTNER=flexpay`
-   - `FLEXPAY_TOKEN`, `FLEXPAY_MERCHANT` (AmaniCare's merchant code), `FLEXPAY_BASE_URL`
+   - `FLEXPAY_TOKEN` (the token alone; a pasted "Bearer …" is also accepted), `FLEXPAY_MERCHANT` (AmaniCare's merchant code), `FLEXPAY_BASE_URL`
    - `FLEXPAY_CHECK_BASE_URL` only if FlexPaie gives the check API its own host
    - `FLEXPAY_PAYOUT_URL` once FlexPaie sends the payout API
 3. Callback URL (sent with every request, nothing to register): `https://<your domain>/api/webhooks/payments/flexpay`.
