@@ -15,7 +15,7 @@ import './support.js'; // adds the customer-service routes
 import { readBody, sendJson, parseCookies, HttpError, type Body, type Ctx } from './http.js';
 import { currentUser } from './auth.js';
 import { seedIfEmpty } from './seed.js';
-import { sweepPayments, sweepTransfers } from './payments/flow.js';
+import { sweepPayments } from './payments/flow.js';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 // Compiled browser code (tsc output) first, then the static assets (HTML, CSS, i18n, icons).
@@ -275,7 +275,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (config.otpDev) console.log('OTP_DEV is on: login codes are shown in the app. Turn it off in production.');
   });
   // Payments the partner hasn't reported on (missed callback, misread return link): asked about every 2 minutes.
-  const sweep = () => Promise.all([sweepPayments(), sweepTransfers()]).catch((e) => console.warn('[payments] sweep:', (e as Error).message));
+  const sweep = () => sweepPayments().catch((e) => console.warn('[payments] sweep:', (e as Error).message));
   setTimeout(sweep, 15_000);
   setInterval(sweep, 120_000).unref();
 }

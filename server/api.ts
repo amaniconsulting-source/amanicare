@@ -8,11 +8,11 @@ import { one, all, run, tx, audit, setSetting } from './db.js';
 import { Router, HttpError, bad, notFound, forbidden, str, num, oneOf, phone, pageOf, type AuthCtx, type Body, type Ctx } from './http.js';
 import { requestOtp, verifyOtp, createSession, sessionCookie, destroySession, findOrCreateUser, requireRole } from './auth.js';
 import { createDraft, createBill, clinicDecision, reviewDecision, changeClinic, payerDecline, resendToClinic, hospitalReason, listBillsFor, listAllBills, billsStamp, view, canView, getBill, settings, prices, STATUSES, attachWaitingBills, notifyPayerOf } from './bills.js';
-import { startPayment, applyPaymentUpdate, retryPayout, refreshPayment, adminCheckPayment, adminMarkReceived, transferSent, transferCancel, transferAnswer } from './payments/flow.js';
+import { startPayment, applyPaymentUpdate, retryPayout, refreshPayment, adminCheckPayment, adminMarkReceived } from './payments/flow.js';
 import { getPartner, hasPartner } from './payments/partners.js';
 import { DEFAULT_SETTINGS } from './screening.js';
 import { notify, send, updateDelivery } from './messaging/index.js';
-import { CATEGORIES, PAY_METHODS, isTransferApp, type Category, type ClinicRow, type InviteRow, type Lang, type PaymentRow, type UserRow } from './types.js';
+import { CATEGORIES, PAY_METHODS, type Category, type ClinicRow, type InviteRow, type Lang, type PaymentRow, type UserRow } from './types.js';
 
 export const router = new Router();
 // Launch languages: French, English, Lingala (Swahili kept on file, not offered).
@@ -239,21 +239,12 @@ router.post('/api/bills/:id/clinic', requireRole('admin'), async ({ user, params
 router.post('/api/bills/:id/resend-clinic', requireRole('family', 'payer', 'admin'), async ({ user, params }: AuthCtx) =>
   resendToClinic(params.id, user));
 // Back from the payment page, or a payment still pending: ask the partner for the real state.
-// Pilot: paying with a transfer app. The payer says it's sent (optional) or cancels; the hospital answers.
-router.post('/api/bills/:id/transfer/sent', requireRole('payer'), async ({ user, params, body }: AuthCtx) =>
-  ({ bill: await view(await transferSent(params.id, user, body.note), user) }));
-router.post('/api/bills/:id/transfer/cancel', requireRole('payer'), async ({ user, params }: AuthCtx) =>
-  ({ bill: await view(await transferCancel(params.id, user), user) }));
-router.post('/api/bills/:id/transfer/received', requireRole('clinic'), async ({ user, params }: AuthCtx) =>
-  ({ bill: await view(await transferAnswer(params.id, user, true), user) }));
-router.post('/api/bills/:id/transfer/not-received', requireRole('clinic'), async ({ user, params }: AuthCtx) =>
-  ({ bill: await view(await transferAnswer(params.id, user, false), user) }));
 router.post('/api/bills/:id/payment/refresh', requireRole('payer'), async ({ user, params, body }: AuthCtx) =>
   ({ bill: await view(await refreshPayment(params.id, user, body.result), user) }));
 router.post('/api/bills/:id/pay', requireRole('payer'), async ({ user, params, body }: AuthCtx) => {
   // Bank card (default) or mobile money: M-Pesa, Orange Money or Airtel Money, from a wallet number.
   const method = oneOf(body.method ?? 'card', PAY_METHODS, 'pay_method');
-  const walletPhone = method === 'card' || isTransferApp(method) ? null : phone(body.walletPhone ?? user.phone);
+  const walletPhone = method === 'card' ? null : phone(body.walletPhone ?? user.phone);
   return startPayment(params.id, user, { method, walletPhone });
 });
 router.post('/api/bills/:id/decline', requireRole('payer'), async ({ user, params }: AuthCtx) =>
@@ -287,13 +278,12 @@ const clinicFields = (b: Body) => ({
   category: oneOf(b.category || 'clinic', CATEGORIES, 'category'),
   flexpay_merchant: str(b.flexpayMerchant ?? '', { max: 40, name: 'flexpay_merchant' }).trim(),
   payout_phone: b.payoutPhone ? phone(b.payoutPhone) : '',
-  transfer_name: str(b.transferName ?? '', { max: 100, name: 'transfer_name' }).trim(),
 });
 
 router.post('/api/admin/clinics', requireRole('admin'), async ({ user, body }: AuthCtx) => {
   const f = clinicFields(body); const id = randomUUID();
-  await run('INSERT INTO clinics(id, name, commune, city, whatsapp_phone, payout_method, payout_account, category, flexpay_merchant, payout_phone, transfer_name) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
-    id, f.name, f.commune, f.city, f.whatsapp_phone, f.payout_method, f.payout_account, f.category, f.flexpay_merchant, f.payout_phone, f.transfer_name);
+  await run('INSERT INTO clinics(id, name, commune, city, whatsapp_phone, payout_method, payout_account, category, flexpay_merchant, payout_phone) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+    id, f.name, f.commune, f.city, f.whatsapp_phone, f.payout_method, f.payout_account, f.category, f.flexpay_merchant, f.payout_phone);
   await audit(user.id, 'clinic_create', f.name);
   return { clinic: await getClinic(id) };
 });
@@ -304,8 +294,8 @@ router.patch('/api/admin/clinics/:id', requireRole('admin'), async ({ user, para
   if (body.active !== undefined) await run('UPDATE clinics SET active = $1 WHERE id = $2', body.active ? 1 : 0, c.id);
   if (body.name !== undefined) {
     const f = clinicFields({ ...body });
-    await run('UPDATE clinics SET name=$1, commune=$2, city=$3, whatsapp_phone=$4, payout_method=$5, payout_account=$6, category=$7, flexpay_merchant=$8, payout_phone=$9, transfer_name=$10 WHERE id=$11',
-      f.name, f.commune, f.city, f.whatsapp_phone, f.payout_method, f.payout_account, f.category, f.flexpay_merchant, f.payout_phone, f.transfer_name, c.id);
+    await run('UPDATE clinics SET name=$1, commune=$2, city=$3, whatsapp_phone=$4, payout_method=$5, payout_account=$6, category=$7, flexpay_merchant=$8, payout_phone=$9 WHERE id=$10',
+      f.name, f.commune, f.city, f.whatsapp_phone, f.payout_method, f.payout_account, f.category, f.flexpay_merchant, f.payout_phone, c.id);
   } else if (body.flexpayMerchant !== undefined || body.payoutPhone !== undefined) {
     // Just the FlexPay merchant code and/or mobile-money payout number.
     if (body.flexpayMerchant !== undefined) await run('UPDATE clinics SET flexpay_merchant = $1 WHERE id = $2', str(body.flexpayMerchant, { max: 40, name: 'flexpay_merchant' }).trim(), c.id);
