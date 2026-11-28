@@ -245,8 +245,8 @@ test('FlexPaie card: back through "cancel", the attempt ends; a late confirmatio
   const { bill } = await confirmedBill('Centre Médical Espoir', '+243810000001', 7);
   const pay = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'card' });
   assert.equal(pay.status, 200);
-  // FlexPaie still says pending (no callback came): back through "approve", nothing changes yet.
-  assert.equal((await payer('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'approve' })).data.bill.status, 'payment_pending');
+  // FlexPaie still says pending (no callback came): a plain check changes nothing yet.
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/payment/refresh`, {})).data.bill.status, 'payment_pending');
   // Someone else can't touch it.
   const stranger = client(); await login(stranger, '+15550003301', { name: 'Stranger', role: 'payer' });
   assert.equal((await stranger('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'cancel' })).status, 404);
@@ -338,4 +338,30 @@ test('FlexPaie card: back with the browser\'s Back button ends the attempt like 
   const mm = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'mpesa', walletPhone: '+243815550155' });
   assert.equal(mm.status, 200);
   assert.equal((await payer('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'back' })).data.bill.status, 'payment_pending');
+});
+
+test('FlexPaie card: back through "approve", the payment is never given up; a misread return is recovered', async () => {
+  const { run } = await import('../server/db.js');
+  const { bill } = await confirmedBill('Centre Médical Espoir', '+243810000001', 13);
+  const pay = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'card' });
+  // Approved on the card page, FlexPaie's status check still says pending.
+  let v = (await payer('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'approve' })).data.bill;
+  assert.equal(v.status, 'payment_pending');
+  assert.equal(v.pending.approved, true);
+  await run("UPDATE payments SET created_at = now() - interval '25 hours' WHERE id = $1", pay.data.paymentId);
+  // Not after 15 minutes, not with "try again": still pending, and the admin is alerted after a day.
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'retry' })).data.bill.status, 'payment_pending');
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/payment/refresh`, {})).data.bill.status, 'payment_pending');
+  assert.ok(await one("SELECT 1 FROM audit WHERE action = 'payment_unconfirmed' AND detail LIKE $1", `${v.ref}:%`));
+  txs.get([...txs.entries()].find(([, t]) => t.reference === pay.data.paymentId)![0])!.status = '0';
+  await payer('POST', `/api/bills/${bill.id}/payment/refresh`, {});
+  await waitFor(payer, bill.id, 'paid');
+
+  // The return was misread as "back" (ended), but FlexPaie had accepted it: the next check recovers it.
+  const second = await confirmedBill('Centre Médical Espoir', '+243810000001', 14);
+  const p2 = await payer('POST', `/api/bills/${second.bill.id}/pay`, { method: 'card' });
+  assert.equal((await payer('POST', `/api/bills/${second.bill.id}/payment/refresh`, { result: 'back' })).data.bill.status, 'payment_failed');
+  txs.get([...txs.entries()].find(([, t]) => t.reference === p2.data.paymentId)![0])!.status = '0';
+  await payer('POST', `/api/bills/${second.bill.id}/payment/refresh`, {});
+  await waitFor(payer, second.bill.id, 'paid');
 });

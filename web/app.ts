@@ -23,7 +23,7 @@ interface Bill {
   family: { id: string; name: string } | null;
   risk: Risk; aiUsed: boolean; edited: boolean;
   events: { at: string; type: string; note: string }[];
-  pending?: { method: string; minutes: number };
+  pending?: { method: string; minutes: number; approved?: boolean };
   payout?: { ref: string | null; status: string; account?: string };
   rejection?: { by: 'hospital' | 'review'; reason: string | null; note: string };
 }
@@ -898,6 +898,7 @@ async function signedIn(user: Me): Promise<void> {
 /** A payment that seems stuck (card page closed, PIN never entered): after 5 minutes, offer to try again (RETRY_AFTER_MIN). */
 function retryHtml(b: Bill): string {
   if (b.status !== 'payment_pending' || !b.pending) return '';
+  if (b.pending.approved) return `<p class="muted small">${t('pay.retry.approved')}</p>`; // accepted: no "try again"
   const hint = b.pending.method === 'card' ? t('pay.retry.hintCard') : t('pay.retry.hintMobile');
   return `<p class="muted small">${hint}</p>${b.pending.minutes >= 5 ? `<button class="secondary small block" data-retry="${b.id}">${t('pay.retry.button')}</button>` : ''}`;
 }
@@ -1863,9 +1864,10 @@ const CARD_PAY_KEY = 'cardPayBill';
 let payReturn: { bill: string; result: string } | null = null;
 function readPayReturn(): void {
   // Read loosely: a payment page may append its own parameters to our link (e.g. "pay=decline?orderNumber=…").
-  const q = new URLSearchParams(location.search);
+  // FlexPaie also HTML-escapes the link ("&amp;pay=approve"), so the query is decoded first.
+  const q = new URLSearchParams(location.search.replace(/&amp;/gi, '&'));
   const bill = (q.get('bill') || '').match(/^[0-9a-f-]{36}/i)?.[0] || null;
-  const result = (q.get('pay') || '').match(/^(approve|cancel|decline)/i)?.[1]?.toLowerCase() || null;
+  const result = (q.get('pay') || q.get('amp;pay') || '').match(/^(approve|cancel|decline)/i)?.[1]?.toLowerCase() || null;
   let left: string | null = null;
   try { left = sessionStorage.getItem(CARD_PAY_KEY); sessionStorage.removeItem(CARD_PAY_KEY); } catch {}
   if (bill && result) {

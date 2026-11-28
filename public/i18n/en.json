@@ -631,5 +631,6 @@
  "pay.retry.ready": "Done: nothing was charged. You can pay again.",
  "event.double_payment": "Payment received twice: AmaniCare refunds the second one",
  "event.double_payment.payer": "You paid twice: we are refunding the second payment",
- "err.already_paid": "Your earlier payment went through after all: no need to pay again."
+ "err.already_paid": "Your earlier payment went through after all: no need to pay again.",
+ "pay.retry.approved": "Your bank accepted the payment. We're waiting for the payment service to confirm: no need to pay again."
 }

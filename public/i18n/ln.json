@@ -632,5 +632,6 @@
  "pay.retry.ready": "Esili : mbongo ebimi te. Okoki kofuta lisusu.",
  "event.double_payment": "Kofuta ekoti mbala mibale : AmaniCare ekozongisa ya mibale",
  "event.double_payment.payer": "Ofutaki mbala mibale : tokozongisela yo mbongo ya mibale",
- "err.already_paid": "Kofuta na yo ya liboso esalemaki : ofuta lisusu te."
+ "err.already_paid": "Kofuta na yo ya liboso esalemaki : ofuta lisusu te.",
+ "pay.retry.approved": "Banque na yo endimi kofuta. Tozali kozela ndimisa ya mosala ya kofuta : kofuta lisusu te."
 }

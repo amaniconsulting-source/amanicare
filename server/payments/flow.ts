@@ -167,20 +167,36 @@ export const ABANDON_MIN = 15;
 export async function refreshPayment(billId: string, payer: UserRow, result: unknown): Promise<BillRow> {
   const bill = await getBill(billId);
   if (!bill || bill.payer_id !== payer.id) throw notFound();
-  const p = await one<PaymentRow>("SELECT * FROM payments WHERE bill_id = $1 AND kind = 'collection' AND status = 'pending' ORDER BY created_at DESC LIMIT 1", bill.id);
   const partner = getPartner();
-  if (!p || p.partner !== partner.name || !partner.confirm) return bill;
+  const p = await one<PaymentRow>("SELECT * FROM payments WHERE bill_id = $1 AND kind = 'collection' AND status = 'pending' ORDER BY created_at DESC LIMIT 1", bill.id);
+  if (!p) {
+    // Nothing pending: an attempt the app gave up on in the last 24 hours may still have gone through
+    // (e.g. approved, but the return link was misread). Ask once more; a success counts (lateSuccess).
+    await recheckGivenUp(bill.id, partner);
+    return (await getBill(bill.id))!;
+  }
+  if (p.partner !== partner.name || !partner.confirm) return bill;
   // The partner's status service can be slow or unreachable: then we simply don't know yet (pending).
   let update: PaymentUpdate = { paymentId: p.id, status: 'pending' };
   try { update = await partner.confirm(p, update); } catch (e) { console.warn(`[payments] status check for ${bill.ref} failed: ${(e as Error).message}`); }
   if (result || update.status !== 'pending') console.log(`[payments] ${bill.ref}: payer back (${String(result || 'check')}), ${partner.name} says ${update.status}`);
+  if (result === 'approve') await run('UPDATE payments SET returned_approved = 1 WHERE id = $1', p.id);
   if (update.status !== 'pending') await applyPaymentUpdate({ ...update, paymentId: p.id });
-  else {
+  else if (p.returned_approved || result === 'approve') {
+    // Accepted on the card page: never given up. Past a day without the partner's answer, an admin checks.
+    const ageH = Number((await one<{ h: number }>('SELECT EXTRACT(EPOCH FROM now() - created_at) / 3600 h FROM payments WHERE id = $1', p.id))!.h);
+    if (ageH >= 24 && !(await one("SELECT 1 FROM audit WHERE action = 'payment_unconfirmed' AND detail LIKE $1", `${bill.ref}:%`))) {
+      await audit(null, 'payment_unconfirmed', `${bill.ref}: card approved on ${partner.name}'s page ${Math.floor(ageH)} h ago, still no confirmation: check the partner's dashboard`);
+      Sentry.captureMessage(`Approved card payment unconfirmed for ${bill.ref}`, { level: 'warning', tags: { area: 'payments' } });
+    }
+  } else {
     const ageMin = Number((await one<{ m: number }>('SELECT EXTRACT(EPOCH FROM now() - created_at) / 60 m FROM payments WHERE id = $1', p.id))!.m);
     // The payer left the card page through Cancel / Declined / the browser's Back button, or says it didn't go through ("retry", offered
     // after RETRY_AFTER_MIN), or nobody finished it in ABANDON_MIN: nothing was charged, the payer can pay again.
     // A confirmation that still arrives later counts (lateSuccess).
-    const reason = p.method === 'card' && result === 'cancel' ? 'Card payment cancelled on the payment page'
+    // Back through "approve": the payment page says it went through. Never end it: wait for the partner.
+    const reason = result === 'approve' ? null
+      : p.method === 'card' && result === 'cancel' ? 'Card payment cancelled on the payment page'
       : p.method === 'card' && result === 'back' ? 'Card payment page left with the Back button'
       : p.method === 'card' && result === 'decline' ? 'Card declined on the payment page'
       : result === 'retry' && ageMin >= RETRY_AFTER_MIN ? 'Not completed (the payer chose to try again)'
@@ -213,5 +229,16 @@ async function noSecondCharge(billId: string, payer: UserRow): Promise<void> {
       await applyPaymentUpdate({ paymentId: p.id, status: 'succeeded' });
       throw new HttpError(409, 'already_paid');
     }
+  }
+}
+
+async function recheckGivenUp(billId: string, partner: ReturnType<typeof getPartner>): Promise<void> {
+  if (!partner.confirm) return;
+  const recent = await all<PaymentRow>(`SELECT * FROM payments WHERE bill_id = $1 AND kind = 'collection' AND status = 'failed' AND ended_by_app = 1
+    AND partner = $2 AND partner_ref IS NOT NULL AND created_at >= now() - interval '24 hours' ORDER BY created_at DESC LIMIT 3`, billId, partner.name);
+  for (const p of recent) {
+    let r: PaymentUpdate = { paymentId: p.id, status: 'pending' };
+    try { r = await partner.confirm({ ...p, status: 'pending' }, r); } catch { /* unknown for now */ }
+    if (r.status === 'succeeded') { await applyPaymentUpdate({ paymentId: p.id, status: 'succeeded' }); return; }
   }
 }

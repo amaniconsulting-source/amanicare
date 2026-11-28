@@ -631,5 +631,6 @@
  "pay.retry.ready": "C'est réglé : rien n'a été débité. Vous pouvez payer à nouveau.",
  "event.double_payment": "Paiement reçu deux fois : AmaniCare rembourse le second",
  "event.double_payment.payer": "Vous avez payé deux fois : nous vous remboursons le second paiement",
- "err.already_paid": "Votre paiement précédent est finalement passé : inutile de payer à nouveau."
+ "err.already_paid": "Votre paiement précédent est finalement passé : inutile de payer à nouveau.",
+ "pay.retry.approved": "Votre banque a accepté le paiement. Nous attendons la confirmation du service de paiement : inutile de payer à nouveau."
 }

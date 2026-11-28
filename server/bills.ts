@@ -421,7 +421,7 @@ export interface BillView {
   payout?: { ref: string | null; status: string; account?: string };
   rejection?: { by: 'hospital' | 'review'; reason: string | null; note: string };
   /** Payment in progress (payer and admin): how, and since when (minutes), to offer "try again". */
-  pending?: { method: string; minutes: number };
+  pending?: { method: string; minutes: number; approved?: boolean };
 }
 
 export async function view(b: BillRow, user: UserRow): Promise<BillView> {
@@ -452,9 +452,9 @@ export async function view(b: BillRow, user: UserRow): Promise<BillView> {
   if (payout) out.payout = { ref: payout.partner_ref, status: payout.status, account: clinic?.payout_account };
   if (b.status === 'rejected' && b.rejected_by) out.rejection = { by: b.rejected_by, reason: b.reject_reason, note: b.reject_note };
   if (b.status === 'payment_pending' && (user.role === 'payer' || user.role === 'admin')) {
-    const p = await one<{ method: string | null; minutes: number }>(`SELECT method, EXTRACT(EPOCH FROM now() - created_at) / 60 minutes FROM payments
+    const p = await one<{ method: string | null; minutes: number; returned_approved: number }>(`SELECT method, returned_approved, EXTRACT(EPOCH FROM now() - created_at) / 60 minutes FROM payments
       WHERE bill_id = $1 AND kind = 'collection' AND status = 'pending' ORDER BY created_at DESC LIMIT 1`, b.id);
-    if (p) out.pending = { method: p.method || 'card', minutes: Math.floor(Number(p.minutes)) };
+    if (p) out.pending = { method: p.method || 'card', minutes: Math.floor(Number(p.minutes)), ...(p.returned_approved ? { approved: true } : {}) };
   }
   // Clinics see what they need to confirm; risk details stay with payer/admin.
   if (user.role === 'clinic') { out.risk = { level: b.risk_level }; delete out.expectedUsd; delete out.payer; delete out.waitingFor; }

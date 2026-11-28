@@ -47,7 +47,7 @@ export interface BillRow {
 export interface PaymentRow {
   id: string; bill_id: string; kind: PaymentKind; amount_usd: number; partner: string; partner_ref: string | null;
   status: PaymentStatus; checkout_url: string | null; idempotency_key: string; failure_reason: string | null;
-  method: PayMethod | null; wallet_phone: string | null; ended_by_app: number;
+  method: PayMethod | null; wallet_phone: string | null; ended_by_app: number; returned_approved: number;
   created_at: string; updated_at: string;
 }
 
