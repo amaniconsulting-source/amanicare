@@ -643,5 +643,6 @@
  "pay.mobile": "Mobile money",
  "pay.mobileHint2": "M-Pesa, Orange Money or Airtel Money, approved on your phone.",
  "pay.operator": "Operator",
- "pay.securedBy": "Payment secured by"
+ "pay.securedBy": "Payment secured by",
+ "pay.cardPrivacy": "Your card details are entered on FlexPaie's secure page. AmaniCare never sees them."
 }

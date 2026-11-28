@@ -358,6 +358,7 @@ function payDialog(amount: string): Promise<{ method: string; walletPhone?: stri
       </div>
 
       <p class="muted small paysecure">${t('pay.securedBy')} <img src="/img/pay/flexpaie.png" alt="FlexPaie"></p>
+      <p class="muted small">${t('pay.cardPrivacy')}</p>
       <div class="row"><button class="secondary grow" data-close>${t('cancel')}</button><button class="grow" id="payOk">${t('pay.continue')}</button></div>`, (sheet) => {
       const picked = () => $<HTMLInputElement>('input[name="how"]:checked', sheet).value;
       const needsWallet = (m: string) => m === 'mobile';

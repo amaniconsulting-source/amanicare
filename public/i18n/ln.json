@@ -644,5 +644,6 @@
  "pay.mobile": "Mobile money",
  "pay.mobileHint2": "M-Pesa, Orange Money to Airtel Money, ondimisa na telefone na yo.",
  "pay.operator": "Opérateur",
- "pay.securedBy": "Kofuta ebatelami na"
+ "pay.securedBy": "Kofuta ebatelami na",
+ "pay.cardPrivacy": "Ba informations ya karte na yo ekomamaka na lokasa ya libateli ya FlexPaie. AmaniCare emonaka yango ata moke te."
 }
