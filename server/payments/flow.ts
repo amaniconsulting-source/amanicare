@@ -242,3 +242,20 @@ async function recheckGivenUp(billId: string, partner: ReturnType<typeof getPart
     if (r.status === 'succeeded') { await applyPaymentUpdate({ paymentId: p.id, status: 'succeeded' }); return; }
   }
 }
+
+/**
+ * Every few minutes, without waiting for anyone to open a page: ask the partner about payments still pending,
+ * and about attempts the app gave up on in the last 24 hours (one may have gone through after all).
+ * Callbacks that never arrive, and return links that were misread, are caught this way.
+ */
+export async function sweepPayments(): Promise<void> {
+  const partner = getPartner();
+  if (!partner.confirm) return;
+  const bills = await all<{ bill_id: string; payer_id: string }>(`SELECT DISTINCT p.bill_id, b.payer_id FROM payments p JOIN bills b ON b.id = p.bill_id
+    WHERE p.kind = 'collection' AND p.partner = $1 AND p.partner_ref IS NOT NULL AND p.created_at >= now() - interval '24 hours'
+      AND (p.status = 'pending' OR (p.status = 'failed' AND p.ended_by_app = 1)) LIMIT 50`, partner.name);
+  for (const { bill_id, payer_id } of bills) {
+    try { await refreshPayment(bill_id, { id: payer_id } as UserRow, undefined); }
+    catch (e) { console.warn(`[payments] sweep of ${bill_id}: ${(e as Error).message}`); }
+  }
+}

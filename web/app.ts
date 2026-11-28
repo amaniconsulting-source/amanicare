@@ -1891,7 +1891,8 @@ async function checkPayReturn(): Promise<void> {
 const pendingChecked = new Map<string, number>();
 function checkPendingPayments(bills: Bill[]): void {
   const now = Date.now();
-  bills.filter((b) => b.status === 'payment_pending').forEach((b) => {
+  // Pending, or just failed (an attempt may have gone through after all: the server re-checks recent ones).
+  bills.filter((b) => b.status === 'payment_pending' || b.status === 'payment_failed').forEach((b) => {
     if (now - (pendingChecked.get(b.id) || 0) < 15000) return;
     pendingChecked.set(b.id, now);
     api('POST', `/api/bills/${b.id}/payment/refresh`, {}).catch(() => {});

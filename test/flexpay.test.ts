@@ -365,3 +365,13 @@ test('FlexPaie card: back through "approve", the payment is never given up; a mi
   await payer('POST', `/api/bills/${second.bill.id}/payment/refresh`, {});
   await waitFor(payer, second.bill.id, 'paid');
 });
+
+test('FlexPaie: the background sweep settles payments nobody is looking at', async () => {
+  const { sweepPayments } = await import('../server/payments/flow.js');
+  const { bill } = await confirmedBill('Centre Médical Espoir', '+243810000001', 15);
+  const pay = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'card' });
+  await payer('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'back' }); // misread: ended
+  txs.get([...txs.entries()].find(([, t]) => t.reference === pay.data.paymentId)![0])!.status = '0';
+  await sweepPayments();
+  await waitFor(payer, bill.id, 'paid');
+});
