@@ -6,10 +6,10 @@ import * as Sentry from '@sentry/node';
 import { one, all, run, tx, audit } from '../db.js';
 import { getPartner, type PaymentUpdate } from './partners.js';
 import { getBill, setStatus, event, notifyFamily } from '../bills.js';
-import { notify } from '../messaging/index.js';
+import { notify, send } from '../messaging/index.js';
 import { HttpError, notFound } from '../http.js';
 import { round2 } from '../screening.js';
-import type { BillRow, ClinicRow, PaymentKind, PaymentRow, PayMethod, UserRow } from '../types.js';
+import { isTransferApp, type BillRow, type ClinicRow, type PaymentKind, type PaymentRow, type PayMethod, type UserRow } from '../types.js';
 
 export const sandboxPayoutDelayMs = { value: Number(process.env.SANDBOX_PAYOUT_DELAY_MS ?? 1500) };
 
@@ -27,6 +27,7 @@ const lockBill = (billId: string) => one<BillRow>('SELECT * FROM bills WHERE id 
 export interface PayChoice { method: PayMethod; walletPhone: string | null }
 
 export async function startPayment(billId: string, payer: UserRow, how: PayChoice = { method: 'card', walletPhone: null }): Promise<{ paymentId: string; checkoutUrl: string | null; method: PayMethod }> {
+  if (isTransferApp(how.method)) return startTransfer(billId, payer, how.method);
   const partner = getPartner();
   await noSecondCharge(billId, payer);
   // The bill row is locked while the payment is created, so a double tap can't start two collections.
@@ -61,13 +62,19 @@ export async function startPayout(billId: string, actorId: string | null = null)
   const { bill, clinic, payment, collection } = await tx(async () => {
     const b = (await lockBill(billId))!;
     const c = (await one<ClinicRow>('SELECT * FROM clinics WHERE id = $1', b.clinic_id))!;
-    const p = await insertPayment(b.id, 'payout', b.total_usd, partner.name, (await attempts(b.id, 'payout')) + 1);
     // The successful collection: some partners (FlexPay, direct mode) already paid the hospital with it.
     const col = await one<PaymentRow>("SELECT * FROM payments WHERE bill_id = $1 AND kind = 'collection' AND status = 'succeeded' ORDER BY created_at DESC LIMIT 1", b.id);
+    const p = await insertPayment(b.id, 'payout', b.total_usd, col?.partner === 'transfer' ? 'transfer' : partner.name, (await attempts(b.id, 'payout')) + 1);
     await setStatus(b.id, 'paying_out');
     await event(b.id, actorId, 'payout_started', c.payout_account);
     return { bill: b, clinic: c, payment: p, collection: col || null };
   });
+  // Paid with a transfer app: the money went straight to the hospital, which confirmed it. Nothing to send.
+  if (collection?.partner === 'transfer') {
+    await run('UPDATE payments SET partner_ref = $1, updated_at = now() WHERE id = $2', `direct:transfer:${collection.id}`, payment.id);
+    await applyPaymentUpdate({ paymentId: payment.id, status: 'succeeded' });
+    return;
+  }
   try {
     const r = await partner.createPayout({ payment, clinic, bill, collection });
     await run('UPDATE payments SET partner_ref = $1, updated_at = now() WHERE id = $2', r.partnerRef, payment.id);
@@ -294,4 +301,91 @@ export async function adminMarkReceived(paymentId: string, admin: UserRow, note:
   await audit(admin.id, 'payment_mark_received', `${p.id} (${p.partner_ref || '-'}): ${why}`);
   await applyPaymentUpdate({ paymentId: p.id, status: 'succeeded' });
   return (await one<PaymentRow>('SELECT * FROM payments WHERE id = $1', p.id))!.status;
+}
+
+// ---------- Pilot: pay with a transfer app (Taptap Send, Sendwave, WorldRemit) ----------
+// The payer sends the bill amount from their usual app straight to the hospital's mobile-money wallet; AmaniCare
+// never touches the money. The hospital's "received" completes the payment; the payer's "I sent it" is optional.
+// No AmaniCare fee on this route during the pilot (decided 27 Nov 2026): the payer pays the bill and the app's own fee.
+
+export interface TransferDestination { name: string; number: string; operator: string }
+
+/** Where a transfer app should send: the hospital's mobile-money wallet, in the name registered on it. */
+export function transferDestination(c: Pick<ClinicRow, 'name' | 'payout_method' | 'payout_account' | 'payout_phone' | 'transfer_name'>): TransferDestination | null {
+  const wallet = ['mpesa', 'orange', 'airtel'].includes(c.payout_method) && c.payout_account ? { number: c.payout_account, operator: c.payout_method }
+    : c.payout_phone ? { number: c.payout_phone, operator: '' } : null;
+  return wallet ? { name: c.transfer_name || c.name, ...wallet } : null;
+}
+
+const APP_NAMES: Record<string, string> = { taptap: 'Taptap Send', sendwave: 'Sendwave', worldremit: 'WorldRemit' };
+
+async function tellClinic(bill: BillRow, text: string, kind: string): Promise<void> {
+  const c = await one<ClinicRow>('SELECT * FROM clinics WHERE id = $1', bill.clinic_id);
+  if (c?.whatsapp_phone) await send({ to: c.whatsapp_phone, kind, text }).catch((e) => console.warn(`[transfer] ${kind}: ${(e as Error).message}`));
+}
+
+async function startTransfer(billId: string, payer: UserRow, app: PayMethod): Promise<{ paymentId: string; checkoutUrl: null; method: PayMethod }> {
+  const { bill, payment } = await tx(async () => {
+    const b = await lockBill(billId);
+    if (!b || b.payer_id !== payer.id) throw notFound();
+    if (!['awaiting_payer', 'payment_failed'].includes(b.status)) throw new HttpError(409, 'not_payable');
+    const c = (await one<ClinicRow>('SELECT * FROM clinics WHERE id = $1', b.clinic_id))!;
+    if (!transferDestination(c)) throw new HttpError(409, 'no_transfer_destination');
+    const p = await insertPayment(b.id, 'collection', b.total_usd, 'transfer', (await attempts(b.id, 'collection')) + 1);
+    await run('UPDATE payments SET method = $1 WHERE id = $2', app, p.id);
+    await setStatus(b.id, 'payment_pending');
+    await event(b.id, payer.id, 'transfer_expected', `${round2(b.total_usd)} USD · ${APP_NAMES[app] || app}`);
+    return { bill: b, payment: p };
+  });
+  await tellClinic(bill, `AmaniCare · Paiement attendu : $${round2(bill.total_usd).toFixed(2)} de ${payer.name} par ${APP_NAMES[app] || app}, facture ${bill.bill_number || bill.ref} (${bill.patient_name}), référence ${bill.ref}. Dès que l'argent arrive sur votre compte mobile money, confirmez-le dans AmaniCare (Paiements attendus).`, 'clinic_transfer_expected');
+  return { paymentId: payment.id, checkoutUrl: null, method: app };
+}
+
+const pendingTransfer = (billId: string) =>
+  one<PaymentRow>("SELECT * FROM payments WHERE bill_id = $1 AND kind = 'collection' AND partner = 'transfer' AND status = 'pending' ORDER BY created_at DESC LIMIT 1", billId);
+
+/** The payer says the transfer is sent (optional), with the app's transfer number if they have it. */
+export async function transferSent(billId: string, payer: UserRow, note: unknown): Promise<BillRow> {
+  const bill = await getBill(billId);
+  if (!bill || bill.payer_id !== payer.id) throw notFound();
+  const p = await pendingTransfer(bill.id);
+  if (!p) throw new HttpError(409, 'no_pending_transfer');
+  const n = typeof note === 'string' ? note.trim().slice(0, 120) : '';
+  await run('UPDATE payments SET transfer_sent_at = now(), transfer_note = $2, updated_at = now() WHERE id = $1', p.id, n);
+  await event(bill.id, payer.id, 'transfer_sent', n);
+  await tellClinic(bill, `AmaniCare · ${payer.name} indique avoir envoyé $${round2(p.amount_usd).toFixed(2)} pour la facture ${bill.bill_number || bill.ref} (${bill.patient_name})${n ? `, transfert n° ${n}` : ''}. Vérifiez votre compte mobile money et confirmez dans AmaniCare.`, 'clinic_transfer_sent');
+  return (await getBill(bill.id))!;
+}
+
+/** The payer changes their mind (e.g. to pay by card) while the hospital hasn't confirmed. */
+export async function transferCancel(billId: string, payer: UserRow): Promise<BillRow> {
+  const bill = await getBill(billId);
+  if (!bill || bill.payer_id !== payer.id) throw notFound();
+  const p = await pendingTransfer(bill.id);
+  if (!p) throw new HttpError(409, 'no_pending_transfer');
+  await applyPaymentUpdate({ paymentId: p.id, status: 'failed', reason: 'Transfer cancelled by the payer' });
+  await tellClinic(bill, `AmaniCare · Le paiement par transfert pour la facture ${bill.bill_number || bill.ref} (${bill.patient_name}) n'est plus attendu. Si de l'argent arrive quand même, signalez-le à AmaniCare.`, 'clinic_transfer_cancelled');
+  return (await getBill(bill.id))!;
+}
+
+/** The hospital confirms the money arrived on its wallet (received) or says it didn't (not received). */
+export async function transferAnswer(billId: string, clinicUser: UserRow, received: boolean): Promise<BillRow> {
+  const bill = await getBill(billId);
+  if (!bill || !clinicUser.clinic_id || bill.clinic_id !== clinicUser.clinic_id) throw notFound();
+  const p = await pendingTransfer(bill.id);
+  if (!p) throw new HttpError(409, 'no_pending_transfer');
+  await event(bill.id, clinicUser.id, received ? 'transfer_received' : 'transfer_not_received');
+  await audit(clinicUser.id, received ? 'transfer_received' : 'transfer_not_received', `${bill.ref}: ${p.amount_usd} USD`);
+  await applyPaymentUpdate(received
+    ? { paymentId: p.id, status: 'succeeded' }
+    : { paymentId: p.id, status: 'failed', reason: 'The hospital has not received the transfer' });
+  return (await getBill(bill.id))!;
+}
+
+/** A transfer nobody has confirmed after a day: the team follows up (once). */
+export async function sweepTransfers(): Promise<void> {
+  const late = await all<{ ref: string; id: string }>(`SELECT b.ref, p.id FROM payments p JOIN bills b ON b.id = p.bill_id
+    WHERE p.partner = 'transfer' AND p.kind = 'collection' AND p.status = 'pending' AND p.created_at < now() - interval '24 hours'
+      AND NOT EXISTS (SELECT 1 FROM audit a WHERE a.action = 'transfer_unconfirmed' AND a.detail LIKE b.ref || ':%')`);
+  for (const t of late) await audit(null, 'transfer_unconfirmed', `${t.ref}: transfer expected for over 24 h, not confirmed by the hospital: call the payer and the hospital`);
 }

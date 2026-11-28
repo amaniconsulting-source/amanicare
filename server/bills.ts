@@ -2,6 +2,7 @@
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { config } from './config.js';
 import { one, all, run, tx, getSetting, audit } from './db.js';
+import { transferDestination } from './payments/flow.js';
 import { screenBill, wasEdited, mustReview, bestClinicMatch, DEFAULT_SETTINGS, feeFor, round2, type ScreeningSettings, type Reason, type ScreenInput, type ScreenResult } from './screening.js';
 import { extractBill } from './ai.js';
 import { notify, send } from './messaging/index.js';
@@ -422,6 +423,9 @@ export interface BillView {
   rejection?: { by: 'hospital' | 'review'; reason: string | null; note: string };
   /** Payment in progress (payer and admin): how, and since when (minutes), to offer "try again". */
   pending?: { method: string; minutes: number; approved?: boolean };
+  /** Pilot, paying with a transfer app: where to send (payer, while payable or waiting), and the expected transfer. */
+  transferTo?: { name: string; number: string; operator: string };
+  transfer?: { app: string; amountUsd: number; payerName?: string; sentAt: string | null; note: string; minutes: number };
 }
 
 export async function view(b: BillRow, user: UserRow): Promise<BillView> {
@@ -455,6 +459,18 @@ export async function view(b: BillRow, user: UserRow): Promise<BillView> {
     const p = await one<{ method: string | null; minutes: number; returned_approved: number }>(`SELECT method, returned_approved, EXTRACT(EPOCH FROM now() - created_at) / 60 minutes FROM payments
       WHERE bill_id = $1 AND kind = 'collection' AND status = 'pending' ORDER BY created_at DESC LIMIT 1`, b.id);
     if (p) out.pending = { method: p.method || 'card', minutes: Math.floor(Number(p.minutes)), ...(p.returned_approved ? { approved: true } : {}) };
+  }
+  if (['awaiting_payer', 'payment_failed', 'payment_pending'].includes(b.status)) {
+    const t = await one<{ method: string; amount_usd: number; transfer_sent_at: string | null; transfer_note: string; minutes: number }>(
+      `SELECT method, amount_usd, transfer_sent_at, transfer_note, EXTRACT(EPOCH FROM now() - created_at) / 60 minutes FROM payments
+       WHERE bill_id = $1 AND kind = 'collection' AND partner = 'transfer' AND status = 'pending' ORDER BY created_at DESC LIMIT 1`, b.id);
+    if (t) out.transfer = { app: t.method, amountUsd: t.amount_usd, sentAt: t.transfer_sent_at, note: t.transfer_note, minutes: Math.floor(Number(t.minutes)),
+      ...(user.role === 'clinic' || user.role === 'admin' ? { payerName: payer?.name || '' } : {}) };
+    if (user.role === 'payer' || user.role === 'admin') {
+      const c = await one<ClinicRow>('SELECT * FROM clinics WHERE id = $1', b.clinic_id);
+      const dest = c && transferDestination(c);
+      if (dest) out.transferTo = dest;
+    }
   }
   // Clinics see what they need to confirm; risk details stay with payer/admin.
   if (user.role === 'clinic') { out.risk = { level: b.risk_level }; delete out.expectedUsd; delete out.payer; delete out.waitingFor; }

@@ -426,3 +426,57 @@ test('FlexPaie: the check API names its own order number as "reference" (as in p
   await payer('POST', `/api/bills/${other.bill.id}/payment/refresh`, {});
   assert.equal((await payer('GET', `/api/bills/${other.bill.id}`)).data.bill.status, 'payment_pending');
 });
+
+test('pilot: pay with a transfer app straight to the hospital; the hospital confirms it', async () => {
+  const { run } = await import('../server/db.js');
+  const { bill, clinicId } = await confirmedBill('Centre Médical Espoir', '+243810000001', 21);
+  await run("UPDATE clinics SET payout_method = 'mpesa', payout_account = '+243810000011', transfer_name = 'CENTRE MEDICAL ESPOIR' WHERE id = $1", clinicId);
+  let v = (await payer('GET', `/api/bills/${bill.id}`)).data.bill;
+  assert.deepEqual(v.transferTo, { name: 'CENTRE MEDICAL ESPOIR', number: '+243810000011', operator: 'mpesa' });
+  const before = calls.length;
+  const pay = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'taptap' });
+  assert.equal(pay.status, 200);
+  assert.equal(pay.data.checkoutUrl, null);
+  assert.equal(calls.length, before); // FlexPaie isn't involved
+  const p = await one<{ amount_usd: number; partner: string; method: string }>('SELECT amount_usd, partner, method FROM payments WHERE id = $1', pay.data.paymentId);
+  assert.deepEqual([p!.amount_usd, p!.partner, p!.method], [20, 'transfer', 'taptap']); // the bill only: no AmaniCare fee
+  // Waiting for the hospital: no card or mobile-money payment can start, and the 15-minute rule doesn't apply.
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'card' })).status, 409);
+  await run("UPDATE payments SET created_at = now() - interval '2 hours' WHERE id = $1", pay.data.paymentId);
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'retry' })).data.bill.status, 'payment_pending');
+  // The payer's "I sent it" is optional; the hospital sees the expected payment.
+  v = (await payer('POST', `/api/bills/${bill.id}/transfer/sent`, { note: 'TT-12345' })).data.bill;
+  assert.equal(v.transfer.note, 'TT-12345');
+  const seen = (await clinic('GET', `/api/bills/${bill.id}`)).data.bill;
+  assert.equal(seen.transfer.payerName, 'FX Payer');
+  assert.equal(seen.transferTo, undefined);
+  // Only this hospital's staff can confirm; the payer can't.
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/transfer/received`, {})).status, 403);
+  const other = client(); await login(other, '+243810000003');
+  assert.equal((await other('POST', `/api/bills/${bill.id}/transfer/received`, {})).status, 404);
+  assert.equal((await clinic('POST', `/api/bills/${bill.id}/transfer/received`, {})).status, 200);
+  await waitFor(payer, bill.id, 'paid'); // no payout step: the money is already with the hospital
+  const payout = await one<{ partner_ref: string; status: string }>("SELECT partner_ref, status FROM payments WHERE bill_id = $1 AND kind = 'payout'", bill.id);
+  assert.equal(payout!.status, 'succeeded');
+  assert.match(payout!.partner_ref, /^direct:transfer:/);
+});
+
+test('pilot transfer: not received, or the payer pays another way', async () => {
+  const { run } = await import('../server/db.js');
+  const { bill, clinicId } = await confirmedBill('Centre Médical Espoir', '+243810000001', 22);
+  await run("UPDATE clinics SET payout_method = 'mpesa', payout_account = '+243810000011' WHERE id = $1", clinicId);
+  await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'sendwave' });
+  assert.equal((await clinic('POST', `/api/bills/${bill.id}/transfer/not-received`, {})).data.bill.status, 'payment_failed');
+  // Try again with WorldRemit, then change mind and pay by card instead.
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'worldremit' })).status, 200);
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/transfer/cancel`, {})).data.bill.status, 'payment_failed');
+  assert.equal((await clinic('POST', `/api/bills/${bill.id}/transfer/received`, {})).status, 409); // no longer expected
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'card' })).status, 200);
+  // A hospital without a mobile-money number: no transfer option.
+  const noWallet = await confirmedBill('Polyclinique La Grâce', '+243810000003', 23);
+  await run("UPDATE clinics SET payout_method = 'bank', payout_phone = '' WHERE id = $1", noWallet.clinicId);
+  assert.equal((await payer('GET', `/api/bills/${noWallet.bill.id}`)).data.bill.transferTo, undefined);
+  const r = await payer('POST', `/api/bills/${noWallet.bill.id}/pay`, { method: 'taptap' });
+  assert.equal(r.status, 409);
+  assert.equal(r.data.error, 'no_transfer_destination');
+});

@@ -24,6 +24,8 @@ interface Bill {
   risk: Risk; aiUsed: boolean; edited: boolean;
   events: { at: string; type: string; note: string }[];
   pending?: { method: string; minutes: number; approved?: boolean };
+  transferTo?: { name: string; number: string; operator: string };
+  transfer?: { app: string; amountUsd: number; payerName?: string; sentAt: string | null; note: string; minutes: number };
   payout?: { ref: string | null; status: string; account?: string };
   rejection?: { by: 'hospital' | 'review'; reason: string | null; note: string };
 }
@@ -31,7 +33,7 @@ interface Payer { id: string; name: string; relation: string }
 type Category = 'health_centre' | 'clinic' | 'hospital' | 'diagnostic' | 'pharmacy';
 const CATEGORIES: Category[] = ['health_centre', 'clinic', 'hospital', 'diagnostic', 'pharmacy'];
 interface Clinic { id: string; name: string; commune: string; city: string; category: Category }
-interface AdminClinic extends Clinic { whatsapp_phone: string; payout_method: string; payout_account: string; trust: number; active: number; flexpay_merchant: string; payout_phone: string }
+interface AdminClinic extends Clinic { whatsapp_phone: string; payout_method: string; payout_account: string; trust: number; active: number; flexpay_merchant: string; payout_phone: string; transfer_name: string }
 interface AiRead {
   clinic_name: string; bill_number: string; date: string; patient_name: string; currency: 'USD' | 'CDF';
   items: { description: string; qty: number; unit_price: number }[]; total: number; tamper_flags: string[]; confidence: number;
@@ -337,7 +339,12 @@ function rejectDialog(reasons: string[]): Promise<{ reason: string; note: string
 
 /** How the payer pays: bank card, or mobile money from a wallet number. Resolves to null if cancelled. */
 const WALLETS = ['mpesa', 'orange', 'airtel'] as const;
-function payDialog(amount: string): Promise<{ method: string; walletPhone?: string } | null> {
+// Pilot: pay from a transfer app straight to the hospital's wallet (no AmaniCare fee on this route).
+const TRANSFER_APPS = ['taptap', 'sendwave', 'worldremit'] as const;
+const APP_NAME: Record<string, string> = { taptap: 'Taptap Send', sendwave: 'Sendwave', worldremit: 'WorldRemit' };
+const APP_URL: Record<string, string> = { taptap: 'https://www.taptapsend.com/', sendwave: 'https://www.sendwave.com/', worldremit: 'https://www.worldremit.com/' };
+const OPERATOR: Record<string, string> = { mpesa: 'M-Pesa', orange: 'Orange Money', airtel: 'Airtel Money' };
+function payDialog(amount: string, bill?: Bill): Promise<{ method: string; walletPhone?: string } | null> {
   return new Promise((resolve) => {
     let done = false;
     const myPhone = me().phone || '';
@@ -345,6 +352,8 @@ function payDialog(amount: string): Promise<{ method: string; walletPhone?: stri
       <p class="muted small">${t('pay.hint')}</p>
       <label class="radio"><input type="radio" name="how" value="card" checked> <span><b>${t('pay.card')}</b><br><span class="muted small">${t('pay.cardHint')}</span></span></label>
       ${WALLETS.map((w) => `<label class="radio"><input type="radio" name="how" value="${w}"> <span><b>${t('pay.' + w)}</b><br><span class="muted small">${t('pay.mobileHint')}</span></span></label>`).join('')}
+      ${bill?.transferTo ? `<p class="muted small" style="margin-top:12px">${t('pay.transfer.group', { amount: usd(bill.totalUsd) })}</p>
+      ${TRANSFER_APPS.map((a) => `<label class="radio"><input type="radio" name="how" value="${a}"> <span><b>${APP_NAME[a]}</b><br><span class="muted small">${t('pay.transfer.hint')}</span></span></label>`).join('')}` : ''}
       <div id="walletBox" class="hidden">
         <label for="walletPhone">${t('pay.walletPhone')}</label>
         ${phoneField('walletPhone', { value: myPhone.startsWith('+243') ? myPhone : '', cc: 'CD', autocomplete: true })}
@@ -352,13 +361,14 @@ function payDialog(amount: string): Promise<{ method: string; walletPhone?: stri
       </div>
       <div class="row"><button class="secondary grow" data-close>${t('cancel')}</button><button class="grow" id="payOk">${t('pay.continue')}</button></div>`, (sheet) => {
       const picked = () => $<HTMLInputElement>('input[name="how"]:checked', sheet).value;
-      $$<HTMLInputElement>('input[name="how"]', sheet).forEach((r) => (r.onchange = () => $('#walletBox', sheet).classList.toggle('hidden', picked() === 'card')));
+      const needsWallet = (m: string) => (WALLETS as readonly string[]).includes(m);
+      $$<HTMLInputElement>('input[name="how"]', sheet).forEach((r) => (r.onchange = () => $('#walletBox', sheet).classList.toggle('hidden', !needsWallet(picked()))));
       $('#payOk', sheet).onclick = () => {
         const method = picked();
         const walletPhone = readPhone('walletPhone', sheet);
-        if (method !== 'card' && !walletPhone) { $('#walletPhone', sheet).focus(); return; }
+        if (needsWallet(method) && !walletPhone) { $('#walletPhone', sheet).focus(); return; }
         done = true; closeModal();
-        resolve(method === 'card' ? { method } : { method, walletPhone });
+        resolve(needsWallet(method) ? { method, walletPhone } : { method });
       };
       $$('[data-close]', sheet).forEach((b) => b.addEventListener('click', () => { if (!done) resolve(null); }));
     });
@@ -895,8 +905,27 @@ async function signedIn(user: Me): Promise<void> {
 }
 
 // ---------- payer ----------
+/** Payer, paying with a transfer app: exactly what to send, where, and the optional "I sent it". */
+function transferHtml(b: Bill): string {
+  const tr = b.transfer!, to = b.transferTo;
+  const line = (label: string, value: string, copy = false) => `<div class="row between small"><span class="muted">${label}</span><span>${esc(value)}${copy ? ` <button class="link small" data-copyval="${esc(value)}">${t('copy')}</button>` : ''}</span></div>`;
+  return `<div class="notice info">
+    <p><b>${t('pay.transfer.title', { app: APP_NAME[tr.app] || tr.app })}</b></p>
+    ${to ? line(t('pay.transfer.to'), to.name) + line(OPERATOR[to.operator] || t('pay.transfer.wallet'), to.number, true) : ''}
+    ${line(t('pay.transfer.amount'), `${tr.amountUsd.toFixed(2)} USD`)}
+    ${line(t('pay.transfer.note'), b.ref, true)}
+    <p class="small" style="margin-top:8px">${t('pay.transfer.after')}</p>
+    ${tr.sentAt ? `<p class="small"><b>${t('pay.transfer.sentDone')}</b>${tr.note ? ` · ${esc(tr.note)}` : ''}</p>` : ''}
+  </div>
+  <div class="row">
+    <a class="btn secondary grow" href="${APP_URL[tr.app] || '#'}" target="_blank" rel="noopener">${t('pay.transfer.open', { app: APP_NAME[tr.app] || tr.app })}</a>
+    ${tr.sentAt ? '' : `<button class="grow" data-tsent="${b.id}">${t('pay.transfer.sent')}</button>`}
+  </div>
+  <button class="link small" data-tcancel="${b.id}">${t('pay.transfer.cancel')}</button>`;
+}
 /** A payment that seems stuck (card page closed, PIN never entered): after 5 minutes, offer to try again (RETRY_AFTER_MIN). */
 function retryHtml(b: Bill): string {
+  if (b.status === 'payment_pending' && b.transfer) return transferHtml(b);
   if (b.status !== 'payment_pending' || !b.pending) return '';
   if (b.pending.approved) return `<p class="muted small">${t('pay.retry.approved')}</p>`; // accepted: no "try again"
   const hint = b.pending.method === 'card' ? t('pay.retry.hintCard') : t('pay.retry.hintMobile');
@@ -943,12 +972,12 @@ async function renderPayer(): Promise<void> {
   wireCodeCard(renderPayer);
   wireSentInvites(app);
   $$('[data-pay]').forEach((b) => (b.onclick = (e) => busy(btn(e), async () => {
-    const how = await payDialog(b.dataset.amount || '');
+    const how = await payDialog(b.dataset.amount || '', bills.find((x) => x.id === b.dataset.pay));
     if (!how) return;
     const r = await api<{ checkoutUrl: string | null; method: string }>('POST', `/api/bills/${b.dataset.pay}/pay`, how);
     // Remember the bill: if the payer comes back with the browser's Back button (no return link), we still know.
     if (r.checkoutUrl) { try { sessionStorage.setItem(CARD_PAY_KEY, b.dataset.pay!); } catch {} location.href = r.checkoutUrl; return; }
-    if (r.method !== 'card') toast(t('pay.approveOnPhone'));
+    if ((WALLETS as readonly string[]).includes(r.method)) toast(t('pay.approveOnPhone'));
     renderPayer();
   })));
   $$('[data-decline]').forEach((b) => (b.onclick = async () => {
@@ -959,6 +988,20 @@ async function renderPayer(): Promise<void> {
     toast(t(r.bill.status === 'payment_pending' ? 'pay.retry.wait' : r.bill.status === 'payment_failed' ? 'pay.retry.ready' : 'pay.back.paid'));
     renderPayer();
   })));
+  $$<HTMLButtonElement>('[data-copyval]').forEach((b) => (b.onclick = async () => {
+    try { await navigator.clipboard.writeText(b.dataset.copyval || ''); toast(t('copied')); } catch { toast(t('copyFailed')); }
+  }));
+  $$<HTMLButtonElement>('[data-tsent]').forEach((b) => (b.onclick = async () => {
+    const note = prompt(t('pay.transfer.sentQ'));
+    if (note === null) return;
+    try { await api('POST', `/api/bills/${b.dataset.tsent}/transfer/sent`, { note }); toast(t('pay.transfer.sentToast')); renderPayer(); }
+    catch (e) { reportUnexpected(e); toast(errText(e)); }
+  }));
+  $$<HTMLButtonElement>('[data-tcancel]').forEach((b) => (b.onclick = async () => {
+    if (!(await confirmDialog(t('pay.transfer.cancelQ'), t('pay.transfer.cancel'), true))) return;
+    try { await api('POST', `/api/bills/${b.dataset.tcancel}/transfer/cancel`, {}); renderPayer(); }
+    catch (e) { reportUnexpected(e); toast(errText(e)); }
+  }));
   keepLive(renderPayer);
   payerPending = bills;
   checkPendingPayments(bills);
@@ -1219,9 +1262,17 @@ async function renderClinic(): Promise<void> {
   app.innerHTML = `<p class="center"><span class="spinner"></span></p>`;
   const { bills } = await api<{ bills: Bill[] }>('GET', '/api/bills');
   const todo = bills.filter((b) => b.status === 'awaiting_clinic');
-  const rest = bills.filter((b) => b.status !== 'awaiting_clinic');
+  const expected = bills.filter((b) => b.status === 'payment_pending' && b.transfer);
+  const rest = bills.filter((b) => b.status !== 'awaiting_clinic' && !expected.includes(b));
   app.innerHTML = `
     <h1>${t('clinic.title')}</h1><p class="muted">${t('clinic.subtitle')}</p>
+    ${expected.length ? `<div class="card"><h2>${t('clinic.expected')}</h2>
+      ${expected.map((b) => billCard(b, { actions: `
+        <p class="small">${t('clinic.expectedLine', { amount: `$${b.transfer!.amountUsd.toFixed(2)}`, payer: esc(b.transfer!.payerName || ''), app: APP_NAME[b.transfer!.app] || b.transfer!.app, ref: esc(b.ref) })}</p>
+        ${b.transfer!.sentAt ? `<p class="notice">${t('clinic.transferAnnounced')}${b.transfer!.note ? ` · ${esc(b.transfer!.note)}` : ''}</p>` : ''}
+        <p class="muted small">${t('clinic.checkSms')}</p>
+        <div class="row"><button class="grow" data-trecv="${b.id}">✅ ${t('clinic.received')}</button><button class="grow secondary" data-tnot="${b.id}">${t('clinic.notReceived')}</button></div>` })).join('')}
+    </div>` : ''}
     <div class="card"><h2>${t('clinic.toConfirm')}</h2>
       ${todo.length ? todo.map((b) => billCard(b, { actions: `
         ${b.risk?.level === 'med' ? `<p class="notice">${t('clinic.checkCarefully')}</p>` : ''}
@@ -1241,6 +1292,16 @@ async function renderClinic(): Promise<void> {
     const why = await rejectDialog(HOSPITAL_REASONS);
     if (!why) return;
     try { await api('POST', `/api/bills/${b.dataset.no}/reject`, why); } catch (e) { reportUnexpected(e); toast(errText(e)); }
+    renderClinic();
+  }));
+  $$<HTMLButtonElement>('[data-trecv]').forEach((b) => (b.onclick = async () => {
+    if (!(await confirmDialog(t('clinic.receivedQ'), t('clinic.received')))) return;
+    try { await api('POST', `/api/bills/${b.dataset.trecv}/transfer/received`, {}); toast(t('clinic.receivedToast')); } catch (e) { reportUnexpected(e); toast(errText(e)); }
+    renderClinic();
+  }));
+  $$<HTMLButtonElement>('[data-tnot]').forEach((b) => (b.onclick = async () => {
+    if (!(await confirmDialog(t('clinic.notReceivedQ'), t('clinic.notReceived'), true))) return;
+    try { await api('POST', `/api/bills/${b.dataset.tnot}/transfer/not-received`, {}); } catch (e) { reportUnexpected(e); toast(errText(e)); }
     renderClinic();
   }));
   keepLive(renderClinic);
@@ -1392,6 +1453,7 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
           <div><label>${t('admin.payoutAccount')}</label><input id="cAcct"></div>
           <div><label>${t('admin.flexpayMerchant')}</label><input id="cFlex" placeholder="${t('admin.optional')}"></div>
           <div><label>${t('admin.payoutPhone')}</label>${phoneField('cPayPhone', { placeholder: t('admin.optional') })}</div>
+          <div><label>${t('admin.transferName')}</label><input id="cTName" placeholder="${t('admin.transferNamePh')}"></div>
         </div>
         <p class="muted small">${t('admin.flexpayHint')}</p>
         <button class="block" id="addClinic">${t('admin.addClinic')}</button>
@@ -1417,13 +1479,15 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
         <div class="grid2">
           <div><label for="eFlex">${t('admin.flexpayMerchant')}</label><input id="eFlex" value="${esc(c.flexpay_merchant)}" placeholder="${t('admin.optional')}"></div>
           <div><label for="ePayPhone">${t('admin.payoutPhone')}</label>${phoneField('ePayPhone', { value: c.payout_phone, placeholder: t('admin.optional') })}</div>
+          <div><label for="eTName">${t('admin.transferName')}</label><input id="eTName" value="${esc(c.transfer_name || '')}" placeholder="${t('admin.transferNamePh')}"></div>
         </div>
+        <p class="muted small">${t('admin.transferHint')}</p>
         <div class="row"><button class="secondary grow" data-close>${t('cancel')}</button><button class="grow" id="eSave">${t('save')}</button></div>`, (sheet) => {
         $('#eSave', sheet).onclick = (e) => busy(btn(e), async () => {
           await api('PATCH', `/api/admin/clinics/${c.id}`, {
             name: val('#eName', sheet), category: val('#eCat', sheet), commune: val('#eCommune', sheet), city: val('#eCity', sheet),
             whatsappPhone: readPhone('eWa', sheet), payoutMethod: val('#eMethod', sheet), payoutAccount: val('#eAcct', sheet),
-            flexpayMerchant: val('#eFlex', sheet), payoutPhone: readPhone('ePayPhone', sheet),
+            flexpayMerchant: val('#eFlex', sheet), payoutPhone: readPhone('ePayPhone', sheet), transferName: val('#eTName', sheet),
           });
           closeModal(); toast(t('saved')); renderAdmin();
         });
@@ -1436,7 +1500,7 @@ const ADMIN: Record<AdminTab, (el: HTMLElement) => Promise<void>> = {
       catch (err) { toast(errText(err)); }
     }));
     $('#addClinic', el).onclick = (e) => busy(btn(e), async () => {
-      await api('POST', '/api/admin/clinics', { name: val('#cName'), commune: val('#cCommune'), city: val('#cCity'), whatsappPhone: readPhone('cWa'), payoutMethod: val('#cMethod'), payoutAccount: val('#cAcct'), category: val('#cCat'), flexpayMerchant: val('#cFlex'), payoutPhone: readPhone('cPayPhone') });
+      await api('POST', '/api/admin/clinics', { name: val('#cName'), commune: val('#cCommune'), city: val('#cCity'), whatsappPhone: readPhone('cWa'), payoutMethod: val('#cMethod'), payoutAccount: val('#cAcct'), category: val('#cCat'), flexpayMerchant: val('#cFlex'), payoutPhone: readPhone('cPayPhone'), transferName: val('#cTName') });
       toast(t('saved')); renderAdmin();
     });
   },

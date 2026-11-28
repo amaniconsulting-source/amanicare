@@ -24,7 +24,7 @@ export interface SessionRow { token_hash: string; user_id: string; expires_at: n
 export interface ClinicRow {
   id: string; name: string; commune: string; city: string; whatsapp_phone: string; payout_method: string;
   payout_account: string; trust: number; active: number; category: Category; created_at: string;
-  flexpay_merchant: string; payout_phone: string;
+  flexpay_merchant: string; payout_phone: string; transfer_name: string;
 }
 export interface InviteRow {
   code: string; payer_id: string | null; family_id: string | null; inviter_role: 'payer' | 'family';
@@ -48,11 +48,14 @@ export interface PaymentRow {
   id: string; bill_id: string; kind: PaymentKind; amount_usd: number; partner: string; partner_ref: string | null;
   status: PaymentStatus; checkout_url: string | null; idempotency_key: string; failure_reason: string | null;
   method: PayMethod | null; wallet_phone: string | null; ended_by_app: number; returned_approved: number;
+  transfer_sent_at: string | null; transfer_note: string;
   created_at: string; updated_at: string;
 }
 
-/** How the payer pays: a bank card, or a mobile-money wallet. */
-export const PAY_METHODS = ['card', 'mpesa', 'orange', 'airtel'] as const;
+/** How the payer pays: a bank card, a mobile-money wallet, or (pilot) a transfer app straight to the hospital. */
+export const TRANSFER_APPS = ['taptap', 'sendwave', 'worldremit'] as const;
+export const PAY_METHODS = ['card', 'mpesa', 'orange', 'airtel', ...TRANSFER_APPS] as const;
+export const isTransferApp = (m: string | null | undefined): boolean => (TRANSFER_APPS as readonly string[]).includes(m || '');
 export type PayMethod = (typeof PAY_METHODS)[number];
 
 /** What the AI read from a bill photo (after sanitizing). */
