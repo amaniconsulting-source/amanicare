@@ -8,7 +8,7 @@ import { one, all, run, tx, audit, setSetting } from './db.js';
 import { Router, HttpError, bad, notFound, forbidden, str, num, oneOf, phone, pageOf, type AuthCtx, type Body, type Ctx } from './http.js';
 import { requestOtp, verifyOtp, createSession, sessionCookie, destroySession, findOrCreateUser, requireRole } from './auth.js';
 import { createDraft, createBill, clinicDecision, reviewDecision, changeClinic, payerDecline, resendToClinic, hospitalReason, listBillsFor, listAllBills, billsStamp, view, canView, getBill, settings, prices, STATUSES, attachWaitingBills, notifyPayerOf } from './bills.js';
-import { startPayment, applyPaymentUpdate, retryPayout, refreshPayment } from './payments/flow.js';
+import { startPayment, applyPaymentUpdate, retryPayout, refreshPayment, adminCheckPayment, adminMarkReceived } from './payments/flow.js';
 import { getPartner, hasPartner } from './payments/partners.js';
 import { DEFAULT_SETTINGS } from './screening.js';
 import { notify, send, updateDelivery } from './messaging/index.js';
@@ -485,6 +485,12 @@ router.get('/api/admin/payments', requireRole('admin'), async ({ url }: AuthCtx)
   const payments = await all('SELECT p.*, b.ref bill_ref FROM payments p JOIN bills b ON b.id = p.bill_id ORDER BY p.created_at DESC, p.id LIMIT $1 OFFSET $2', limit + 1, offset);
   return { payments: payments.slice(0, limit), hasMore: payments.length > limit };
 });
+
+// Admin: ask the payment partner about one payment now, and apply its answer.
+router.post('/api/admin/payments/:id/check', requireRole('admin'), async ({ user, params }: AuthCtx) => adminCheckPayment(params.id, user));
+// Admin: record a payment as received after checking the partner's dashboard (note required, audited).
+router.post('/api/admin/payments/:id/received', requireRole('admin'), async ({ user, params, body }: AuthCtx) =>
+  ({ status: await adminMarkReceived(params.id, user, body.note) }));
 
 router.get('/api/admin/audit', requireRole('admin'), async ({ url }: AuthCtx) => {
   const { limit, offset } = pageOf(url, 100);

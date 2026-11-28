@@ -261,3 +261,37 @@ export async function sweepPayments(): Promise<void> {
     catch (e) { console.warn(`[payments] sweep of ${bill_id}: ${(e as Error).message}`); }
   }
 }
+
+/**
+ * Admin: ask the partner about one collection, whatever the app thinks of it, and apply the answer.
+ * A success counts even if the app had marked the attempt failed (lateSuccess).
+ */
+export async function adminCheckPayment(paymentId: string, admin: UserRow): Promise<{ status: string; partnerSays: string }> {
+  const p = await one<PaymentRow>("SELECT * FROM payments WHERE id = $1 AND kind = 'collection'", paymentId);
+  if (!p) throw notFound();
+  const partner = getPartner();
+  if (p.partner !== partner.name || !partner.confirm || !p.partner_ref) return { status: p.status, partnerSays: 'no partner reference to check' };
+  const r = await partner.confirm({ ...p, status: 'pending' }, { paymentId: p.id, status: 'pending' });
+  await audit(admin.id, 'payment_check', `${p.id}: ${partner.name} says ${r.status}`);
+  if (r.status === 'succeeded' && p.status !== 'succeeded') await applyPaymentUpdate({ paymentId: p.id, status: 'succeeded' });
+  else if (r.status === 'failed' && p.status === 'pending') await applyPaymentUpdate({ paymentId: p.id, status: 'failed', reason: r.reason });
+  const now = (await one<PaymentRow>('SELECT * FROM payments WHERE id = $1', p.id))!;
+  return { status: now.status, partnerSays: r.status };
+}
+
+/**
+ * Admin: the partner's dashboard shows this payment as received but its status service doesn't say so.
+ * After checking the dashboard, an admin records it as received (audited, with a note); the bill goes on.
+ */
+export async function adminMarkReceived(paymentId: string, admin: UserRow, note: unknown): Promise<string> {
+  const p = await one<PaymentRow>("SELECT * FROM payments WHERE id = $1 AND kind = 'collection'", paymentId);
+  if (!p) throw notFound();
+  if (p.status === 'succeeded') return p.status;
+  const why = typeof note === 'string' ? note.trim().slice(0, 300) : '';
+  if (why.length < 3) throw new HttpError(400, 'note_required');
+  const other = await one("SELECT 1 FROM payments WHERE bill_id = $1 AND kind = 'collection' AND id <> $2 AND status = 'succeeded'", p.bill_id, p.id);
+  if (other) throw new HttpError(409, 'already_paid');
+  await audit(admin.id, 'payment_mark_received', `${p.id} (${p.partner_ref || '-'}): ${why}`);
+  await applyPaymentUpdate({ paymentId: p.id, status: 'succeeded' });
+  return (await one<PaymentRow>('SELECT * FROM payments WHERE id = $1', p.id))!.status;
+}

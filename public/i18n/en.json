@@ -632,5 +632,11 @@
  "event.double_payment": "Payment received twice: AmaniCare refunds the second one",
  "event.double_payment.payer": "You paid twice: we are refunding the second payment",
  "err.already_paid": "Your earlier payment went through after all: no need to pay again.",
- "pay.retry.approved": "Your bank accepted the payment. We're waiting for the payment service to confirm: no need to pay again."
+ "pay.retry.approved": "Your bank accepted the payment. We're waiting for the payment service to confirm: no need to pay again.",
+ "admin.pay.check": "Check with the partner",
+ "admin.pay.received": "Mark as received",
+ "admin.pay.checked": "The partner says: {says}. Status: {status}.",
+ "admin.pay.receivedQ": "Did you check in the FlexPaie dashboard that this payment was received? Give the proof (e.g. \"closed in FlexPaie, 28-11 01:04\").",
+ "admin.pay.receivedDone": "Payment recorded as received",
+ "err.note_required": "Add a note (the proof of payment)."
 }

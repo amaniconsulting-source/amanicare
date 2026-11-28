@@ -632,5 +632,11 @@
  "event.double_payment": "Paiement reçu deux fois : AmaniCare rembourse le second",
  "event.double_payment.payer": "Vous avez payé deux fois : nous vous remboursons le second paiement",
  "err.already_paid": "Votre paiement précédent est finalement passé : inutile de payer à nouveau.",
- "pay.retry.approved": "Votre banque a accepté le paiement. Nous attendons la confirmation du service de paiement : inutile de payer à nouveau."
+ "pay.retry.approved": "Votre banque a accepté le paiement. Nous attendons la confirmation du service de paiement : inutile de payer à nouveau.",
+ "admin.pay.check": "Vérifier auprès du partenaire",
+ "admin.pay.received": "Marquer comme reçu",
+ "admin.pay.checked": "Le partenaire répond : {says}. Statut : {status}.",
+ "admin.pay.receivedQ": "Vous avez vérifié dans le tableau de bord FlexPaie que ce paiement est reçu ? Indiquez la preuve (ex. « clos dans FlexPaie, 28-11 01:04 »).",
+ "admin.pay.receivedDone": "Paiement enregistré comme reçu",
+ "err.note_required": "Indiquez une note (la preuve du paiement)."
 }

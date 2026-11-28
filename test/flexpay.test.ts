@@ -375,3 +375,26 @@ test('FlexPaie: the background sweep settles payments nobody is looking at', asy
   await sweepPayments();
   await waitFor(payer, bill.id, 'paid');
 });
+
+test('admin: check a payment with FlexPaie, or mark it received after checking the dashboard', async () => {
+  const { bill } = await confirmedBill('Centre Médical Espoir', '+243810000001', 16);
+  const pay = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'card' });
+  await payer('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'back' });
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/payment/check`, {})).status, 404); // not a payer route
+  assert.equal((await payer('POST', `/api/admin/payments/${pay.data.paymentId}/check`, {})).status, 403);
+  let r = await adm('POST', `/api/admin/payments/${pay.data.paymentId}/check`, {});
+  assert.equal(r.data.partnerSays, 'pending');
+  txs.get([...txs.entries()].find(([, t]) => t.reference === pay.data.paymentId)![0])!.status = '0';
+  r = await adm('POST', `/api/admin/payments/${pay.data.paymentId}/check`, {});
+  assert.equal(r.data.partnerSays, 'succeeded');
+  await waitFor(payer, bill.id, 'paid');
+
+  // FlexPaie's status service says nothing useful, but its dashboard shows it closed: the admin records it.
+  const other = await confirmedBill('Centre Médical Espoir', '+243810000001', 17);
+  const p2 = await payer('POST', `/api/bills/${other.bill.id}/pay`, { method: 'card' });
+  await payer('POST', `/api/bills/${other.bill.id}/payment/refresh`, { result: 'back' });
+  assert.equal((await adm('POST', `/api/admin/payments/${p2.data.paymentId}/received`, {})).status, 400); // note required
+  assert.equal((await adm('POST', `/api/admin/payments/${p2.data.paymentId}/received`, { note: 'clos dans FlexPaie' })).data.status, 'succeeded');
+  await waitFor(payer, other.bill.id, 'paid');
+  assert.ok(await one("SELECT 1 FROM audit WHERE action = 'payment_mark_received' AND detail LIKE $1", `${p2.data.paymentId}%`));
+});
