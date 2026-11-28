@@ -303,7 +303,7 @@ export async function adminMarkReceived(paymentId: string, admin: UserRow, note:
   return (await one<PaymentRow>('SELECT * FROM payments WHERE id = $1', p.id))!.status;
 }
 
-// ---------- Pilot: pay with a transfer app (Taptap Send, Sendwave, WorldRemit) ----------
+// ---------- Pilot: pay with a transfer app (Taptap Send, Sendwave) ----------
 // The payer sends the bill amount from their usual app straight to the hospital's mobile-money wallet; AmaniCare
 // never touches the money. The hospital's "received" completes the payment; the payer's "I sent it" is optional.
 // No AmaniCare fee on this route during the pilot (decided 27 Nov 2026): the payer pays the bill and the app's own fee.

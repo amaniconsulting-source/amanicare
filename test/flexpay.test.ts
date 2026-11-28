@@ -467,8 +467,8 @@ test('pilot transfer: not received, or the payer pays another way', async () => 
   await run("UPDATE clinics SET payout_method = 'mpesa', payout_account = '+243810000011' WHERE id = $1", clinicId);
   await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'sendwave' });
   assert.equal((await clinic('POST', `/api/bills/${bill.id}/transfer/not-received`, {})).data.bill.status, 'payment_failed');
-  // Try again with WorldRemit, then change mind and pay by card instead.
-  assert.equal((await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'worldremit' })).status, 200);
+  // Try again with Taptap Send, then change mind and pay by card instead.
+  assert.equal((await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'taptap' })).status, 200);
   assert.equal((await payer('POST', `/api/bills/${bill.id}/transfer/cancel`, {})).data.bill.status, 'payment_failed');
   assert.equal((await clinic('POST', `/api/bills/${bill.id}/transfer/received`, {})).status, 409); // no longer expected
   assert.equal((await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'card' })).status, 200);

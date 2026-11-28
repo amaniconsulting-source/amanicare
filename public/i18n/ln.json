@@ -671,7 +671,7 @@
  "event.transfer_not_received": "Lopitalo ezwi mbongo te",
  "admin.transferName": "Nkombo na compte ya mobile money",
  "admin.transferNamePh": "ndenge ekomami epai ya opérateur",
- "admin.transferHint": "Pilote : bafuti bakoki kotinda na Taptap Send, Sendwave to WorldRemit na nimero ya mobile money ya lopitalo. Nkombo esengeli kozala ndenge moko na compte.",
+ "admin.transferHint": "Pilote : bafuti bakoki kotinda na Taptap Send to Sendwave na nimero ya mobile money ya lopitalo. Nkombo esengeli kozala ndenge moko na compte.",
  "err.no_transfer_destination": "Lopitalo oyo ezali naino na nimero ya mobile money te mpo na kotinda. Pona lolenge mosusu.",
  "err.no_pending_transfer": "Kotinda moko te ezelami mpo na fakture oyo."
 }

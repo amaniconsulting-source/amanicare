@@ -53,7 +53,8 @@ export interface PaymentRow {
 }
 
 /** How the payer pays: a bank card, a mobile-money wallet, or (pilot) a transfer app straight to the hospital. */
-export const TRANSFER_APPS = ['taptap', 'sendwave', 'worldremit'] as const;
+// WorldRemit dropped from the pilot (27 Nov 2026); the database still accepts it for old rows.
+export const TRANSFER_APPS = ['taptap', 'sendwave'] as const;
 export const PAY_METHODS = ['card', 'mpesa', 'orange', 'airtel', ...TRANSFER_APPS] as const;
 export const isTransferApp = (m: string | null | undefined): boolean => (TRANSFER_APPS as readonly string[]).includes(m || '');
 export type PayMethod = (typeof PAY_METHODS)[number];

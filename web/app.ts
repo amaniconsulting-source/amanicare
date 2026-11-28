@@ -340,20 +340,23 @@ function rejectDialog(reasons: string[]): Promise<{ reason: string; note: string
 /** How the payer pays: bank card, or mobile money from a wallet number. Resolves to null if cancelled. */
 const WALLETS = ['mpesa', 'orange', 'airtel'] as const;
 // Pilot: pay from a transfer app straight to the hospital's wallet (no AmaniCare fee on this route).
-const TRANSFER_APPS = ['taptap', 'sendwave', 'worldremit'] as const;
+const TRANSFER_APPS = ['taptap', 'sendwave'] as const;
 const APP_NAME: Record<string, string> = { taptap: 'Taptap Send', sendwave: 'Sendwave', worldremit: 'WorldRemit' };
 const APP_URL: Record<string, string> = { taptap: 'https://www.taptapsend.com/', sendwave: 'https://www.sendwave.com/', worldremit: 'https://www.worldremit.com/' };
 const OPERATOR: Record<string, string> = { mpesa: 'M-Pesa', orange: 'Orange Money', airtel: 'Airtel Money' };
+// Official logos, from each company's brand kit, go in public/img/pay/<option>.png (see public/img/pay/README.md).
+// Missing file: the logo slot hides itself and only the name shows.
+const payLogo = (k: string) => `<img class="paylogo" src="/img/pay/${k}.png" alt="" onerror="this.remove()">`;
 function payDialog(amount: string, bill?: Bill): Promise<{ method: string; walletPhone?: string } | null> {
   return new Promise((resolve) => {
     let done = false;
     const myPhone = me().phone || '';
     openModal(`<div class="row between"><h2>${t('pay.title', { amount: esc(amount) })}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
       <p class="muted small">${t('pay.hint')}</p>
-      <label class="radio"><input type="radio" name="how" value="card" checked> <span><b>${t('pay.card')}</b><br><span class="muted small">${t('pay.cardHint')}</span></span></label>
-      ${WALLETS.map((w) => `<label class="radio"><input type="radio" name="how" value="${w}"> <span><b>${t('pay.' + w)}</b><br><span class="muted small">${t('pay.mobileHint')}</span></span></label>`).join('')}
+      <label class="radio"><input type="radio" name="how" value="card" checked> ${payLogo('card')}<span><b>${t('pay.card')}</b><br><span class="muted small">${t('pay.cardHint')}</span></span></label>
+      ${WALLETS.map((w) => `<label class="radio"><input type="radio" name="how" value="${w}"> ${payLogo(w)}<span><b>${t('pay.' + w)}</b><br><span class="muted small">${t('pay.mobileHint')}</span></span></label>`).join('')}
       ${bill?.transferTo ? `<p class="muted small" style="margin-top:12px">${t('pay.transfer.group', { amount: usd(bill.totalUsd) })}</p>
-      ${TRANSFER_APPS.map((a) => `<label class="radio"><input type="radio" name="how" value="${a}"> <span><b>${APP_NAME[a]}</b><br><span class="muted small">${t('pay.transfer.hint')}</span></span></label>`).join('')}` : ''}
+      ${TRANSFER_APPS.map((a) => `<label class="radio"><input type="radio" name="how" value="${a}"> ${payLogo(a)}<span><b>${APP_NAME[a]}</b><br><span class="muted small">${t('pay.transfer.hint')}</span></span></label>`).join('')}` : ''}
       <div id="walletBox" class="hidden">
         <label for="walletPhone">${t('pay.walletPhone')}</label>
         ${phoneField('walletPhone', { value: myPhone.startsWith('+243') ? myPhone : '', cc: 'CD', autocomplete: true })}
@@ -910,7 +913,7 @@ function transferHtml(b: Bill): string {
   const tr = b.transfer!, to = b.transferTo;
   const line = (label: string, value: string, copy = false) => `<div class="row between small"><span class="muted">${label}</span><span>${esc(value)}${copy ? ` <button class="link small" data-copyval="${esc(value)}">${t('copy')}</button>` : ''}</span></div>`;
   return `<div class="notice info">
-    <p><b>${t('pay.transfer.title', { app: APP_NAME[tr.app] || tr.app })}</b></p>
+    <p class="row">${payLogo(tr.app)}<b>${t('pay.transfer.title', { app: APP_NAME[tr.app] || tr.app })}</b></p>
     ${to ? line(t('pay.transfer.to'), to.name) + line(OPERATOR[to.operator] || t('pay.transfer.wallet'), to.number, true) : ''}
     ${line(t('pay.transfer.amount'), `${tr.amountUsd.toFixed(2)} USD`)}
     ${line(t('pay.transfer.note'), b.ref, true)}

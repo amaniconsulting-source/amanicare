@@ -268,3 +268,4 @@ ul.nw li{display:flex;flex-direction:column;padding:8px 0;border-bottom:1px soli
   body.has-tabbar.signed-in #langSel{display:none}
 }
 .btn.secondary{background:transparent;color:var(--brand)}
+.paylogo{width:36px;height:36px;object-fit:contain;border-radius:8px;flex:none;margin-right:8px;background:#fff}

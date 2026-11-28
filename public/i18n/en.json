@@ -670,7 +670,7 @@
  "event.transfer_not_received": "The hospital did not receive the transfer",
  "admin.transferName": "Name on the mobile-money account",
  "admin.transferNamePh": "as registered with the operator",
- "admin.transferHint": "Pilot: payers can send with Taptap Send, Sendwave or WorldRemit to the hospital's mobile-money number (M-Pesa/Orange/Airtel payout method, or payout number). The name must match the account exactly.",
+ "admin.transferHint": "Pilot: payers can send with Taptap Send or Sendwave to the hospital's mobile-money number (M-Pesa/Orange/Airtel payout method, or payout number). The name must match the account exactly.",
  "err.no_transfer_destination": "This hospital has no mobile-money number for transfers yet. Choose another way to pay.",
  "err.no_pending_transfer": "No transfer is waiting for this bill."
 }
