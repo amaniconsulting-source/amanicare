@@ -339,7 +339,7 @@ function rejectDialog(reasons: string[]): Promise<{ reason: string; note: string
 const WALLETS = ['mpesa', 'orange', 'airtel'] as const;
 // Official logos, from each company's brand kit, go in public/img/pay/<option>.png (see public/img/pay/README.md),
 // and their names in PAY_LOGOS. An option without a logo shows its name only (no broken image).
-const PAY_LOGOS = new Set<string>([]);
+const PAY_LOGOS = new Set<string>(['card', 'mobile']); // from FlexPaie's payment page (27 Nov 2026)
 const payLogo = (k: string) => (PAY_LOGOS.has(k) ? `<img class="paylogo" src="/img/pay/${k}.png" alt="">` : '');
 function payDialog(amount: string): Promise<{ method: string; walletPhone?: string } | null> {
   return new Promise((resolve) => {
@@ -357,6 +357,7 @@ function payDialog(amount: string): Promise<{ method: string; walletPhone?: stri
         <p class="muted small">${t('pay.walletNote')}</p>
       </div>
 
+      <p class="muted small paysecure">${t('pay.securedBy')} <img src="/img/pay/flexpaie.png" alt="FlexPaie"></p>
       <div class="row"><button class="secondary grow" data-close>${t('cancel')}</button><button class="grow" id="payOk">${t('pay.continue')}</button></div>`, (sheet) => {
       const picked = () => $<HTMLInputElement>('input[name="how"]:checked', sheet).value;
       const needsWallet = (m: string) => m === 'mobile';

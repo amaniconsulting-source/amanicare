@@ -643,5 +643,6 @@
  "copy": "Kokopia",
  "pay.mobile": "Mobile money",
  "pay.mobileHint2": "M-Pesa, Orange Money to Airtel Money, ondimisa na telefone na yo.",
- "pay.operator": "Opérateur"
+ "pay.operator": "Opérateur",
+ "pay.securedBy": "Kofuta ebatelami na"
 }

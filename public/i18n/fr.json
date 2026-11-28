@@ -642,5 +642,6 @@
  "copy": "Copier",
  "pay.mobile": "Mobile money",
  "pay.mobileHint2": "M-Pesa, Orange Money ou Airtel Money, validé sur votre téléphone.",
- "pay.operator": "Opérateur"
+ "pay.operator": "Opérateur",
+ "pay.securedBy": "Paiement sécurisé par"
 }
