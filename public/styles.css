@@ -270,3 +270,4 @@ ul.nw li{display:flex;flex-direction:column;padding:8px 0;border-bottom:1px soli
 .paylogo{height:26px;width:auto;max-width:120px;object-fit:contain;flex:none;margin:2px 4px 0 0}
 .paysecure{display:flex;align-items:center;gap:6px;margin-top:12px}
 .paysecure img{height:22px;width:auto}
+.paysummary{background:var(--soft,#f4f6f5);border-radius:12px;padding:10px 12px;margin:8px 0;display:grid;gap:4px}

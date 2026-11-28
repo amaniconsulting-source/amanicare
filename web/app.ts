@@ -341,11 +341,18 @@ const WALLETS = ['mpesa', 'orange', 'airtel'] as const;
 // and their names in PAY_LOGOS. An option without a logo shows its name only (no broken image).
 const PAY_LOGOS = new Set<string>(['card', 'mobile']); // from FlexPaie's payment page (27 Nov 2026)
 const payLogo = (k: string) => (PAY_LOGOS.has(k) ? `<img class="paylogo" src="/img/pay/${k}.png" alt="">` : '');
-function payDialog(amount: string): Promise<{ method: string; walletPhone?: string } | null> {
+function payDialog(amount: string, bill?: Bill): Promise<{ method: string; walletPhone?: string } | null> {
   return new Promise((resolve) => {
     let done = false;
     const myPhone = me().phone || '';
     openModal(`<div class="row between"><h2>${t('pay.title', { amount: esc(amount) })}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
+      ${bill ? `<div class="paysummary small">
+        <div class="row between"><span class="muted">${t('pay.sum.hospital')}</span><b>${esc(bill.clinic?.name || '')}</b></div>
+        <div class="row between"><span class="muted">${t('pay.sum.patient')}</span><span>${esc(bill.patientName)}${bill.billNumber ? ` · ${esc(bill.billNumber)}` : ''}</span></div>
+        <div class="row between"><span class="muted">${t('pay.sum.bill')}</span><span>${usd(bill.totalUsd)}</span></div>
+        <div class="row between"><span class="muted">${t('pay.sum.fee')}</span><span>${usd(bill.feeUsd)}</span></div>
+        <div class="row between"><b>${t('pay.sum.total')}</b><b>${esc(amount)}</b></div>
+      </div>` : ''}
       <p class="muted small">${t('pay.hint')}</p>
       <label class="radio"><input type="radio" name="how" value="card" checked> ${payLogo('card')}<span><b>${t('pay.card')}</b><br><span class="muted small">${t('pay.cardHint')}</span></span></label>
       <label class="radio"><input type="radio" name="how" value="mobile"> ${payLogo('mobile')}<span><b>${t('pay.mobile')}</b><br><span class="muted small">${t('pay.mobileHint2')}</span></span></label>
@@ -359,6 +366,7 @@ function payDialog(amount: string): Promise<{ method: string; walletPhone?: stri
 
       <p class="muted small paysecure">${t('pay.securedBy')} <img src="/img/pay/flexpaie.png" alt="FlexPaie"></p>
       <p class="muted small">${t('pay.cardPrivacy')}</p>
+      <p class="muted small">🔒 ${t('pay.neverAsk')}</p>
       <div class="row"><button class="secondary grow" data-close>${t('cancel')}</button><button class="grow" id="payOk">${t('pay.continue')}</button></div>`, (sheet) => {
       const picked = () => $<HTMLInputElement>('input[name="how"]:checked', sheet).value;
       const needsWallet = (m: string) => m === 'mobile';
@@ -953,11 +961,18 @@ async function renderPayer(): Promise<void> {
   wireCodeCard(renderPayer);
   wireSentInvites(app);
   $$('[data-pay]').forEach((b) => (b.onclick = (e) => busy(btn(e), async () => {
-    const how = await payDialog(b.dataset.amount || '');
+    const how = await payDialog(b.dataset.amount || '', bills.find((x) => x.id === b.dataset.pay));
     if (!how) return;
     const r = await api<{ checkoutUrl: string | null; method: string }>('POST', `/api/bills/${b.dataset.pay}/pay`, how);
     // Remember the bill: if the payer comes back with the browser's Back button (no return link), we still know.
-    if (r.checkoutUrl) { try { sessionStorage.setItem(CARD_PAY_KEY, b.dataset.pay!); } catch {} location.href = r.checkoutUrl; return; }
+    if (r.checkoutUrl) {
+      try { sessionStorage.setItem(CARD_PAY_KEY, b.dataset.pay!); } catch {}
+      // Say where they're going before they get there: a FlexPaie page out of nowhere looks like a scam.
+      openModal(`<div class="center"><img src="/img/pay/flexpaie.png" alt="FlexPaie" style="height:40px"><h2>${t('pay.redirect.title')}</h2>
+        <p class="muted small">${t('pay.redirect.body')}</p><p><span class="spinner"></span></p></div>`);
+      setTimeout(() => { location.href = r.checkoutUrl!; }, 1500);
+      return;
+    }
     if ((WALLETS as readonly string[]).includes(r.method)) toast(t('pay.approveOnPhone'));
     renderPayer();
   })));
