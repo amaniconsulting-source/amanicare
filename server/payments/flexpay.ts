@@ -91,6 +91,8 @@ export async function flexpayCheck(orderNumber: string): Promise<FlexpayCheck> {
   let data: any = {};
   try { data = JSON.parse(text); } catch { /* not JSON: logged below */ }
   const t = data?.transaction;
+  // Pilot: every status answer is logged (short), to see exactly what FlexPaie says.
+  console.log(`[flexpay] check ${orderNumber}: HTTP ${res.status} ${text.slice(0, 400) || '(empty)'}`);
   if (!res.ok || String(data?.code) !== '0' || !t) {
     console.warn(`[flexpay] check ${orderNumber}: HTTP ${res.status} ${text.slice(0, 300) || '(empty)'}`);
     return unknown;
@@ -163,7 +165,10 @@ export const flexpayPartner: PaymentPartner = {
     const pending: PaymentUpdate = { paymentId: payment.id, status: 'pending' };
     if (!payment.partner_ref || payment.partner_ref.startsWith('direct:')) return pending;
     const r = await flexpayCheck(payment.partner_ref);
-    if (r.reference && r.reference !== payment.id) return pending;
+    if (r.reference && r.reference.trim().toLowerCase() !== payment.id.toLowerCase()) {
+      console.warn(`[flexpay] ${payment.partner_ref} names reference ${r.reference}, expected ${payment.id}: ignored`);
+      return pending;
+    }
     if (r.status === 'succeeded') {
       const sameAmount = Number.isFinite(r.amount) && Math.abs(r.amount - payment.amount_usd) < 0.005;
       if (!sameAmount || (r.currency && r.currency !== 'USD')) {

@@ -238,7 +238,8 @@ async function recheckGivenUp(billId: string, partner: ReturnType<typeof getPart
     AND partner = $2 AND partner_ref IS NOT NULL AND created_at >= now() - interval '24 hours' ORDER BY created_at DESC LIMIT 3`, billId, partner.name);
   for (const p of recent) {
     let r: PaymentUpdate = { paymentId: p.id, status: 'pending' };
-    try { r = await partner.confirm({ ...p, status: 'pending' }, r); } catch { /* unknown for now */ }
+    try { r = await partner.confirm({ ...p, status: 'pending' }, r); } catch (e) { console.warn(`[payments] re-check of ${p.id} failed: ${(e as Error).message}`); }
+    console.log(`[payments] re-check of given-up ${p.id} (${p.partner_ref}): ${r.status}`);
     if (r.status === 'succeeded') { await applyPaymentUpdate({ paymentId: p.id, status: 'succeeded' }); return; }
   }
 }
@@ -254,6 +255,7 @@ export async function sweepPayments(): Promise<void> {
   const bills = await all<{ bill_id: string; payer_id: string }>(`SELECT DISTINCT p.bill_id, b.payer_id FROM payments p JOIN bills b ON b.id = p.bill_id
     WHERE p.kind = 'collection' AND p.partner = $1 AND p.partner_ref IS NOT NULL AND p.created_at >= now() - interval '24 hours'
       AND (p.status = 'pending' OR (p.status = 'failed' AND p.ended_by_app = 1)) LIMIT 50`, partner.name);
+  if (bills.length) console.log(`[payments] sweep: ${bills.length} bill(s) to check`);
   for (const { bill_id, payer_id } of bills) {
     try { await refreshPayment(bill_id, { id: payer_id } as UserRow, undefined); }
     catch (e) { console.warn(`[payments] sweep of ${bill_id}: ${(e as Error).message}`); }
