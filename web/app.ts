@@ -344,9 +344,10 @@ const TRANSFER_APPS = ['taptap', 'sendwave'] as const;
 const APP_NAME: Record<string, string> = { taptap: 'Taptap Send', sendwave: 'Sendwave', worldremit: 'WorldRemit' };
 const APP_URL: Record<string, string> = { taptap: 'https://www.taptapsend.com/', sendwave: 'https://www.sendwave.com/', worldremit: 'https://www.worldremit.com/' };
 const OPERATOR: Record<string, string> = { mpesa: 'M-Pesa', orange: 'Orange Money', airtel: 'Airtel Money' };
-// Official logos, from each company's brand kit, go in public/img/pay/<option>.png (see public/img/pay/README.md).
-// Missing file: the logo slot hides itself and only the name shows.
-const payLogo = (k: string) => `<img class="paylogo" src="/img/pay/${k}.png" alt="" onerror="this.remove()">`;
+// Official logos, from each company's brand kit, go in public/img/pay/<option>.png (see public/img/pay/README.md),
+// and their names in PAY_LOGOS. An option without a logo shows its name only (no broken image).
+const PAY_LOGOS = new Set<string>([]);
+const payLogo = (k: string) => (PAY_LOGOS.has(k) ? `<img class="paylogo" src="/img/pay/${k}.png" alt="">` : '');
 function payDialog(amount: string, bill?: Bill): Promise<{ method: string; walletPhone?: string } | null> {
   return new Promise((resolve) => {
     let done = false;
