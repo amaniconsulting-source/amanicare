@@ -672,5 +672,9 @@
  "admin.transferNamePh": "tel qu'enregistré chez l'opérateur",
  "admin.transferHint": "Pilote : les payeurs peuvent envoyer avec Taptap Send ou Sendwave vers le numéro mobile money de l'hôpital (mode de versement M-Pesa/Orange/Airtel, ou numéro de versement). Le nom doit être exactement celui du compte.",
  "err.no_transfer_destination": "Cet hôpital n'a pas encore de numéro mobile money pour les transferts. Choisissez un autre moyen de paiement.",
- "err.no_pending_transfer": "Aucun transfert en attente pour cette facture."
+ "err.no_pending_transfer": "Aucun transfert en attente pour cette facture.",
+ "payer.feeNote2": "Montant de la facture. Frais : {fee} avec la carte ou le mobile money (FlexPaie) ; aucun frais AmaniCare avec Sendwave ou Taptap Send.",
+ "pay.group.flexpay": "Carte ou mobile money (FlexPaie) : {total}, dont {fee} de frais AmaniCare",
+ "pay.group.transfer": "Votre application de transfert, directement à l'hôpital : {total}, sans frais AmaniCare (frais de l'application en plus)",
+ "pay.transfer.unavailable": "Pas encore disponible pour cet hôpital."
 }

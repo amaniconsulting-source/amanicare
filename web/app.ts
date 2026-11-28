@@ -354,10 +354,11 @@ function payDialog(amount: string, bill?: Bill): Promise<{ method: string; walle
     const myPhone = me().phone || '';
     openModal(`<div class="row between"><h2>${t('pay.title', { amount: esc(amount) })}</h2><button class="link" data-close aria-label="${t('close')}">✕</button></div>
       <p class="muted small">${t('pay.hint')}</p>
+      ${bill ? `<p class="small" style="margin-top:12px"><b>${t('pay.group.flexpay', { total: usd(bill.totalUsd + bill.feeUsd), fee: usd(bill.feeUsd) })}</b></p>` : ''}
       <label class="radio"><input type="radio" name="how" value="card" checked> ${payLogo('card')}<span><b>${t('pay.card')}</b><br><span class="muted small">${t('pay.cardHint')}</span></span></label>
       ${WALLETS.map((w) => `<label class="radio"><input type="radio" name="how" value="${w}"> ${payLogo(w)}<span><b>${t('pay.' + w)}</b><br><span class="muted small">${t('pay.mobileHint')}</span></span></label>`).join('')}
-      ${bill?.transferTo ? `<p class="muted small" style="margin-top:12px">${t('pay.transfer.group', { amount: usd(bill.totalUsd) })}</p>
-      ${TRANSFER_APPS.map((a) => `<label class="radio"><input type="radio" name="how" value="${a}"> ${payLogo(a)}<span><b>${APP_NAME[a]}</b><br><span class="muted small">${t('pay.transfer.hint')}</span></span></label>`).join('')}` : ''}
+      ${bill ? `<p class="small" style="margin-top:12px"><b>${t('pay.group.transfer', { total: usd(bill.totalUsd) })}</b></p>
+      ${TRANSFER_APPS.map((a) => `<label class="radio${bill.transferTo ? '' : ' off'}"><input type="radio" name="how" value="${a}"${bill.transferTo ? '' : ' disabled'}> ${payLogo(a)}<span><b>${APP_NAME[a]}</b><br><span class="muted small">${bill.transferTo ? t('pay.transfer.hint') : t('pay.transfer.unavailable')}</span></span></label>`).join('')}` : ''}
       <div id="walletBox" class="hidden">
         <label for="walletPhone">${t('pay.walletPhone')}</label>
         ${phoneField('walletPhone', { value: myPhone.startsWith('+243') ? myPhone : '', cc: 'CD', autocomplete: true })}
@@ -956,8 +957,8 @@ async function renderPayer(): Promise<void> {
     <div class="card" id="toApprove"><h2>${t('payer.toApprove')}</h2>
       ${todo.length ? todo.map((b) => billCard(b, { showReasons: true, showExpected: true, showNext: false, actions: `
         ${b.status === 'payment_failed' ? `<p class="notice">${t('payer.paymentFailed')}</p>` : ''}
-        <div class="row"><button class="grow" data-pay="${b.id}" data-amount="${usd(b.totalUsd + b.feeUsd)}">${t('payer.pay', { amount: usd(b.totalUsd + b.feeUsd) })}</button><button class="secondary small" data-decline="${b.id}">${t('payer.decline')}</button></div>
-        <p class="muted small">${t('payer.feeNote', { fee: usd(b.feeUsd) })}</p>` })).join('') : `<p class="empty">${t('payer.nothingToApprove')}</p>`}
+        <div class="row"><button class="grow" data-pay="${b.id}" data-amount="${usd(b.totalUsd)}">${t('payer.pay', { amount: usd(b.totalUsd) })}</button><button class="secondary small" data-decline="${b.id}">${t('payer.decline')}</button></div>
+        <p class="muted small">${t('payer.feeNote2', { fee: usd(b.feeUsd) })}</p>` })).join('') : `<p class="empty">${t('payer.nothingToApprove')}</p>`}
     </div>
     ${moving.length ? `<div class="card"><h2>${t('inProgress')}</h2>${moving.map((b) => billCard(b, { showReasons: true, actions: retryHtml(b) })).join('')}</div>` : ''}
     <div class="card"><div class="row between"><h2>${t('payer.family')}</h2><button class="small secondary" id="invite">${t('payer.invite')}</button></div>

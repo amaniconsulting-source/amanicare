@@ -673,5 +673,9 @@
  "admin.transferNamePh": "ndenge ekomami epai ya opérateur",
  "admin.transferHint": "Pilote : bafuti bakoki kotinda na Taptap Send to Sendwave na nimero ya mobile money ya lopitalo. Nkombo esengeli kozala ndenge moko na compte.",
  "err.no_transfer_destination": "Lopitalo oyo ezali naino na nimero ya mobile money te mpo na kotinda. Pona lolenge mosusu.",
- "err.no_pending_transfer": "Kotinda moko te ezelami mpo na fakture oyo."
+ "err.no_pending_transfer": "Kotinda moko te ezelami mpo na fakture oyo.",
+ "payer.feeNote2": "Motuya ya fakture. Frais : {fee} na karte to mobile money (FlexPaie) ; frais ya AmaniCare te na Sendwave to Taptap Send.",
+ "pay.group.flexpay": "Karte to mobile money (FlexPaie) : {total}, na kati {fee} ya frais ya AmaniCare",
+ "pay.group.transfer": "Application na yo ya kotinda, mbala moko na lopitalo : {total}, kozanga frais ya AmaniCare (frais ya application na likolo)",
+ "pay.transfer.unavailable": "Ezali naino te mpo na lopitalo oyo."
 }
