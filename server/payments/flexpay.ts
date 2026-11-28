@@ -172,8 +172,12 @@ export const flexpayPartner: PaymentPartner = {
       const g = await flexpayCheck(gw);
       if (g.code || g.reference) r = g;
     }
-    if (r.reference && r.reference.trim().toLowerCase() !== payment.id.toLowerCase()) {
-      console.warn(`[flexpay] ${payment.partner_ref} names reference ${r.reference}, expected ${payment.id}: ignored`);
+    // FlexPaie's check answers with its own order number as "reference" (not ours, unlike its documentation).
+    // Either is fine: we asked about the order number WE stored for this payment.
+    const ref = r.reference.trim().toLowerCase();
+    const ours = [payment.id, payment.partner_ref, gw].filter(Boolean).map((x) => String(x).toLowerCase());
+    if (ref && !ours.includes(ref)) {
+      console.warn(`[flexpay] ${payment.partner_ref} names reference ${r.reference}, expected ${payment.id} or ${payment.partner_ref}: ignored`);
       return pending;
     }
     if (r.status === 'succeeded') {

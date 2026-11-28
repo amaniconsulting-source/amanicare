@@ -409,3 +409,20 @@ test('FlexPaie card: the status is also asked under the card gateway\'s own orde
   await payer('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'back' });
   await waitFor(payer, bill.id, 'paid');
 });
+
+test('FlexPaie: the check API names its own order number as "reference" (as in production)', async () => {
+  const { bill } = await confirmedBill('Centre Médical Espoir', '+243810000001', 19);
+  const pay = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'card' });
+  await payer('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'back' });
+  const order = [...txs.entries()].find(([, t]) => t.reference === pay.data.paymentId)![0];
+  Object.assign(txs.get(order)!, { status: '0', reference: order }); // FlexPaie's real answer
+  await payer('POST', `/api/bills/${bill.id}/payment/refresh`, {});
+  await waitFor(payer, bill.id, 'paid');
+  // Someone else's order number still doesn't count.
+  const other = await confirmedBill('Centre Médical Espoir', '+243810000001', 20);
+  const p2 = await payer('POST', `/api/bills/${other.bill.id}/pay`, { method: 'card' });
+  const o2 = [...txs.entries()].find(([, t]) => t.reference === p2.data.paymentId)![0];
+  Object.assign(txs.get(o2)!, { status: '0', reference: 'SOMEONEELSE' });
+  await payer('POST', `/api/bills/${other.bill.id}/payment/refresh`, {});
+  assert.equal((await payer('GET', `/api/bills/${other.bill.id}`)).data.bill.status, 'payment_pending');
+});
