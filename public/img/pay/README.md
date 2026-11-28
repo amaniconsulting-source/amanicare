@@ -5,6 +5,7 @@ One file per option, PNG, square, about 96×96 px, transparent or white backgrou
 | File | Option |
 |---|---|
 | `card.png` | Bank card (Visa / Mastercard) |
+| `mobile.png` | Mobile money (a generic icon, or the operators' logos side by side) |
 | `mpesa.png` | M-Pesa (Vodacom) |
 | `orange.png` | Orange Money |
 | `airtel.png` | Airtel Money |

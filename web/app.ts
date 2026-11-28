@@ -356,24 +356,27 @@ function payDialog(amount: string, bill?: Bill): Promise<{ method: string; walle
       <p class="muted small">${t('pay.hint')}</p>
       ${bill ? `<p class="small" style="margin-top:12px"><b>${t('pay.group.flexpay', { total: usd(bill.totalUsd + bill.feeUsd), fee: usd(bill.feeUsd) })}</b></p>` : ''}
       <label class="radio"><input type="radio" name="how" value="card" checked> ${payLogo('card')}<span><b>${t('pay.card')}</b><br><span class="muted small">${t('pay.cardHint')}</span></span></label>
-      ${WALLETS.map((w) => `<label class="radio"><input type="radio" name="how" value="${w}"> ${payLogo(w)}<span><b>${t('pay.' + w)}</b><br><span class="muted small">${t('pay.mobileHint')}</span></span></label>`).join('')}
-      ${bill ? `<p class="small" style="margin-top:12px"><b>${t('pay.group.transfer', { total: usd(bill.totalUsd) })}</b></p>
-      ${TRANSFER_APPS.map((a) => `<label class="radio${bill.transferTo ? '' : ' off'}"><input type="radio" name="how" value="${a}"${bill.transferTo ? '' : ' disabled'}> ${payLogo(a)}<span><b>${APP_NAME[a]}</b><br><span class="muted small">${bill.transferTo ? t('pay.transfer.hint') : t('pay.transfer.unavailable')}</span></span></label>`).join('')}` : ''}
+      <label class="radio"><input type="radio" name="how" value="mobile"> ${payLogo('mobile')}<span><b>${t('pay.mobile')}</b><br><span class="muted small">${t('pay.mobileHint2')}</span></span></label>
       <div id="walletBox" class="hidden">
+        <label for="walletOp">${t('pay.operator')}</label>
+        <select id="walletOp">${WALLETS.map((w) => `<option value="${w}">${t('pay.' + w)}</option>`).join('')}</select>
         <label for="walletPhone">${t('pay.walletPhone')}</label>
         ${phoneField('walletPhone', { value: myPhone.startsWith('+243') ? myPhone : '', cc: 'CD', autocomplete: true })}
         <p class="muted small">${t('pay.walletNote')}</p>
       </div>
+      ${bill ? `<p class="small" style="margin-top:12px"><b>${t('pay.group.transfer', { total: usd(bill.totalUsd) })}</b></p>
+      ${TRANSFER_APPS.map((a) => `<label class="radio${bill.transferTo ? '' : ' off'}"><input type="radio" name="how" value="${a}"${bill.transferTo ? '' : ' disabled'}> ${payLogo(a)}<span><b>${APP_NAME[a]}</b><br><span class="muted small">${bill.transferTo ? t('pay.transfer.hint') : t('pay.transfer.unavailable')}</span></span></label>`).join('')}` : ''}
+
       <div class="row"><button class="secondary grow" data-close>${t('cancel')}</button><button class="grow" id="payOk">${t('pay.continue')}</button></div>`, (sheet) => {
       const picked = () => $<HTMLInputElement>('input[name="how"]:checked', sheet).value;
-      const needsWallet = (m: string) => (WALLETS as readonly string[]).includes(m);
+      const needsWallet = (m: string) => m === 'mobile';
       $$<HTMLInputElement>('input[name="how"]', sheet).forEach((r) => (r.onchange = () => $('#walletBox', sheet).classList.toggle('hidden', !needsWallet(picked()))));
       $('#payOk', sheet).onclick = () => {
         const method = picked();
         const walletPhone = readPhone('walletPhone', sheet);
         if (needsWallet(method) && !walletPhone) { $('#walletPhone', sheet).focus(); return; }
         done = true; closeModal();
-        resolve(needsWallet(method) ? { method, walletPhone } : { method });
+        resolve(needsWallet(method) ? { method: $<HTMLSelectElement>('#walletOp', sheet).value, walletPhone } : { method });
       };
       $$('[data-close]', sheet).forEach((b) => b.addEventListener('click', () => { if (!done) resolve(null); }));
     });

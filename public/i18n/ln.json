@@ -677,5 +677,8 @@
  "payer.feeNote2": "Motuya ya fakture. Frais : {fee} na karte to mobile money (FlexPaie) ; frais ya AmaniCare te na Sendwave to Taptap Send.",
  "pay.group.flexpay": "Karte to mobile money (FlexPaie) : {total}, na kati {fee} ya frais ya AmaniCare",
  "pay.group.transfer": "Application na yo ya kotinda, mbala moko na lopitalo : {total}, kozanga frais ya AmaniCare (frais ya application na likolo)",
- "pay.transfer.unavailable": "Ezali naino te mpo na lopitalo oyo."
+ "pay.transfer.unavailable": "Ezali naino te mpo na lopitalo oyo.",
+ "pay.mobile": "Mobile money",
+ "pay.mobileHint2": "M-Pesa, Orange Money to Airtel Money, ondimisa na telefone na yo.",
+ "pay.operator": "Opérateur"
 }

@@ -676,5 +676,8 @@
  "payer.feeNote2": "Bill amount. Fee: {fee} by card or mobile money (FlexPaie); no AmaniCare fee with Sendwave or Taptap Send.",
  "pay.group.flexpay": "Card or mobile money (FlexPaie): {total}, including {fee} AmaniCare fee",
  "pay.group.transfer": "Your transfer app, straight to the hospital: {total}, no AmaniCare fee (the app's own fee extra)",
- "pay.transfer.unavailable": "Not yet available for this hospital."
+ "pay.transfer.unavailable": "Not yet available for this hospital.",
+ "pay.mobile": "Mobile money",
+ "pay.mobileHint2": "M-Pesa, Orange Money or Airtel Money, approved on your phone.",
+ "pay.operator": "Operator"
 }
