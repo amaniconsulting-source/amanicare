@@ -164,7 +164,14 @@ export const flexpayPartner: PaymentPartner = {
   async confirm(payment: PaymentRow, update: PaymentUpdate): Promise<PaymentUpdate> {
     const pending: PaymentUpdate = { paymentId: payment.id, status: 'pending' };
     if (!payment.partner_ref || payment.partner_ref.startsWith('direct:')) return pending;
-    const r = await flexpayCheck(payment.partner_ref);
+    // Cards: the payment service answers with one order number, but FlexPaie's card gateway (gwvisa) runs the
+    // payment under its own (the hex id in the card page address, also in its return links). Ask with both.
+    const gw = payment.checkout_url?.match(/\/([0-9a-f]{24,})(?:[/?#]|$)/i)?.[1];
+    let r = await flexpayCheck(payment.partner_ref);
+    if (r.status === 'pending' && gw && gw !== payment.partner_ref) {
+      const g = await flexpayCheck(gw);
+      if (g.code || g.reference) r = g;
+    }
     if (r.reference && r.reference.trim().toLowerCase() !== payment.id.toLowerCase()) {
       console.warn(`[flexpay] ${payment.partner_ref} names reference ${r.reference}, expected ${payment.id}: ignored`);
       return pending;

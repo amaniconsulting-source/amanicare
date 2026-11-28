@@ -398,3 +398,14 @@ test('admin: check a payment with FlexPaie, or mark it received after checking t
   await waitFor(payer, other.bill.id, 'paid');
   assert.ok(await one("SELECT 1 FROM audit WHERE action = 'payment_mark_received' AND detail LIKE $1", `${p2.data.paymentId}%`));
 });
+
+test('FlexPaie card: the status is also asked under the card gateway\'s own order number', async () => {
+  const { run } = await import('../server/db.js');
+  const { bill } = await confirmedBill('Centre Médical Espoir', '+243810000001', 18);
+  const pay = await payer('POST', `/api/bills/${bill.id}/pay`, { method: 'card' });
+  // As in production: the card page lives under another id, and only that id knows the result.
+  await run("UPDATE payments SET checkout_url = 'https://gwvisa.flexpay.cd/checkout/9b8e3a61a9530fe41cf50a6cf9d30c38' WHERE id = $1", pay.data.paymentId);
+  txs.set('9b8e3a61a9530fe41cf50a6cf9d30c38', { reference: pay.data.paymentId, status: '0', merchant: 'AMANICARE', kind: 'card', body: { amount: (bill.totalUsd + bill.feeUsd).toFixed(2), currency: 'USD' } });
+  await payer('POST', `/api/bills/${bill.id}/payment/refresh`, { result: 'back' });
+  await waitFor(payer, bill.id, 'paid');
+});
