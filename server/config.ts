@@ -64,8 +64,9 @@ export const config = {
     merchant: env.FLEXPAY_MERCHANT || '', // AmaniCare's own merchant code (used when a hospital has none)
     // FlexPaie gives one base address per environment (test and live), e.g. https://<host>.
     // Payments go to <base>/api/rest/v1/paymentService, status checks to <checkBase>/api/rest/v1/check/{orderNumber}.
-    baseUrl: (env.FLEXPAY_BASE_URL || '').replace(/\/+$/, ''),
-    checkBaseUrl: (env.FLEXPAY_CHECK_BASE_URL || env.FLEXPAY_BASE_URL || '').replace(/\/+$/, ''), // if FlexPaie gives a separate host
+    // Production addresses given by FlexPaie (email of 27 Nov 2026); the variables only override them.
+    baseUrl: (env.FLEXPAY_BASE_URL || 'https://corporateapi.flexpay.cd').replace(/\/+$/, ''),
+    checkBaseUrl: (env.FLEXPAY_CHECK_BASE_URL || 'https://apicheck.flexpaie.com').replace(/\/+$/, ''),
     // Payouts to a hospital's mobile-money number are not in FlexPaie's corporate PAYIN documentation (v2.0):
     // full URL to set once FlexPaie sends that API. Empty = payouts through AmaniCare are refused with a clear reason.
     payoutUrl: env.FLEXPAY_PAYOUT_URL || '',
